@@ -1,0 +1,222 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  * {
+    @apply border-base-600;
+  }
+
+  html {
+    -webkit-tap-highlight-color: transparent;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-base text-slate-200 font-sans antialiased;
+    /* La tienda es mobile-first: se evita el rebote horizontal en móviles. */
+    overflow-x: hidden;
+    min-height: 100dvh;
+  }
+
+  /* Fondo con brillo sutil que da el aire "gamer" sin costar rendimiento. */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      radial-gradient(60% 40% at 50% -10%, rgba(240, 48, 48, 0.16), transparent 70%),
+      radial-gradient(40% 30% at 100% 10%, rgba(48, 24, 240, 0.1), transparent 70%);
+  }
+
+  #root {
+    position: relative;
+    z-index: 1;
+  }
+
+  h1,
+  h2,
+  h3 {
+    @apply font-display tracking-tight text-white;
+  }
+
+  ::selection {
+    @apply bg-neon-red/40 text-white;
+  }
+
+  /* Scrollbar discreto en escritorio. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-base-900;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-base-600 rounded-full border-2 border-base-900;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-base-500;
+  }
+
+  /* El input numérico no debe mostrar las flechitas: se usa para el ID. */
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type='number'] {
+    -moz-appearance: textfield;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl border border-base-600/70 bg-base-800/70 backdrop-blur-sm shadow-card;
+  }
+
+  .card-hover {
+    @apply transition-all duration-200 hover:border-neon-red/50 hover:shadow-glow;
+  }
+
+  .input-base {
+    @apply w-full rounded-xl border border-base-600 bg-base-900/80 px-4 py-3 text-white
+           placeholder:text-slate-500 outline-none transition
+           focus:border-neon-red focus:ring-2 focus:ring-neon-red/30;
+  }
+
+  .label-base {
+    @apply mb-1.5 block text-sm font-medium text-slate-300;
+  }
+
+  .gradient-text {
+    @apply bg-brand-gradient bg-clip-text text-transparent;
+  }
+
+  /* Borde degradado sin capas extra de DOM. */
+  .ring-gradient {
+    background:
+      linear-gradient(#101019, #101019) padding-box,
+      linear-gradient(135deg, #f03030, #3018f0) border-box;
+    border: 1px solid transparent;
+  }
+
+  /* --- Piezas del "modo gamer" --- */
+
+  /* Tarjeta seleccionable con halo de color. El halo se pinta con un
+     pseudo-elemento para no repintar la tarjeta entera al pasar el ratón. */
+  .neon-card {
+    @apply relative isolate overflow-hidden rounded-2xl border border-base-600 bg-base-800/80
+           transition-all duration-200;
+  }
+  .neon-card::before {
+    content: '';
+    @apply pointer-events-none absolute inset-0 -z-10 opacity-0 transition-opacity duration-200;
+    background: radial-gradient(
+      120% 90% at 50% 0%,
+      var(--accent-soft, rgba(240, 48, 48, 0.28)),
+      transparent 70%
+    );
+  }
+  .neon-card:hover::before,
+  .neon-card[data-selected='true']::before {
+    @apply opacity-100;
+  }
+  .neon-card[data-selected='true'] {
+    border-color: var(--accent, #f03030);
+    box-shadow:
+      0 0 0 1px var(--accent, #f03030),
+      0 12px 40px -16px var(--accent, #f03030);
+  }
+
+  /* Destello diagonal que recorre la tarjeta seleccionada. */
+  .sheen::after {
+    content: '';
+    @apply pointer-events-none absolute inset-0;
+    background: linear-gradient(
+      115deg,
+      transparent 30%,
+      rgba(255, 255, 255, 0.09) 45%,
+      transparent 60%
+    );
+    transform: translateX(-120%);
+    transition: transform 0.7s ease;
+  }
+  .sheen:hover::after,
+  .sheen[data-selected='true']::after {
+    transform: translateX(120%);
+  }
+
+  /* Cinta de actividad: dos copias del contenido desplazándose sin costura. */
+  .marquee-mask {
+    mask-image: linear-gradient(90deg, transparent, black 6%, black 94%, transparent);
+    -webkit-mask-image: linear-gradient(90deg, transparent, black 6%, black 94%, transparent);
+  }
+
+  .skeleton {
+    @apply relative overflow-hidden rounded-lg bg-base-700;
+  }
+  .skeleton::after {
+    content: '';
+    @apply absolute inset-0 animate-shimmer;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.06),
+      transparent
+    );
+    background-size: 500px 100%;
+  }
+
+  /* Respeta la barra de gestos de iOS en la navegación inferior. */
+  .safe-bottom {
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+  }
+  .safe-top {
+    padding-top: max(0.5rem, env(safe-area-inset-top));
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Rejilla de fondo tipo HUD. */
+  .bg-hud-grid {
+    background-image:
+      linear-gradient(rgba(240, 48, 48, 0.055) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(240, 48, 48, 0.055) 1px, transparent 1px);
+    background-size: 46px 46px;
+  }
+
+  .text-glow {
+    text-shadow: 0 0 22px rgba(240, 48, 48, 0.55);
+  }
+}
+
+/* Quien prefiere menos movimiento no debería sufrir la animación de fondo. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

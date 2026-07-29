@@ -1,0 +1,55 @@
+rules_version = '2';
+
+// =============================================================================
+// Refill Store — Reglas de Cloud Storage
+// Imágenes de catálogo: lectura pública, escritura sólo admin.
+// Comprobantes de pago: sólo el dueño y el staff.
+// =============================================================================
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.admin == true;
+    }
+
+    function isStaff() {
+      return isAdmin() || (isSignedIn() && request.auth.token.staff == true);
+    }
+
+    function isImage() {
+      return request.resource.contentType.matches('image/.*');
+    }
+
+    function underSizeMb(mb) {
+      return request.resource.size < mb * 1024 * 1024;
+    }
+
+    // Imágenes del catálogo (juegos, paquetes, banners)
+    match /catalog/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin() && isImage() && underSizeMb(5);
+    }
+
+    // Avatares de usuario
+    match /avatars/{uid}/{fileName} {
+      allow read: if true;
+      allow write: if isSignedIn() && request.auth.uid == uid && isImage() && underSizeMb(2);
+    }
+
+    // Comprobantes de pago adjuntos por el cliente
+    match /receipts/{uid}/{fileName} {
+      allow read: if (isSignedIn() && request.auth.uid == uid) || isStaff();
+      allow create: if isSignedIn() && request.auth.uid == uid && isImage() && underSizeMb(5);
+      allow update, delete: if isStaff();
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

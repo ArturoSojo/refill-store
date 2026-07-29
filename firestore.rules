@@ -1,0 +1,150 @@
+rules_version = '2';
+
+// =============================================================================
+// Refill Store — Reglas de seguridad de Firestore
+// -----------------------------------------------------------------------------
+// Principio: el cliente NUNCA escribe datos sensibles (órdenes, saldos, precios,
+// estados de pago). Toda mutación con valor económico pasa por Cloud Functions
+// (Admin SDK), que ignora estas reglas. El cliente sólo lee lo que le pertenece
+// y edita un puñado de campos de su propio perfil.
+// =============================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- Helpers ----------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // El rol vive en custom claims (se asigna desde el backend, no desde el doc
+    // de usuario) para que no pueda falsificarse escribiendo en Firestore.
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.admin == true;
+    }
+
+    function isStaff() {
+      return isAdmin() || (isSignedIn() && request.auth.token.staff == true);
+    }
+
+    // Sólo permite que cambien las claves indicadas y ninguna más.
+    function onlyChanges(allowed) {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(allowed);
+    }
+
+    // ---------- Catálogo público (lectura abierta, escritura sólo backend) ----------
+    match /games/{gameId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /products/{productId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Configuración pública de la tienda (tasa, datos bancarios, avisos).
+    // El documento `app` no contiene secretos; los API keys viven en Secret Manager.
+    match /config/{docId} {
+      allow read: if docId == 'app';
+      allow write: if false;
+    }
+
+    // ---------- Usuarios ----------
+    match /users/{uid} {
+      // Cada quien lee su perfil; el staff puede leer todos.
+      allow read: if isSelf(uid) || isStaff();
+
+      // El usuario sólo puede tocar preferencias cosméticas de su perfil.
+      // Nada de role, walletBalance, banned, stats, points… eso es del backend.
+      allow update: if isSelf(uid) && onlyChanges([
+        'displayName', 'photoURL', 'phone', 'preferences', 'updatedAt'
+      ]);
+
+      allow create, delete: if false;
+
+      // IDs de jugador guardados: propiedad total del usuario.
+      match /playerIds/{playerIdDoc} {
+        allow read, write: if isSelf(uid);
+      }
+
+      // Notificaciones: el usuario lee y marca como leídas; las crea el backend.
+      match /notifications/{notifId} {
+        allow read: if isSelf(uid);
+        allow update: if isSelf(uid) && onlyChanges(['read', 'readAt']);
+        allow create, delete: if false;
+      }
+    }
+
+    // ---------- Órdenes ----------
+    // Lectura en tiempo real para que el cliente vea el cambio de estado
+    // (verificando → pagado → despachando → completado) sin hacer polling.
+    match /orders/{orderId} {
+      allow read: if isStaff() || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow write: if false;
+
+      match /events/{eventId} {
+        allow read: if isStaff() ||
+          (isSignedIn() && get(/databases/$(database)/documents/orders/$(orderId)).data.uid == request.auth.uid);
+        allow write: if false;
+      }
+    }
+
+    // ---------- Soporte ----------
+    match /tickets/{ticketId} {
+      allow read: if isStaff() || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow write: if false;
+
+      match /messages/{messageId} {
+        allow read: if isStaff() ||
+          (isSignedIn() && get(/databases/$(database)/documents/tickets/$(ticketId)).data.uid == request.auth.uid);
+        allow write: if false;
+      }
+    }
+
+    // ---------- Sólo staff ----------
+    match /coupons/{code} {
+      allow read: if isStaff();
+      allow write: if false;
+    }
+
+    match /auditLogs/{logId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /stats/{docId} {
+      allow read: if isStaff();
+      allow write: if false;
+      match /{document=**} {
+        allow read: if isStaff();
+        allow write: if false;
+      }
+    }
+
+    // ---------- Colecciones internas (cerradas por completo) ----------
+    // paymentRefs = candado de idempotencia por referencia bancaria.
+    match /paymentRefs/{reference} {
+      allow read, write: if false;
+    }
+
+    match /rateHistory/{docId} {
+      allow read: if isStaff();
+      allow write: if false;
+    }
+
+    match /rateLimits/{docId} {
+      allow read, write: if false;
+    }
+
+    // ---------- Cierre por defecto ----------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

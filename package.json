@@ -1,0 +1,31 @@
+{
+  "name": "refill-store",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Refill Store — Plataforma web de recargas automáticas para Free Fire y Blood Strike",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "install:all": "npm install --prefix web && npm install --prefix functions",
+    "dev": "npm run dev --prefix web",
+    "dev:api": "npm run build --prefix functions && firebase emulators:start --only functions",
+    "dev:api:full": "npm run build --prefix functions && firebase emulators:start --only functions,firestore,auth",
+    "build": "npm run build --prefix functions && npm run build --prefix web",
+    "build:web": "npm run build --prefix web",
+    "build:api": "npm run build --prefix functions",
+    "lint": "npm run lint --prefix web && npm run lint --prefix functions",
+    "typecheck": "npm run typecheck --prefix web && npm run typecheck --prefix functions",
+    "deploy": "npm run build && firebase deploy",
+    "deploy:web": "npm run build:web && firebase deploy --only hosting",
+    "deploy:api": "firebase deploy --only functions",
+    "deploy:rules": "firebase deploy --only firestore:rules,firestore:indexes,storage",
+    "emulators": "firebase emulators:start",
+    "setup": "node scripts/setup.mjs bootstrap",
+    "seed": "node scripts/setup.mjs seed",
+    "brand": "node scripts/build-brand.mjs"
+  },
+  "devDependencies": {
+    "sharp": "^0.34.2"
+  }
+}

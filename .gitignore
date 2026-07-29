@@ -1,0 +1,77 @@
+# =============================================================================
+# Refill Store — archivos que no van al repositorio
+# =============================================================================
+
+# --- Dependencias ------------------------------------------------------------
+node_modules/
+.pnp
+.pnp.js
+
+# --- Compilados y builds -----------------------------------------------------
+# `web/dist` lo genera Vite y `functions/lib` lo genera tsc: se reconstruyen con
+# `npm run build`, así que versionarlos sólo produce conflictos de merge.
+dist/
+build/
+functions/lib/
+*.tsbuildinfo
+
+# --- Secretos ----------------------------------------------------------------
+# NUNCA commitear nada de aquí. `functions/.secret.local` contiene las claves
+# reales de Pabilo e Inefable; en producción viven en Secret Manager.
+.env
+.env.*
+!.env.example
+.secret.local
+*.secret.local
+serviceAccountKey.json
+*-firebase-adminsdk-*.json
+*.pem
+*.p12
+
+# --- Firebase ----------------------------------------------------------------
+.firebase/
+*-debug.log
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+database-debug.log
+pubsub-debug.log
+dataconnect-debug.log
+.runtimeconfig.json
+
+# --- Logs --------------------------------------------------------------------
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# --- Sistema operativo y editores -------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+desktop.ini
+.idea/
+*.swp
+*.swo
+.vscode/*
+!.vscode/extensions.json
+
+# --- Caches ------------------------------------------------------------------
+.cache/
+.vite/
+.turbo/
+coverage/
+*.local
+
+# --- Arte de marca superseded ------------------------------------------------
+# El logotipo pasó a ser el rojo (`hero-2.png`, `refill-store-*.png`). Estos
+# tres archivos son la propuesta anterior (cristal violeta/cian) y pesan ~10 MB:
+# se conservan en disco pero no se versionan, porque nada del proyecto los usa.
+# Si quieres tenerlos en el repo, borra estas tres líneas.
+assets-src/hero.png
+assets-src/icon-refillstore.png
+assets-src/logo-refillstore.png

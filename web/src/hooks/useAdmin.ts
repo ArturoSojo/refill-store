@@ -1,0 +1,494 @@
+/** Consultas y mutaciones del panel de administración. */
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { api } from '@/lib/api';
+import { QUERY_KEYS } from '@/lib/constants';
+import type {
+  AdminOverview,
+  AppConfig,
+  AuditLog,
+  Coupon,
+  Game,
+  Order,
+  OrderEvent,
+  Product,
+  Ticket,
+  TopProductsResponse,
+  UserProfile,
+} from '@/types/models';
+
+// --- Dashboard -------------------------------------------------------------
+
+export function useAdminOverview(days: number) {
+  return useQuery({
+    queryKey: QUERY_KEYS.adminOverview(days),
+    queryFn: () => api.get<AdminOverview>(`/admin/overview?days=${days}`),
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+  });
+}
+
+export function useAdminTopProducts(days: number) {
+  return useQuery({
+    queryKey: QUERY_KEYS.adminTopProducts(days),
+    queryFn: () => api.get<TopProductsResponse>(`/admin/top-products?days=${days}`),
+    staleTime: 120_000,
+  });
+}
+
+export function useProvidersStatus() {
+  return useQuery({
+    queryKey: QUERY_KEYS.adminProviders,
+    queryFn: () =>
+      api.get<{ pabilo: { configured: boolean }; inefable: { configured: boolean } }>(
+        '/admin/providers/status'
+      ),
+    staleTime: 300_000,
+  });
+}
+
+// --- Órdenes ---------------------------------------------------------------
+
+export interface AdminOrderFilters {
+  status?: string;
+  gameId?: string;
+  fulfillment?: 'auto' | 'manual';
+  playerId?: string;
+  uid?: string;
+  limit?: number;
+}
+
+function toQueryString(filters: Record<string, unknown>): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value === undefined || value === null || value === '') continue;
+    params.set(key, String(value));
+  }
+  const query = params.toString();
+  return query ? `?${query}` : '';
+}
+
+export function useAdminOrders(filters: AdminOrderFilters) {
+  const query = toQueryString({ ...filters });
+
+  return useQuery({
+    queryKey: QUERY_KEYS.adminOrders(query),
+    queryFn: () =>
+      api.get<{ orders: Order[]; nextCursor: number | null }>(`/admin/orders${query}`),
+    staleTime: 15_000,
+    refetchInterval: 60_000,
+  });
+}
+
+export function useAdminOrderSearch(term: string) {
+  return useQuery({
+    queryKey: ['admin', 'order-search', term],
+    queryFn: () => api.get<{ orders: Order[] }>(`/admin/orders/search?q=${encodeURIComponent(term)}`),
+    enabled: term.trim().length >= 3,
+  });
+}
+
+export function useAdminOrder(orderId: string | undefined) {
+  return useQuery({
+    queryKey: QUERY_KEYS.adminOrder(orderId ?? ''),
+    queryFn: () =>
+      api.get<{ order: Order; events: OrderEvent[]; customer: UserProfile | null }>(
+        `/admin/orders/${orderId}`
+      ),
+    enabled: Boolean(orderId),
+    refetchInterval: 30_000,
+  });
+}
+
+/** Invalida todo lo que depende de una orden tras una acción del panel. */
+function useOrderInvalidator() {
+  const queryClient = useQueryClient();
+
+  return (orderId: string) => {
+    void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminOrder(orderId) });
+    void queryClient.invalidateQueries({ queryKey: ['admin', 'orders'] });
+    void queryClient.invalidateQueries({ queryKey: ['admin', 'overview'] });
+  };
+}
+
+export function useRetryDispatch() {
+  const invalidate = useOrderInvalidator();
+
+  return useMutation({
+    mutationFn: (orderId: string) => api.post<{ order: Order }>(`/admin/orders/${orderId}/retry`),
+    onSuccess: (_data, orderId) => invalidate(orderId),
+  });
+}
+
+export function useCompleteOrder() {
+  const invalidate = useOrderInvalidator();
+
+  return useMutation({
+    mutationFn: ({ orderId, note }: { orderId: string; note?: string }) =>
+      api.post<{ order: Order }>(`/admin/orders/${orderId}/complete`, { note }),
+    onSuccess: (_data, variables) => invalidate(variables.orderId),
+  });
+}
+
+export function useRefundOrder() {
+  const invalidate = useOrderInvalidator();
+
+  return useMutation({
+    mutationFn: ({
+      orderId,
+      toWallet,
+      note,
+    }: {
+      orderId: string;
+      toWallet: boolean;
+      note?: string;
+    }) => api.post<{ order: Order }>(`/admin/orders/${orderId}/refund`, { toWallet, note }),
+    onSuccess: (_data, variables) => invalidate(variables.orderId),
+  });
+}
+
+export function useSetOrderNote() {
+  const invalidate = useOrderInvalidator();
+
+  return useMutation({
+    mutationFn: ({ orderId, note }: { orderId: string; note: string }) =>
+      api.post<{ order: Order }>(`/admin/orders/${orderId}/note`, { note }),
+    onSuccess: (_data, variables) => invalidate(variables.orderId),
+  });
+}
+
+// --- Catálogo --------------------------------------------------------------
+
+export function useAdminGames() {
+  return useQuery({
+    queryKey: QUERY_KEYS.adminGames,
+    queryFn: () => api.get<{ games: Game[] }>('/admin/games'),
+    staleTime: 60_000,
+  });
+}
+
+export function useAdminProducts(gameId?: string) {
+  return useQuery({
+    queryKey: QUERY_KEYS.adminProducts(gameId),
+    queryFn: () =>
+      api.get<{ products: Product[] }>(`/admin/products${gameId ? `?gameId=${gameId}` : ''}`),
+    staleTime: 60_000,
+  });
+}
+
+function useCatalogInvalidator() {
+  const queryClient = useQueryClient();
+
+  return () => {
+    void queryClient.invalidateQueries({ queryKey: ['admin', 'products'] });
+    void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminGames });
+    // El catálogo público también cambia: hay que refrescarlo.
+    void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.catalog });
+    void queryClient.invalidateQueries({ queryKey: ['game'] });
+  };
+}
+
+export function useSaveProduct() {
+  const invalidate = useCatalogInvalidator();
+
+  return useMutation({
+    mutationFn: ({ id, data }: { id?: string; data: Record<string, unknown> }) =>
+      id
+        ? api.patch<{ product: Product }>(`/admin/products/${id}`, data)
+        : api.post<{ product: Product }>('/admin/products', data),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteProduct() {
+  const invalidate = useCatalogInvalidator();
+
+  return useMutation({
+    mutationFn: (id: string) => api.delete<{ deleted: boolean }>(`/admin/products/${id}`),
+    onSuccess: invalidate,
+  });
+}
+
+export function useSaveGame() {
+  const invalidate = useCatalogInvalidator();
+
+  return useMutation({
+    mutationFn: ({ id, data }: { id?: string; data: Record<string, unknown> }) =>
+      id
+        ? api.patch<{ game: Game }>(`/admin/games/${id}`, data)
+        : api.post<{ game: Game }>('/admin/games', data),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteGame() {
+  const invalidate = useCatalogInvalidator();
+
+  return useMutation({
+    mutationFn: (id: string) => api.delete<{ deleted: boolean }>(`/admin/games/${id}`),
+    onSuccess: invalidate,
+  });
+}
+
+export function useReprice() {
+  const invalidate = useCatalogInvalidator();
+
+  return useMutation({
+    mutationFn: (input: {
+      marginPercent: number;
+      gameId?: string;
+      productIds?: string[];
+      dryRun?: boolean;
+    }) =>
+      api.post<{
+        updated?: number;
+        dryRun?: boolean;
+        changes: Array<{ id: string; name?: string; from: number; to: number }>;
+      }>('/admin/products/reprice', input),
+    onSuccess: (data) => {
+      if (!data.dryRun) invalidate();
+    },
+  });
+}
+
+export function useSeedCatalog() {
+  const invalidate = useCatalogInvalidator();
+
+  return useMutation({
+    mutationFn: (overwritePrices: boolean) =>
+      api.post<{
+        gamesCreated: number;
+        gamesUpdated: number;
+        productsCreated: number;
+        productsUpdated: number;
+        marginPercent: number;
+      }>('/admin/catalog/seed', { overwritePrices }),
+    onSuccess: invalidate,
+  });
+}
+
+// --- Usuarios --------------------------------------------------------------
+
+export function useAdminUsers(filters: { role?: string; search?: string; limit?: number }) {
+  const query = toQueryString(filters);
+
+  return useQuery({
+    queryKey: QUERY_KEYS.adminUsers(query),
+    queryFn: () => api.get<{ users: UserProfile[] }>(`/admin/users${query}`),
+    staleTime: 30_000,
+  });
+}
+
+export function useAdminUser(uid: string | undefined) {
+  return useQuery({
+    queryKey: QUERY_KEYS.adminUser(uid ?? ''),
+    queryFn: () =>
+      api.get<{ profile: UserProfile; orders: Order[] }>(`/admin/users/${uid}`),
+    enabled: Boolean(uid),
+  });
+}
+
+function useUserInvalidator() {
+  const queryClient = useQueryClient();
+
+  return (uid: string) => {
+    void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminUser(uid) });
+    void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+  };
+}
+
+export function useSetUserRole() {
+  const invalidate = useUserInvalidator();
+
+  return useMutation({
+    mutationFn: ({ uid, role }: { uid: string; role: 'user' | 'staff' | 'admin' }) =>
+      api.post<{ profile: UserProfile }>(`/admin/users/${uid}/role`, { role }),
+    onSuccess: (_data, variables) => invalidate(variables.uid),
+  });
+}
+
+export function useBanUser() {
+  const invalidate = useUserInvalidator();
+
+  return useMutation({
+    mutationFn: ({ uid, banned, reason }: { uid: string; banned: boolean; reason?: string }) =>
+      api.post<{ profile: UserProfile }>(`/admin/users/${uid}/ban`, { banned, reason }),
+    onSuccess: (_data, variables) => invalidate(variables.uid),
+  });
+}
+
+export function useAdjustWallet() {
+  const invalidate = useUserInvalidator();
+
+  return useMutation({
+    mutationFn: ({ uid, deltaUsd, reason }: { uid: string; deltaUsd: number; reason: string }) =>
+      api.post<{ walletBalanceUsd: number }>(`/admin/users/${uid}/wallet`, { deltaUsd, reason }),
+    onSuccess: (_data, variables) => invalidate(variables.uid),
+  });
+}
+
+export function useNotifyUser() {
+  return useMutation({
+    mutationFn: ({
+      uid,
+      title,
+      body,
+      link,
+    }: {
+      uid: string;
+      title: string;
+      body: string;
+      link?: string;
+    }) => api.post<{ sent: boolean }>(`/admin/users/${uid}/notify`, { title, body, link }),
+  });
+}
+
+// --- Configuración ---------------------------------------------------------
+
+export function useAdminConfig() {
+  return useQuery({
+    queryKey: QUERY_KEYS.adminConfig,
+    queryFn: () => api.get<{ config: AppConfig }>('/admin/config'),
+    staleTime: 30_000,
+  });
+}
+
+function useConfigInvalidator() {
+  const queryClient = useQueryClient();
+
+  return () => {
+    void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminConfig });
+    // La tienda pública lee su propia copia de la configuración.
+    void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.config });
+    void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.catalog });
+  };
+}
+
+export function useUpdateConfig() {
+  const invalidate = useConfigInvalidator();
+
+  return useMutation({
+    mutationFn: (patch: Record<string, unknown>) =>
+      api.patch<{ config: AppConfig }>('/admin/config', patch),
+    onSuccess: invalidate,
+  });
+}
+
+export function useSetRate() {
+  const invalidate = useConfigInvalidator();
+
+  return useMutation({
+    mutationFn: (value: number) =>
+      api.post<{ previous: number; current: number }>('/admin/config/rate', { value }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useSetRateAuto() {
+  const invalidate = useConfigInvalidator();
+
+  return useMutation({
+    mutationFn: (input: { autoRefresh: boolean; markupPercent?: number }) =>
+      api.post<{ rate: AppConfig['rate'] }>('/admin/config/rate/auto', input),
+    onSuccess: invalidate,
+  });
+}
+
+export function useRefreshRate() {
+  const invalidate = useConfigInvalidator();
+
+  return useMutation({
+    mutationFn: () =>
+      api.post<{ updated: boolean; previous: number; current: number; reason: string }>(
+        '/admin/config/rate/refresh'
+      ),
+    onSuccess: invalidate,
+  });
+}
+
+export function useRateHistory() {
+  return useQuery({
+    queryKey: QUERY_KEYS.adminRateHistory,
+    queryFn: () =>
+      api.get<{
+        history: Array<{
+          id: string;
+          value: number;
+          previous: number;
+          source: string;
+          createdAt: unknown;
+        }>;
+      }>('/admin/config/rate/history'),
+    staleTime: 60_000,
+  });
+}
+
+// --- Cupones ---------------------------------------------------------------
+
+export function useAdminCoupons() {
+  return useQuery({
+    queryKey: QUERY_KEYS.adminCoupons,
+    queryFn: () => api.get<{ coupons: Coupon[] }>('/admin/coupons'),
+    staleTime: 60_000,
+  });
+}
+
+export function useSaveCoupon() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    // Crear devuelve `{ code }` y editar devuelve `{ coupon }`: se unifica el
+    // tipo para que la mutación tenga una sola firma.
+    mutationFn: ({ code, data }: { code?: string; data: Record<string, unknown> }) =>
+      code
+        ? api.patch<{ coupon?: Coupon; code?: string }>(`/admin/coupons/${code}`, data)
+        : api.post<{ coupon?: Coupon; code?: string }>('/admin/coupons', data),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminCoupons });
+    },
+  });
+}
+
+export function useDeleteCoupon() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (code: string) => api.delete<{ deleted: boolean }>(`/admin/coupons/${code}`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminCoupons });
+    },
+  });
+}
+
+// --- Soporte y bitácora ----------------------------------------------------
+
+export function useAdminTickets(status?: string) {
+  return useQuery({
+    queryKey: QUERY_KEYS.adminTickets(status),
+    queryFn: () =>
+      api.get<{ tickets: Ticket[] }>(`/admin/tickets${status ? `?status=${status}` : ''}`),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+}
+
+export function useSetTicketStatus() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, status }: { id: string; status: 'open' | 'pending' | 'closed' }) =>
+      api.post<{ updated: boolean }>(`/admin/tickets/${id}/status`, { status }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'tickets'] });
+    },
+  });
+}
+
+export function useAuditLogs(filters: { action?: string; actorUid?: string; limit?: number }) {
+  const query = toQueryString(filters);
+
+  return useQuery({
+    queryKey: QUERY_KEYS.adminLogs(query),
+    queryFn: () => api.get<{ logs: AuditLog[] }>(`/admin/logs${query}`),
+    staleTime: 30_000,
+  });
+}
