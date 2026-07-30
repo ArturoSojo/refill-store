@@ -227,6 +227,7 @@ export async function createOrder(
     },
     gameId: game.id,
     gameName: game.name,
+    providerGameId: game.apiGameId,
     productId: product.id,
     productName: product.name,
     productSku: product.sku,

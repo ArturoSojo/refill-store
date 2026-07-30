@@ -13,7 +13,7 @@
  *  - Los productos manuales (Categoría B) no tocan el API del proveedor: se
  *    genera el enlace de WhatsApp y la orden queda esperando gestión humana.
  */
-import { orders, now } from '../config/firebase';
+import { orders, games, now } from '../config/firebase';
 import { log } from '../lib/logger';
 import { notFound } from '../lib/errors';
 import * as inefable from './inefable';
@@ -195,6 +195,25 @@ export async function dispatchOrder(
     };
   }
 
+  // Las órdenes creadas antes de que se congelara `providerGameId` no lo traen:
+  // para esas se cae al catálogo. Sin este dato el proveedor no sabe a qué
+  // juego pertenece el paquete y puede emparejarlo con otro.
+  let providerGameId = order.providerGameId ?? null;
+  if (providerGameId === null || providerGameId === undefined) {
+    const gameSnap = await games().doc(order.gameId).get();
+    providerGameId = (gameSnap.data()?.apiGameId as number | undefined) ?? null;
+  }
+
+  if (providerGameId === null) {
+    const reason = `No se pudo determinar el game_id del proveedor para ${order.gameId}.`;
+    await orderRef.set(
+      { status: 'failed', dispatch: { ...order.dispatch, lastError: reason }, updatedAt: now() },
+      { merge: true }
+    );
+    await addEvent({ orderId, type: 'dispatch_failed', message: reason, status: 'failed' });
+    return { status: 'failed', calls: order.dispatch.calls, allSucceeded: false, message: reason };
+  }
+
   const calls = order.dispatch.calls.map((call) => ({ ...call }));
   let failure: string | null = null;
 
@@ -218,8 +237,13 @@ export async function dispatchOrder(
 
     try {
       const result = await inefable.createOrder({
+        gameId: providerGameId,
         packageId: call.packageId,
         playerId: order.playerId,
+        // Estable por orden y por llamada: si la petición se corta y se
+        // reintenta, el proveedor devuelve el resultado de la original en vez
+        // de cobrar otra recarga. Un combo tiene un id distinto por parte.
+        externalOrderId: `${order.code}-${call.index + 1}`,
       });
 
       // Se registra la respuesta del proveedor pase lo que pase: es la única

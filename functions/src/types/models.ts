@@ -221,6 +221,14 @@ export interface Order {
   };
   gameId: string;
   gameName: string;
+  /**
+   * `game_id` del proveedor, congelado al crear la orden.
+   *
+   * Viaja en el campo `product_id` del despacho. Se guarda en la orden —y no se
+   * lee del catálogo al despachar— para que un cambio posterior en el juego no
+   * altere cómo se entrega una orden que ya se cotizó.
+   */
+  providerGameId: number | null;
   productId: string;
   productName: string;
   productSku: string;

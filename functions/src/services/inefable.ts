@@ -34,9 +34,26 @@ import { log } from '../lib/logger';
 import { providerError } from '../lib/errors';
 
 export interface InefableOrderInput {
+  /**
+   * `game_id` del catálogo (Free Fire ID = -1, Blood Strike = 15).
+   *
+   * Va en el campo `product_id` y NO es opcional en la práctica: los
+   * `package_id` se repiten entre juegos, y sin él el proveedor empareja el
+   * paquete con otro juego. Omitirlo era la causa del error «Please insert Zone
+   * ID into input2»: el paquete 1 caía en un juego que pide Zone ID.
+   */
+  gameId: number;
   /** `package_id` del catálogo del proveedor. */
   packageId: number;
   playerId: string;
+  /**
+   * Identificador propio y ESTABLE de esta llamada.
+   *
+   * El proveedor lo usa para deduplicar: si la petición se corta por timeout y
+   * se reintenta con el mismo valor, devuelve el resultado de la original en
+   * lugar de cobrar otra recarga. Si la original falló, sí ejecuta una nueva.
+   */
+  externalOrderId: string;
 }
 
 export interface InefableOrderResult {
@@ -131,12 +148,17 @@ export async function createOrder(input: InefableOrderInput): Promise<InefableOr
   const response = await fetchJson<InefableRawResponse>(url, {
     method: 'POST',
     headers: {
+      // El proveedor documenta `X-API-Key` como cabecera propia y acepta además
+      // el `Bearer` estándar. Se mandan las dos.
+      'X-API-Key': apiKey,
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
     body: {
+      product_id: input.gameId,
       package_id: input.packageId,
       player_id: input.playerId,
+      external_order_id: input.externalOrderId,
     },
     // El proveedor tarda 2-3 s en responder; se deja margen holgado.
     timeoutMs: 45_000,
@@ -165,9 +187,20 @@ export async function createOrder(input: InefableOrderInput): Promise<InefableOr
     log.warn('Estado de entrega no reconocido en Inefable', { status, packageId: input.packageId });
   }
 
+  // Códigos documentados por el proveedor. Traducirlos evita que el equipo
+  // tenga que adivinar: «saldo insuficiente» y «paquete inactivo» se arreglan
+  // de formas muy distintas.
+  const HTTP_REASONS: Record<number, string> = {
+    401: 'La API key del proveedor es inválida o fue revocada.',
+    402: 'Saldo insuficiente en la cuenta del proveedor. Recárgala para seguir despachando.',
+    404: 'El proveedor no reconoce ese paquete (package_id inexistente o inactivo).',
+    429: 'El proveedor está limitando las peticiones. Reintenta en unos segundos.',
+  };
+
   const message =
     toStringOrNull(body?.error) ??
     toStringOrNull(body?.message) ??
+    HTTP_REASONS[response.status] ??
     (success
       ? 'Recarga enviada al proveedor.'
       : // Sin cuerpo JSON no hay nada que citar: se informa el código HTTP, que
@@ -203,6 +236,58 @@ export async function createOrder(input: InefableOrderInput): Promise<InefableOr
 
 export function isInefableConfigured(): boolean {
   return Boolean(INEFABLE_API_KEY.value());
+}
+
+export interface InefableOrderStatus {
+  /** `false` si el proveedor nunca llegó a crear la recarga. */
+  found: boolean;
+  status: string | null;
+  providerOrderId: string | null;
+  providerReference: string | null;
+  error: string | null;
+}
+
+/**
+ * Consulta una recarga por NUESTRO identificador.
+ *
+ * Es la forma segura de resolver un timeout: el proveedor advierte que
+ * reintentar a ciegas puede cobrar dos veces, y que lo correcto es preguntar
+ * primero si la orden existe y en qué estado quedó.
+ */
+export async function getOrderStatus(externalOrderId: string): Promise<InefableOrderStatus> {
+  const apiKey = INEFABLE_API_KEY.value();
+  if (!apiKey) return { found: false, status: null, providerOrderId: null, providerReference: null, error: 'Sin API key.' };
+
+  const url =
+    `${inefableBaseUrl().replace(/\/+$/, '')}/api/v1/order-status` +
+    `?external_order_id=${encodeURIComponent(externalOrderId)}`;
+
+  const response = await fetchJson<{
+    found?: boolean;
+    order?: { status?: string; id?: string | number; reference_no?: string; error?: string };
+    status?: string;
+    order_id?: string | number;
+    reference_no?: string;
+    error?: string;
+  }>(url, {
+    method: 'GET',
+    headers: { 'X-API-Key': apiKey, Authorization: `Bearer ${apiKey}` },
+    timeoutMs: 20_000,
+    retries: 1,
+  });
+
+  const order = response.data?.order ?? response.data ?? null;
+
+  return {
+    found: response.ok && response.data?.found !== false && Boolean(order),
+    status: toStringOrNull(order?.status),
+    providerOrderId: toStringOrNull(
+      (order as { id?: unknown; order_id?: unknown })?.id ??
+        (order as { order_id?: unknown })?.order_id
+    ),
+    providerReference: toStringOrNull((order as { reference_no?: unknown })?.reference_no),
+    error: toStringOrNull((order as { error?: unknown })?.error),
+  };
 }
 
 /** Saldo de la cuenta de revendedor, para vigilarlo desde el panel. */

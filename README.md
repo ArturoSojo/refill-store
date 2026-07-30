@@ -287,29 +287,53 @@ Netlify, hay que añadirlo también ahí y a la lista de orígenes de la API.
 
 ### Detalles que importan
 
-> ### ⚠️ El documento técnico se equivoca en la API de despacho
+> ### ⚠️ El PDF del proyecto describe mal la API de despacho
 >
-> El PDF indica `POST /api/v1/order` con el campo `product_id`. **Las dos cosas son
-> incorrectas** y se verificaron contra la API en producción:
+> La referencia buena es `API_DOCS.txt`, la documentación oficial del proveedor. El PDF
+> del proyecto se equivoca en la ruta y, sobre todo, en el significado de `product_id`:
 >
-> | | Documento | Real |
+> | | PDF del proyecto | Real (verificado) |
 > | --- | --- | --- |
 > | Ruta | `/api/v1/order` | `/api/v1/recharge` |
-> | Campo | `product_id` | `package_id` |
+> | `product_id` | el paquete | **el `game_id`** (−1 Free Fire ID, 15 Blood Strike) |
+> | `package_id` | no lo menciona | el paquete (1-6 en Free Fire) |
 >
-> La ruta del documento devuelve un **404 en HTML** (Flask), no JSON. Como el cuerpo no se
-> podía interpretar, el fallo llegaba a la orden como un mensaje genérico y parecía un
-> problema del proveedor cuando en realidad era la URL.
+> **`product_id` no es opcional en la práctica.** Los `package_id` se repiten entre juegos,
+> así que sin él el proveedor empareja el paquete con otro juego. Ese fue el origen de un
+> error desconcertante: pedir el paquete 1 sin `product_id` devolvía
+> `"Validación falló: Please insert Zone ID into input2"` —el paquete caía en un juego que
+> pide Zone ID—. Con `product_id: -1` el mismo paquete enruta bien.
 >
-> El nombre correcto del campo se confirma en `/api/v1/products`, que lista los paquetes
-> con la clave `package_id`, y en el propio error de la API:
-> `{"error": "package_id y player_id son requeridos"}`.
+> Campos del cuerpo:
 >
-> **Además, una recarga fallida también devuelve `order_id`.** Comprobado con un ID de
-> jugador inválido: responde `status: "fallida"` con `order_id: 73977`. Por eso el éxito se
-> decide únicamente por `status`, nunca por la presencia de `order_id`.
+> ```json
+> {
+>   "product_id": -1,              // game_id del catálogo
+>   "package_id": 1,               // paquete
+>   "player_id": "3363122817",
+>   "player_id2": "…",             // opcional: Zone ID en juegos que lo piden
+>   "external_order_id": "RF-9K4BWD-1"
+> }
+> ```
 >
-> La ruta es configurable con `INEFABLE_RECHARGE_PATH` por si el proveedor vuelve a moverla.
+> **`external_order_id` evita cobros dobles.** Si la petición se corta por timeout y se
+> reintenta con el mismo valor, el proveedor devuelve el resultado de la original en lugar
+> de comprar otra recarga. Aquí se usa `{código de orden}-{n.º de llamada}`, que es estable
+> entre reintentos y distinto para cada parte de un combo. Ante un timeout, lo correcto es
+> consultar `GET /api/v1/order-status?external_order_id=…` antes de reintentar.
+>
+> **Cuidado con `game_id: -3` (Free Fire Global): entrega un PIN, no una recarga directa.**
+> El código llega en `reference_no` y hay que canjearlo a mano. Para recargar la cuenta del
+> jugador directamente hay que usar `-1` (Free Fire ID).
+>
+> Dos detalles de la respuesta que importan:
+>
+> - Una entrega correcta responde `status: "completada"` (no "exitosa") y `ok: true`.
+> - **Una recarga fallida también devuelve `order_id`.** Por eso el éxito se decide por el
+>   booleano `ok`, nunca por la presencia de `order_id`. Cuando falla, el proveedor devuelve
+>   el saldo automáticamente.
+>
+> La ruta es configurable con `INEFABLE_RECHARGE_PATH` por si el proveedor la mueve.
 
 **Combos.** Un combo son varias llamadas encadenadas. Para *830 + 83 💎* se envía
 `product_id: 3`, se confirma que la respuesta sea exitosa y sólo entonces se envía
