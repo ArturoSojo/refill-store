@@ -45,6 +45,8 @@ export interface InefableOrderResult {
   providerStatus: string | null;
   /** Nick del jugador que devuelve el proveedor, si lo resuelve. */
   playerName: string | null;
+  /** Referencia del proveedor: es lo que se cita al reclamar una entrega. */
+  providerReference: string | null;
   /** Saldo que le queda a la cuenta de revendedor tras la operación. */
   remainingBalance: number | null;
   message: string;
@@ -67,8 +69,50 @@ interface InefableRawResponse {
   [key: string]: unknown;
 }
 
-/** Estados con los que el proveedor confirma la entrega. */
-const SUCCESS_STATUSES = ['exitosa', 'exitoso', 'success', 'completed', 'ok', 'aprobada'];
+/**
+ * Vocabulario de estados del proveedor.
+ *
+ * Una recarga entregada de verdad responde `status: "completada"` —no
+ * "exitosa", como sugería el documento—. Confiar sólo en una lista de palabras
+ * es frágil: si el proveedor usa un término nuevo, una recarga YA ENTREGADA se
+ * marcaría como fallida y el reintento del panel la cobraría por segunda vez.
+ *
+ * Por eso el criterio principal es el booleano `ok` que devuelve la API, y las
+ * listas de abajo sólo sirven para descartar estados intermedios o de fallo.
+ */
+const SUCCESS_STATUSES = [
+  'completada',
+  'completado',
+  'exitosa',
+  'exitoso',
+  'success',
+  'completed',
+  'ok',
+  'aprobada',
+  'entregada',
+];
+
+const FAILURE_STATUSES = [
+  'fallida',
+  'fallido',
+  'failed',
+  'error',
+  'cancelada',
+  'cancelado',
+  'rechazada',
+  'rejected',
+];
+
+/** Estados en los que el proveedor aún no confirmó la entrega. */
+const PENDING_STATUSES = [
+  'pendiente',
+  'pending',
+  'procesando',
+  'processing',
+  'en proceso',
+  'en_proceso',
+  'queued',
+];
 
 function toStringOrNull(value: unknown): string | null {
   if (value === undefined || value === null || value === '') return null;
@@ -105,15 +149,21 @@ export async function createOrder(input: InefableOrderInput): Promise<InefableOr
   const status = toStringOrNull(body?.status);
   const providerOrderId = toStringOrNull(body?.order_id);
 
-  // El éxito se decide SÓLO por el estado explícito del proveedor.
-  //
-  // Antes se daba por buena la respuesta si traía `order_id`, y eso es un error
-  // caro: una recarga fallida TAMBIÉN devuelve `order_id` (se comprobó con un
-  // ID de jugador inválido: `status: "fallida"` con `order_id: 73977`). Con
-  // aquella lógica, un fallo del proveedor que respondiera 200 se habría
-  // marcado como entregado y el cliente se habría quedado sin sus diamantes.
-  const statusLooksGood = status ? SUCCESS_STATUSES.includes(status.toLowerCase()) : false;
-  const success = response.ok && body?.ok !== false && statusLooksGood;
+  // Nunca se infiere el éxito de la presencia de `order_id`: una recarga
+  // fallida TAMBIÉN lo devuelve (comprobado con un ID inválido: `fallida` con
+  // `order_id: 73977`). Se usa el booleano `ok`, descartando además los estados
+  // de fallo y los intermedios.
+  const normalized = status?.toLowerCase() ?? '';
+  const isFailure = FAILURE_STATUSES.includes(normalized);
+  const isPending = PENDING_STATUSES.includes(normalized);
+  const success = response.ok && body?.ok === true && !isFailure && !isPending;
+
+  // Un estado desconocido con `ok: true` se acepta como entregado (es lo seguro
+  // frente a un doble cobro), pero se deja constancia para poder añadirlo a la
+  // lista si el proveedor cambia el vocabulario.
+  if (success && normalized && !SUCCESS_STATUSES.includes(normalized)) {
+    log.warn('Estado de entrega no reconocido en Inefable', { status, packageId: input.packageId });
+  }
 
   const message =
     toStringOrNull(body?.error) ??
@@ -139,6 +189,7 @@ export async function createOrder(input: InefableOrderInput): Promise<InefableOr
     providerOrderId,
     providerStatus: status,
     playerName: toStringOrNull(body?.player_name),
+    providerReference: toStringOrNull(body?.reference_no),
     remainingBalance:
       typeof body?.remaining_balance === 'number' ? body.remaining_balance : null,
     message,

@@ -160,6 +160,8 @@ export interface DispatchCallResult {
   providerStatus: string | null;
   /** Nick del jugador, cuando el proveedor lo resuelve. */
   playerName: string | null;
+  /** Referencia del proveedor: es lo que se cita al reclamar una entrega. */
+  providerReference: string | null;
   error: string | null;
   /**
    * Código HTTP y cuerpo crudo de la última respuesta del proveedor.

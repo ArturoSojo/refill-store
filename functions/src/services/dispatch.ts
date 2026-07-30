@@ -51,6 +51,7 @@ export function buildCallPlan(
         providerOrderId: null,
         providerStatus: null,
         playerName: null,
+        providerReference: null,
         error: null,
         httpStatus: null,
         providerResponse: null,
@@ -226,6 +227,7 @@ export async function dispatchOrder(
       call.providerOrderId = result.providerOrderId;
       call.providerStatus = result.providerStatus;
       call.playerName = result.playerName;
+      call.providerReference = result.providerReference;
       call.httpStatus = result.httpStatus;
       call.providerResponse = result.raw;
 

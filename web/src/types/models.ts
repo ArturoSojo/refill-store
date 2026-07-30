@@ -127,6 +127,8 @@ export interface DispatchCallResult {
   providerOrderId: string | null;
   providerStatus: string | null;
   playerName: string | null;
+  /** Referencia del proveedor, para reclamar una entrega. */
+  providerReference: string | null;
   error: string | null;
   /** Código HTTP y cuerpo crudo de la respuesta, para diagnosticar fallos. */
   httpStatus: number | null;
