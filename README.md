@@ -185,12 +185,75 @@ firebase functions:secrets:destroy SETUP_TOKEN
 
 ## Despliegue
 
-```bash
-npm run deploy          # todo
-npm run deploy:web      # sólo el frontend
-npm run deploy:api      # sólo las funciones
-npm run deploy:rules    # sólo reglas e índices
+En producción el proyecto vive partido en dos:
+
+| Parte                | Dónde                | URL                                                     |
+| -------------------- | -------------------- | ------------------------------------------------------- |
+| Frontend (SPA)       | **Netlify**          | https://refill-store-ve.netlify.app                     |
+| API                  | **Cloud Functions**  | https://us-central1-refill-e254f.cloudfunctions.net/api |
+| Auth, Firestore      | Firebase             | proyecto `refill-e254f`                                 |
+
+La API no puede estar en Netlify porque es la que guarda los secretos de Pabilo e Inefable
+y la que habla con Firestore mediante el Admin SDK.
+
+**El puente entre las dos partes es un proxy**, definido en `netlify.toml`:
+
+```toml
+[[redirects]]
+  from = "/api/*"
+  to = "https://us-central1-refill-e254f.cloudfunctions.net/api/:splat"
+  status = 200      # reescritura, no redirección
+  force = true
 ```
+
+Con `status = 200` Netlify reenvía la petición en el servidor: el navegador siempre pide
+rutas del mismo dominio. Eso significa que el frontend usa rutas relativas (`/api/config`)
+igual que en local, sin ninguna URL absoluta ni variable de entorno para la API, y sin
+preflight de CORS en el navegador.
+
+> Aun así, la función **sí** valida el `Origin`: en los POST el navegador manda esa cabecera
+> incluso al mismo origen, y Netlify la reenvía tal cual. Por eso el dominio de Netlify y sus
+> subdominios de vista previa están en la lista blanca de `functions/src/config/env.ts`.
+
+### Frontend (automático)
+
+Netlify está conectado al repositorio: **cada push a `main` construye y publica**. La
+configuración del build vive en `netlify.toml` (base `web/`, `npm run build`, publica `dist`).
+
+Como `web/.env` no se versiona, las variables `VITE_FIREBASE_*` están configuradas en
+Netlify. Si cambian, hay que actualizarlas allí además de en local:
+
+```bash
+netlify link --id <site-id>     # una vez por máquina
+netlify env:set VITE_FIREBASE_API_KEY "…"
+```
+
+Despliegue manual, si hace falta:
+
+```bash
+npm run build:web && netlify deploy --prod --dir web/dist
+```
+
+### API y reglas
+
+```bash
+npm run deploy:api      # sólo las funciones
+npm run deploy:rules    # sólo reglas e índices de Firestore
+```
+
+Los secretos ya están en Secret Manager. Para rotarlos:
+
+```bash
+printf '%s' 'nuevo-valor' | firebase functions:secrets:set PABILO_API_KEY --data-file -
+npm run deploy:api      # hay que redesplegar para que tome la versión nueva
+```
+
+### Dominios autorizados
+
+Para que el login con Google funcione, el dominio debe estar en **Authentication → Settings
+→ Authorized domains**. Ahora mismo: `localhost`, `refill-e254f.firebaseapp.com`,
+`refill-e254f.web.app` y `refill-store-ve.netlify.app`. Si conectas un dominio propio en
+Netlify, hay que añadirlo también ahí y a la lista de orígenes de la API.
 
 ## Flujo de compra
 

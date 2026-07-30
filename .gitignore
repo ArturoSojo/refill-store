@@ -75,3 +75,6 @@ coverage/
 assets-src/hero.png
 assets-src/icon-refillstore.png
 assets-src/logo-refillstore.png
+
+# Local Netlify folder
+.netlify
