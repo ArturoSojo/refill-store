@@ -50,7 +50,10 @@ export function buildCallPlan(
         status: 'pending',
         providerOrderId: null,
         providerStatus: null,
+        playerName: null,
         error: null,
+        httpStatus: null,
+        providerResponse: null,
         attempts: 0,
         completedAt: null,
       });
@@ -214,22 +217,33 @@ export async function dispatchOrder(
 
     try {
       const result = await inefable.createOrder({
-        productId: call.packageId,
+        packageId: call.packageId,
         playerId: order.playerId,
       });
 
+      // Se registra la respuesta del proveedor pase lo que pase: es la única
+      // pista para diagnosticar después por qué una entrega no salió.
+      call.providerOrderId = result.providerOrderId;
+      call.providerStatus = result.providerStatus;
+      call.playerName = result.playerName;
+      call.httpStatus = result.httpStatus;
+      call.providerResponse = result.raw;
+
       if (result.success) {
         call.status = 'success';
-        call.providerOrderId = result.providerOrderId;
-        call.providerStatus = result.providerStatus;
         call.error = null;
         call.completedAt = now();
 
         await addEvent({
           orderId,
           type: 'dispatch_call_ok',
-          message: `Recarga ${call.index + 1}/${calls.length} enviada (paquete ${call.packageId}).`,
-          data: { providerOrderId: result.providerOrderId },
+          message: `Recarga ${call.index + 1}/${calls.length} enviada (paquete ${call.packageId})${
+            result.playerName ? ` a ${result.playerName}` : ''
+          }.`,
+          data: {
+            providerOrderId: result.providerOrderId,
+            remainingBalance: result.remainingBalance,
+          },
         });
       } else {
         call.status = 'error';
@@ -240,7 +254,11 @@ export async function dispatchOrder(
           orderId,
           type: 'dispatch_call_error',
           message: `Falló la recarga ${call.index + 1}/${calls.length}: ${result.message}`,
-          data: { packageId: call.packageId, httpStatus: result.httpStatus },
+          data: {
+            packageId: call.packageId,
+            httpStatus: result.httpStatus,
+            providerStatus: result.providerStatus,
+          },
         });
         // Secuencia detenida: no se envía la siguiente parte del combo.
         break;

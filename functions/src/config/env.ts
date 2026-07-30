@@ -50,6 +50,14 @@ export const pabiloBaseUrl = () => fromEnv('PABILO_BASE_URL', 'https://api.pabil
 export const inefableBaseUrl = () =>
   fromEnv('INEFABLE_BASE_URL', 'https://inefablerevendedores.co');
 
+/**
+ * Ruta de despacho. El documento técnico decía `/api/v1/order`, pero esa ruta
+ * responde 404: la real es `/api/v1/recharge`. Queda configurable para poder
+ * corregirla sin desplegar código si el proveedor la vuelve a mover.
+ */
+export const inefableRechargePath = () =>
+  fromEnv('INEFABLE_RECHARGE_PATH', '/api/v1/recharge');
+
 /** Fuente pública para refrescar la tasa BCV cuando `rate.source = auto`. */
 export const rateSourceUrl = () =>
   fromEnv('RATE_SOURCE_URL', 'https://pydolarve.org/api/v2/tipo-cambio?currency=usd');

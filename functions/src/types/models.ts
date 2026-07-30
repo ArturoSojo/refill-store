@@ -155,10 +155,21 @@ export interface DispatchCallResult {
   packageId: number;
   index: number;
   status: DispatchCallStatus;
-  /** ID de orden devuelto por el proveedor. */
+  /** ID de orden devuelto por el proveedor. Ojo: también viene en los fallos. */
   providerOrderId: string | null;
   providerStatus: string | null;
+  /** Nick del jugador, cuando el proveedor lo resuelve. */
+  playerName: string | null;
   error: string | null;
+  /**
+   * Código HTTP y cuerpo crudo de la última respuesta del proveedor.
+   *
+   * Se guardan porque sin ellos un fallo de despacho es indepurable: la orden
+   * sólo mostraba un mensaje genérico y no había forma de distinguir una ruta
+   * equivocada de un saldo insuficiente o de una caída del proveedor.
+   */
+  httpStatus: number | null;
+  providerResponse: Record<string, unknown> | null;
   attempts: number;
   completedAt: TimestampLike | null;
 }

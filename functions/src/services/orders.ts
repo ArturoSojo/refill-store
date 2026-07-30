@@ -409,7 +409,7 @@ export async function verifyPayment(
   await orders().doc(orderId).set(
     {
       status: 'verifying',
-      payment: { ...order.payment, reference, attempts: FieldValue.increment(1) },
+      payment: { reference, attempts: FieldValue.increment(1) },
       updatedAt: now(),
     },
     { merge: true }
@@ -478,7 +478,11 @@ export async function verifyPayment(
     await orders().doc(orderId).set(
       {
         status: 'payment_rejected',
-        payment: { ...order.payment, reference, providerResponse: result.raw },
+        // Sólo los campos que cambian: `merge: true` fusiona los mapas campo a
+        // campo. Volver a escribir `...order.payment` pisaría `attempts` con el
+        // valor que tenía ANTES del incremento de más arriba, dejando el
+        // contador siempre en cero y anulando el tope de intentos.
+        payment: { reference, providerResponse: result.raw },
         updatedAt: now(),
       },
       { merge: true }
@@ -511,8 +515,9 @@ export async function verifyPayment(
   await orders().doc(orderId).set(
     {
       status: 'paid',
+      // Igual que arriba: nada de esparcir el objeto viejo, o `attempts` vuelve
+      // a cero.
       payment: {
-        ...order.payment,
         reference,
         verifiedAt: now(),
         providerResponse: result.raw,

@@ -287,6 +287,30 @@ Netlify, hay que añadirlo también ahí y a la lista de orígenes de la API.
 
 ### Detalles que importan
 
+> ### ⚠️ El documento técnico se equivoca en la API de despacho
+>
+> El PDF indica `POST /api/v1/order` con el campo `product_id`. **Las dos cosas son
+> incorrectas** y se verificaron contra la API en producción:
+>
+> | | Documento | Real |
+> | --- | --- | --- |
+> | Ruta | `/api/v1/order` | `/api/v1/recharge` |
+> | Campo | `product_id` | `package_id` |
+>
+> La ruta del documento devuelve un **404 en HTML** (Flask), no JSON. Como el cuerpo no se
+> podía interpretar, el fallo llegaba a la orden como un mensaje genérico y parecía un
+> problema del proveedor cuando en realidad era la URL.
+>
+> El nombre correcto del campo se confirma en `/api/v1/products`, que lista los paquetes
+> con la clave `package_id`, y en el propio error de la API:
+> `{"error": "package_id y player_id son requeridos"}`.
+>
+> **Además, una recarga fallida también devuelve `order_id`.** Comprobado con un ID de
+> jugador inválido: responde `status: "fallida"` con `order_id: 73977`. Por eso el éxito se
+> decide únicamente por `status`, nunca por la presencia de `order_id`.
+>
+> La ruta es configurable con `INEFABLE_RECHARGE_PATH` por si el proveedor vuelve a moverla.
+
 **Combos.** Un combo son varias llamadas encadenadas. Para *830 + 83 💎* se envía
 `product_id: 3`, se confirma que la respuesta sea exitosa y sólo entonces se envía
 `product_id: 2`. Si la segunda falla, la primera ya llegó al jugador: por eso cada llamada

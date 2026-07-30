@@ -300,14 +300,36 @@ export function AdminOrderDetail() {
 
                   <div className="text-right text-xs">
                     {call.providerOrderId && (
-                      <p className="tabular text-slate-300">Orden proveedor: {call.providerOrderId}</p>
+                      <p className="tabular text-slate-300">
+                        Orden proveedor: {call.providerOrderId}
+                        {call.providerStatus && (
+                          <span className="text-slate-500"> · {call.providerStatus}</span>
+                        )}
+                      </p>
+                    )}
+                    {call.playerName && (
+                      <p className="text-slate-300">Jugador: {call.playerName}</p>
                     )}
                     {call.error && <p className="text-red-400">{call.error}</p>}
                     <p className="text-slate-500">
                       {call.attempts} intento(s)
+                      {call.httpStatus ? ` · HTTP ${call.httpStatus}` : ''}
                       {call.completedAt ? ` · ${formatDateTime(call.completedAt)}` : ''}
                     </p>
                   </div>
+
+                  {/* Respuesta cruda del proveedor: sin esto, un fallo de
+                      despacho no se puede diagnosticar. */}
+                  {call.providerResponse && (
+                    <details className="w-full">
+                      <summary className="cursor-pointer text-[11px] font-semibold text-neon-crimson">
+                        Ver respuesta del proveedor
+                      </summary>
+                      <pre className="mt-2 max-h-56 overflow-auto rounded-lg bg-base-900 p-3 text-[11px] leading-relaxed text-slate-300">
+                        {JSON.stringify(call.providerResponse, null, 2)}
+                      </pre>
+                    </details>
+                  )}
                 </li>
               ))}
             </ul>

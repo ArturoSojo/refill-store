@@ -26,7 +26,7 @@ import { Card, CardHeader } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input, Select, Switch, Textarea } from '@/components/ui/Field';
 import { Badge, FullPageLoader } from '@/components/ui/Feedback';
-import { formatBs, formatDateTime } from '@/lib/format';
+import { formatBs, formatDateTime, formatUsd } from '@/lib/format';
 import { errorMessage } from '@/lib/utils';
 
 export function AdminSettings() {
@@ -115,12 +115,55 @@ export function AdminSettings() {
             <div>
               <p className="text-sm font-medium text-white">Inefable</p>
               <p className="text-xs text-slate-400">Despacho automático</p>
+              {/* El saldo es lo primero que hay que mirar cuando las recargas
+                  empiezan a fallar: si se agota, fallan todas. */}
+              {providers.data?.inefable.balanceUsd !== null &&
+                providers.data?.inefable.balanceUsd !== undefined && (
+                  <p className="mt-1 text-xs">
+                    <span className="text-slate-400">Saldo: </span>
+                    <span
+                      className={
+                        providers.data.inefable.balanceUsd < 5
+                          ? 'font-bold text-red-400'
+                          : providers.data.inefable.balanceUsd < 20
+                            ? 'font-bold text-amber-400'
+                            : 'font-bold text-emerald-400'
+                      }
+                    >
+                      {formatUsd(providers.data.inefable.balanceUsd)}
+                    </span>
+                    {providers.data.inefable.accountName && (
+                      <span className="text-slate-500"> · {providers.data.inefable.accountName}</span>
+                    )}
+                  </p>
+                )}
             </div>
-            <Badge variant={providers.data?.inefable.configured ? 'success' : 'danger'}>
-              {providers.data?.inefable.configured ? 'Configurado' : 'Falta clave'}
+            <Badge
+              variant={
+                !providers.data?.inefable.configured
+                  ? 'danger'
+                  : providers.data.inefable.reachable
+                    ? 'success'
+                    : 'warning'
+              }
+            >
+              {!providers.data?.inefable.configured
+                ? 'Falta clave'
+                : providers.data.inefable.reachable
+                  ? 'Conectado'
+                  : 'Sin respuesta'}
             </Badge>
           </div>
         </div>
+
+        {providers.data?.inefable.balanceUsd !== null &&
+          providers.data?.inefable.balanceUsd !== undefined &&
+          providers.data.inefable.balanceUsd < 20 && (
+            <p className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+              Saldo bajo en el proveedor. Cuando llegue a cero, todas las recargas automáticas
+              fallarán aunque el pago del cliente se verifique correctamente.
+            </p>
+          )}
         <p className="mt-3 rounded-xl bg-base-900 px-3 py-2 text-xs text-slate-400">
           Para cambiarlas:{' '}
           <code className="text-neon-crimson">firebase functions:secrets:set PABILO_API_KEY</code> y

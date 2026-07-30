@@ -88,13 +88,29 @@ adminRouter.get(
   })
 );
 
-/** Estado de las integraciones externas. */
+/**
+ * Estado de las integraciones externas.
+ *
+ * Incluye el saldo de la cuenta de revendedor: si se agota, todas las recargas
+ * automáticas empiezan a fallar y hasta ahora no había forma de verlo desde el
+ * panel —había que deducirlo de las órdenes rotas—.
+ */
 adminRouter.get(
   '/providers/status',
   asyncHandler(async (_req, res) => {
+    const balance = inefable.isInefableConfigured()
+      ? await inefable.getBalance()
+      : { ok: false, balanceUsd: null, accountName: null, message: 'Sin API key.' };
+
     ok(res, {
       pabilo: { configured: pabilo.isPabiloConfigured() },
-      inefable: { configured: inefable.isInefableConfigured() },
+      inefable: {
+        configured: inefable.isInefableConfigured(),
+        reachable: balance.ok,
+        balanceUsd: balance.balanceUsd,
+        accountName: balance.accountName,
+        message: balance.message,
+      },
     });
   })
 );

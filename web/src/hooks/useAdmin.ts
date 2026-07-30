@@ -11,6 +11,7 @@ import type {
   Order,
   OrderEvent,
   Product,
+  ProvidersStatus,
   Ticket,
   TopProductsResponse,
   UserProfile,
@@ -38,11 +39,11 @@ export function useAdminTopProducts(days: number) {
 export function useProvidersStatus() {
   return useQuery({
     queryKey: QUERY_KEYS.adminProviders,
-    queryFn: () =>
-      api.get<{ pabilo: { configured: boolean }; inefable: { configured: boolean } }>(
-        '/admin/providers/status'
-      ),
-    staleTime: 300_000,
+    queryFn: () => api.get<ProvidersStatus>('/admin/providers/status'),
+    // El saldo del proveedor cambia con cada venta: conviene refrescarlo más a
+    // menudo que el resto de la configuración.
+    staleTime: 60_000,
+    refetchInterval: 180_000,
   });
 }
 

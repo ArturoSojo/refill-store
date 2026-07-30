@@ -123,9 +123,14 @@ export interface DispatchCallResult {
   packageId: number;
   index: number;
   status: DispatchCallStatus;
+  /** Ojo: el proveedor también devuelve `order_id` cuando la recarga falla. */
   providerOrderId: string | null;
   providerStatus: string | null;
+  playerName: string | null;
   error: string | null;
+  /** Código HTTP y cuerpo crudo de la respuesta, para diagnosticar fallos. */
+  httpStatus: number | null;
+  providerResponse: Record<string, unknown> | null;
   attempts: number;
   completedAt: TimestampLike;
 }
@@ -482,6 +487,17 @@ export interface AdminOverview {
   trends: { revenue: number; orders: number; profit: number };
   rate: AppConfig['rate'];
   maintenanceMode: boolean;
+}
+
+export interface ProvidersStatus {
+  pabilo: { configured: boolean };
+  inefable: {
+    configured: boolean;
+    reachable: boolean;
+    balanceUsd: number | null;
+    accountName: string | null;
+    message: string | null;
+  };
 }
 
 export interface TopProductsResponse {
