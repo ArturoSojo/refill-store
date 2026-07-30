@@ -30,11 +30,18 @@ export function createApp() {
         if (!origin) return callback(null, true);
 
         const allowed = parseAllowedOrigins();
-        // En despliegues de vista previa de Hosting el subdominio cambia en
-        // cada release, así que se admite el patrón del proyecto.
-        const isFirebasePreview = /^https:\/\/[\w-]+--[\w-]+\.web\.app$/.test(origin);
 
-        if (allowed.includes(origin) || isFirebasePreview) return callback(null, true);
+        // Las vistas previa generan un subdominio distinto en cada despliegue,
+        // así que no se pueden enumerar: se aceptan por patrón.
+        //   Firebase: mi-canal--proyecto.web.app
+        //   Netlify:  deploy-preview-12--sitio.netlify.app
+        //             nombre-de-rama--sitio.netlify.app
+        const isFirebasePreview = /^https:\/\/[\w-]+--[\w-]+\.web\.app$/.test(origin);
+        const isNetlifyPreview = /^https:\/\/[\w-]+--refill-store-ve\.netlify\.app$/.test(origin);
+
+        if (allowed.includes(origin) || isFirebasePreview || isNetlifyPreview) {
+          return callback(null, true);
+        }
         return callback(new Error(`Origen no permitido: ${origin}`));
       },
       credentials: false,

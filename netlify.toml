@@ -1,0 +1,73 @@
+# =============================================================================
+# Refill Store — despliegue del frontend en Netlify
+#
+# Netlify sirve únicamente la SPA. La API sigue en Cloud Functions (Firebase),
+# porque es la que guarda los secretos de Pabilo e Inefable y la que habla con
+# Firestore mediante el Admin SDK.
+#
+# El puente entre ambos es el proxy de `/api/*` de más abajo: el navegador pide
+# siempre rutas relativas al mismo dominio y Netlify las reenvía a la función.
+# Eso evita CORS en el navegador y deja el código del frontend igual que en
+# local, sin ninguna URL absoluta ni variable de entorno para la API.
+# =============================================================================
+
+[build]
+  # Sólo se instala y compila `web/`: así el build de Netlify no arrastra las
+  # dependencias de `functions/` ni `sharp` (que sólo sirve para el arte).
+  base = "web"
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+  # El build falla si `tsc` encuentra un error de tipos, que es justo lo que se
+  # quiere en producción.
+  NPM_FLAGS = "--include=dev"
+
+# --- API ---------------------------------------------------------------------
+# `status = 200` hace un proxy (reescritura), no una redirección: el navegador
+# nunca ve la URL de Cloud Functions. `force = true` es necesario para que gane
+# sobre el fallback de la SPA.
+[[redirects]]
+  from = "/api/*"
+  to = "https://us-central1-refill-e254f.cloudfunctions.net/api/:splat"
+  status = 200
+  force = true
+
+# --- SPA ---------------------------------------------------------------------
+# React Router maneja las rutas en el cliente; cualquier ruta desconocida debe
+# devolver el index para que la app resuelva (o muestre su propio 404).
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# --- Cabeceras ---------------------------------------------------------------
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "geolocation=(), microphone=(), camera=()"
+
+# Los archivos de `dist/assets` llevan hash en el nombre: se pueden cachear para
+# siempre porque un cambio de contenido cambia la URL.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# El arte de marca NO lleva hash (vive en `public/`), así que se cachea una
+# semana en vez de indefinidamente: si se regenera, la URL no cambia.
+[[headers]]
+  for = "/brand/*"
+  [headers.values]
+    Cache-Control = "public, max-age=604800"
+
+# El HTML nunca se cachea: es lo que apunta a los assets nuevos tras cada
+# despliegue.
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"

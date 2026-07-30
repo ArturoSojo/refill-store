@@ -55,8 +55,15 @@ export const rateSourceUrl = () =>
   fromEnv('RATE_SOURCE_URL', 'https://pydolarve.org/api/v2/tipo-cambio?currency=usd');
 
 const DEFAULT_ORIGINS = [
+  // Netlify sirve el frontend en producción. Aunque las peticiones llegan por
+  // el proxy `/api/*` —y por tanto son del mismo origen para el navegador—, el
+  // navegador sí manda cabecera `Origin` en los POST y Netlify la reenvía tal
+  // cual, así que el dominio tiene que estar permitido aquí.
+  'https://refill-store-ve.netlify.app',
+  // Hosting de Firebase, por si se despliega también ahí.
   'https://refill-e254f.web.app',
   'https://refill-e254f.firebaseapp.com',
+  // Desarrollo local.
   'http://localhost:5173',
   'http://127.0.0.1:5173',
   'http://localhost:5080',
