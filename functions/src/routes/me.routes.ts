@@ -9,7 +9,9 @@ import { requireAuth, currentUser } from '../middleware/auth';
 import { rateLimit } from '../middleware/rateLimit';
 import * as usersService from '../services/users';
 import * as notificationsService from '../services/notifications';
+import * as adminAlerts from '../services/adminAlerts';
 import * as ordersService from '../services/orders';
+import * as catalog from '../services/catalog';
 import { getConfig } from '../services/settings';
 import { buildSupportUrl } from '../services/whatsapp';
 import type { SavedPlayerId, Ticket, TicketMessage, UserNotification } from '../types/models';
@@ -102,7 +104,15 @@ meRouter.get(
 
 const savePlayerIdSchema = z.object({
   gameId: z.string().min(1),
-  playerId: z.string().trim().regex(/^\d{4,20}$/),
+  playerId: z.string().trim().min(1).max(120),
+  /**
+   * Campos adicionales del juego (Zone ID…).
+   *
+   * Las contraseñas NO se guardan aquí: un acceso guardado es una comodidad,
+   * y guardar credenciales de la cuenta del jugador para «la próxima vez» es
+   * un riesgo que no compensa. El servidor las descarta más abajo.
+   */
+  playerFields: z.record(z.string().min(1).max(40), z.string().trim().max(120)).optional(),
   label: z.string().trim().min(1).max(40),
   isDefault: z.boolean().default(false),
 });
@@ -114,6 +124,19 @@ meRouter.post(
     const body = parseBody(req, savePlayerIdSchema);
     const collection = users().doc(user.uid).collection('playerIds');
 
+    // Se descartan los campos sensibles antes de guardar nada.
+    const game = await catalog.getGame(body.gameId);
+    const sensitiveKeys = new Set(
+      catalog
+        .resolvePlayerFields(game)
+        .filter((field) => field.sensitive || field.type === 'password')
+        .map((field) => field.key)
+    );
+
+    const playerFields = Object.fromEntries(
+      Object.entries(body.playerFields ?? {}).filter(([key]) => !sensitiveKeys.has(key))
+    );
+
     // Un mismo ID para un mismo juego no se duplica: se actualiza la etiqueta.
     const existing = await collection
       .where('gameId', '==', body.gameId)
@@ -122,7 +145,7 @@ meRouter.post(
       .get();
 
     if (!existing.empty) {
-      await existing.docs[0].ref.set({ label: body.label }, { merge: true });
+      await existing.docs[0].ref.set({ label: body.label, playerFields }, { merge: true });
       ok(res, { id: existing.docs[0].id, updated: true });
       return;
     }
@@ -134,8 +157,37 @@ meRouter.post(
       );
     }
 
-    const ref = await collection.add({ ...body, createdAt: now() });
+    const ref = await collection.add({
+      gameId: body.gameId,
+      playerId: body.playerId,
+      playerFields,
+      label: body.label,
+      isDefault: body.isDefault,
+      createdAt: now(),
+    });
     ok(res, { id: ref.id, updated: false }, 201);
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Cartera
+// ---------------------------------------------------------------------------
+
+meRouter.get(
+  '/wallet',
+  asyncHandler(async (req, res) => {
+    const user = currentUser(req);
+    const [profile, transactions, config] = await Promise.all([
+      usersService.ensureProfile(user),
+      usersService.listWalletTransactions(user.uid, 40),
+      getConfig(),
+    ]);
+
+    ok(res, {
+      balanceUsd: profile.walletBalanceUsd ?? 0,
+      enabled: config.checkout.walletEnabled !== false,
+      transactions,
+    });
   })
 );
 
@@ -256,6 +308,19 @@ meRouter.post(
       createdAt: timestamp,
     });
 
+    await adminAlerts.alert({
+      kind: 'new_ticket',
+      severity: 'warning',
+      title: 'Nueva consulta de soporte',
+      body: [
+        `${profile.displayName ?? profile.email ?? 'Un cliente'}: ${body.subject}`,
+        '',
+        body.message.slice(0, 300),
+      ].join('\n'),
+      link: `/admin/soporte`,
+      data: { ticketId: ref.id, uid: user.uid, orderId: body.orderId ?? null },
+    });
+
     ok(res, { id: ref.id }, 201);
   })
 );
@@ -329,6 +394,15 @@ meRouter.post(
         body: body.slice(0, 100),
         type: 'system',
         link: `/soporte/${ticketId}`,
+      });
+    } else {
+      await adminAlerts.alert({
+        kind: 'ticket_reply',
+        severity: 'info',
+        title: `Respuesta del cliente · ${ticket.subject}`,
+        body: `${profile.displayName ?? profile.email ?? 'Un cliente'}: ${body.slice(0, 300)}`,
+        link: `/admin/soporte`,
+        data: { ticketId, uid: user.uid },
       });
     }
 

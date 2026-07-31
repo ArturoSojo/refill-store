@@ -6,14 +6,14 @@
  * flujo de compra necesita el perfil ya listo en ese mismo instante.
  */
 import { FieldValue } from 'firebase-admin/firestore';
-import { auth, users, now } from '../config/firebase';
+import { auth, db, users, now } from '../config/firebase';
 import { generateReferralCode } from '../lib/ids';
 import { failedPrecondition, notFound } from '../lib/errors';
 import { log } from '../lib/logger';
 import { round } from '../lib/money';
 import * as stats from './stats';
 import type { AuthUser } from '../middleware/auth';
-import type { UserProfile, UserRole, UserTier } from '../types/models';
+import type { UserProfile, UserRole, UserTier, WalletTransaction } from '../types/models';
 
 const TIER_THRESHOLDS: Array<{ tier: UserTier; minSpentUsd: number }> = [
   { tier: 'diamante', minSpentUsd: 300 },
@@ -155,15 +155,11 @@ export async function registerCompletedPurchase(
   // completada de quien fue referido.
   if (referredBy && completedBefore === 0) {
     try {
-      await users()
-        .doc(referredBy)
-        .set(
-          {
-            walletBalanceUsd: FieldValue.increment(REFERRAL_REWARD_USD),
-            updatedAt: now(),
-          },
-          { merge: true }
-        );
+      await moveWallet({
+        uid: referredBy,
+        deltaUsd: REFERRAL_REWARD_USD,
+        reason: 'Recompensa por referido',
+      });
       log.info('Recompensa de referido acreditada', { referrer: referredBy, uid });
     } catch (error) {
       log.warn('No se pudo acreditar la recompensa de referido', {
@@ -214,18 +210,92 @@ export async function setBanned(
   if (banned) await auth.revokeRefreshTokens(uid);
 }
 
+// ---------------------------------------------------------------------------
+// Cartera
+// ---------------------------------------------------------------------------
+
+export interface WalletMovementInput {
+  uid: string;
+  /** Positivo acredita, negativo debita. */
+  deltaUsd: number;
+  reason: string;
+  orderId?: string | null;
+  orderCode?: string | null;
+  actorUid?: string | null;
+}
+
+/**
+ * Mueve el saldo de un usuario y deja constancia del movimiento.
+ *
+ * Va en una transacción porque dos compras simultáneas leerían el mismo saldo y
+ * ambas creerían tenerlo disponible: sin esto, un usuario con $2 podría pagar
+ * dos órdenes de $2 al mismo tiempo. La transacción también escribe el asiento
+ * en `users/{uid}/wallet`, de modo que saldo y libro nunca se separan.
+ */
+export async function moveWallet(input: WalletMovementInput): Promise<{
+  balanceUsd: number;
+  transactionId: string;
+}> {
+  const delta = round(input.deltaUsd, 2);
+  const userRef = users().doc(input.uid);
+  const movementRef = userRef.collection('wallet').doc();
+
+  const balance = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(userRef);
+    if (!snap.exists) throw notFound('Usuario no encontrado.');
+
+    const current = (snap.data()?.walletBalanceUsd as number | undefined) ?? 0;
+    const next = round(current + delta, 2);
+    if (next < 0) throw failedPrecondition('Saldo insuficiente.');
+
+    tx.set(userRef, { walletBalanceUsd: next, updatedAt: now() }, { merge: true });
+    tx.set(movementRef, {
+      type: delta >= 0 ? 'credit' : 'debit',
+      amountUsd: Math.abs(delta),
+      balanceAfterUsd: next,
+      reason: input.reason,
+      orderId: input.orderId ?? null,
+      orderCode: input.orderCode ?? null,
+      actorUid: input.actorUid ?? null,
+      createdAt: now(),
+    });
+
+    return next;
+  });
+
+  return { balanceUsd: balance, transactionId: movementRef.id };
+}
+
 /** Ajuste manual de saldo desde el panel (reembolsos, cortesías). */
-export async function adjustWallet(uid: string, deltaUsd: number): Promise<number> {
-  const ref = users().doc(uid);
-  const snap = await ref.get();
-  if (!snap.exists) throw notFound('Usuario no encontrado.');
+export async function adjustWallet(
+  uid: string,
+  deltaUsd: number,
+  options: { reason?: string; orderId?: string | null; orderCode?: string | null; actorUid?: string | null } = {}
+): Promise<number> {
+  const { balanceUsd } = await moveWallet({
+    uid,
+    deltaUsd,
+    reason: options.reason ?? 'Ajuste manual del equipo',
+    orderId: options.orderId ?? null,
+    orderCode: options.orderCode ?? null,
+    actorUid: options.actorUid ?? null,
+  });
+  return balanceUsd;
+}
 
-  const current = (snap.data()?.walletBalanceUsd as number | undefined) ?? 0;
-  const next = round(current + deltaUsd, 2);
-  if (next < 0) throw failedPrecondition('El saldo no puede quedar negativo.');
+/** Últimos movimientos de la cartera, para la vista de cuenta y el panel. */
+export async function listWalletTransactions(
+  uid: string,
+  limit = 30
+): Promise<WalletTransaction[]> {
+  const snap = await users()
+    .doc(uid)
+    .collection('wallet')
+    .orderBy('createdAt', 'desc')
+    .limit(limit)
+    .get();
 
-  await ref.set({ walletBalanceUsd: next, updatedAt: now() }, { merge: true });
-  return next;
+  return snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }) as WalletTransaction);
 }
 
 /** Aplica un código de referido si el usuario aún no tiene uno. */

@@ -30,12 +30,21 @@ export const INEFABLE_API_KEY = defineSecret('INEFABLE_API_KEY');
  */
 export const SETUP_TOKEN = defineSecret('SETUP_TOKEN');
 
+/**
+ * Token del bot de Telegram que avisa al equipo (despachos fallidos, tickets,
+ * saldo bajo). Opcional: sin él los avisos siguen quedando en el panel.
+ *
+ *   firebase functions:secrets:set TELEGRAM_BOT_TOKEN
+ */
+export const TELEGRAM_BOT_TOKEN = defineSecret('TELEGRAM_BOT_TOKEN');
+
 /** Todos los secretos que necesita la función `api`. */
 export const API_SECRETS = [
   PABILO_API_KEY,
   PABILO_USER_BANK_ID,
   INEFABLE_API_KEY,
   SETUP_TOKEN,
+  TELEGRAM_BOT_TOKEN,
 ];
 
 // --- Configuración no secreta ----------------------------------------------

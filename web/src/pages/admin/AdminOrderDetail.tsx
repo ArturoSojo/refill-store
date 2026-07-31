@@ -5,6 +5,8 @@ import {
   ChevronLeft,
   Circle,
   Copy,
+  Eye,
+  EyeOff,
   MessageCircle,
   RefreshCw,
   RotateCcw,
@@ -48,6 +50,9 @@ export function AdminOrderDetail() {
   const [refundOpen, setRefundOpen] = useState(false);
   const [refundToWallet, setRefundToWallet] = useState(true);
   const [completeOpen, setCompleteOpen] = useState(false);
+  // Las contraseñas de las cuentas se ocultan por defecto: quedan a la vista de
+  // cualquiera que mire la pantalla del panel.
+  const [revealSensitive, setRevealSensitive] = useState(false);
 
   useDocumentTitle(data ? `Orden ${data.order.code}` : 'Orden');
 
@@ -61,6 +66,8 @@ export function AdminOrderDetail() {
   }
 
   const { order, events, customer } = data;
+  const playerFields = data.playerFieldLabels ?? [];
+  const walletApplied = order.pricing.walletAppliedUsd ?? 0;
 
   const canRetry =
     order.fulfillment === 'auto' && ['failed', 'paid', 'dispatching'].includes(order.status);
@@ -113,6 +120,12 @@ export function AdminOrderDetail() {
             <p className="text-xs tabular text-slate-400">
               {formatUsd(order.pricing.totalUsd)} · tasa {order.pricing.rate}
             </p>
+            {walletApplied > 0 && (
+              <p className="text-xs tabular text-emerald-300">
+                Saldo aplicado {formatUsd(walletApplied)}
+                {order.pricing.totalBs === 0 && ' · sin transferencia'}
+              </p>
+            )}
             {order.pricing.profitUsd !== undefined && (
               <p className="text-xs tabular text-emerald-400">
                 Utilidad {formatUsd(order.pricing.profitUsd)}
@@ -185,20 +198,50 @@ export function AdminOrderDetail() {
               <dt className="text-slate-400">Nombre</dt>
               <dd className="truncate text-white">{order.user.displayName ?? '—'}</dd>
             </div>
-            <div className="flex items-center justify-between gap-3">
-              <dt className="text-slate-400">ID de jugador</dt>
-              <dd className="flex items-center gap-2">
-                <span className="tabular text-white">{order.playerId}</span>
-                <button
-                  type="button"
-                  onClick={() => void copy(order.playerId, 'player')}
-                  className="rounded p-1 text-slate-500 hover:text-white"
-                  aria-label="Copiar ID"
-                >
-                  <Copy className="h-3.5 w-3.5" aria-hidden />
-                </button>
-              </dd>
-            </div>
+            {/* Todos los datos que pidió el juego. Para un Mobile Legends son
+                dos, y sin el Zone ID no se puede reenviar la recarga a mano. */}
+            {(playerFields.length > 0
+              ? playerFields
+              : [{ key: 'playerId', label: 'ID de jugador', sensitive: false }]
+            ).map((field) => {
+              const value =
+                order.playerFields?.[field.key] ??
+                (field.key === 'playerId' ? order.playerId : '');
+              if (!value) return null;
+
+              return (
+                <div key={field.key} className="flex items-center justify-between gap-3">
+                  <dt className="text-slate-400">{field.label}</dt>
+                  <dd className="flex items-center gap-2">
+                    <span className="tabular text-white">
+                      {field.sensitive && !revealSensitive ? '••••••••' : value}
+                    </span>
+                    {field.sensitive && (
+                      <button
+                        type="button"
+                        onClick={() => setRevealSensitive((current) => !current)}
+                        className="rounded p-1 text-slate-500 hover:text-white"
+                        aria-label={revealSensitive ? 'Ocultar' : 'Mostrar'}
+                      >
+                        {revealSensitive ? (
+                          <EyeOff className="h-3.5 w-3.5" aria-hidden />
+                        ) : (
+                          <Eye className="h-3.5 w-3.5" aria-hidden />
+                        )}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => void copy(value, field.key)}
+                      className="rounded p-1 text-slate-500 hover:text-white"
+                      aria-label={`Copiar ${field.label}`}
+                    >
+                      <Copy className="h-3.5 w-3.5" aria-hidden />
+                    </button>
+                  </dd>
+                </div>
+              );
+            })}
             {customer && (
               <>
                 <div className="flex justify-between gap-3">

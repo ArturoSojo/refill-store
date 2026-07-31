@@ -22,6 +22,34 @@ export type TimestampLike =
 // Juegos y productos
 // ---------------------------------------------------------------------------
 
+/** Un dato que el juego le pide al comprador (ID, Zone ID, correo, clave…). */
+export interface PlayerField {
+  key: string;
+  label: string;
+  /** Regex como cadena. */
+  pattern: string;
+  help: string;
+  placeholder: string;
+  type: 'text' | 'number' | 'email' | 'password';
+  /** Campo del proveedor al que se copia. `null` = sólo para entrega manual. */
+  providerField: 'player_id' | 'player_id2' | null;
+  required: boolean;
+  /** Contraseñas: no se guardan como acceso rápido ni se muestran en listas. */
+  sensitive: boolean;
+}
+
+export const DEFAULT_PLAYER_FIELD: PlayerField = {
+  key: 'playerId',
+  label: 'ID de Jugador',
+  pattern: '^\\d{8,12}$',
+  help: 'El ID tiene entre 8 y 12 dígitos, sólo números.',
+  placeholder: 'Ej: 3363122817',
+  type: 'number',
+  providerField: 'player_id',
+  required: true,
+  sensitive: false,
+};
+
 export interface Game {
   id: string;
   name: string;
@@ -30,6 +58,11 @@ export interface Game {
   apiGameType: string;
   currencyLabel: string;
   currencyIcon: string;
+  currencyIconUrl: string;
+  /** La API siempre lo devuelve resuelto; puede faltar en datos muy antiguos. */
+  playerFields: PlayerField[];
+  /** `false` = el proveedor acepta cualquier ID y cobra igual. */
+  validatesPlayerId: boolean;
   playerIdLabel: string;
   playerIdPattern: string;
   playerIdHelp: string;
@@ -143,6 +176,10 @@ export interface OrderPricing {
   subtotalUsd: number;
   discountUsd: number;
   totalUsd: number;
+  /** Saldo a favor descontado del total. */
+  walletAppliedUsd: number;
+  /** Lo que queda por transferir. `0` = pagada íntegra con saldo. */
+  amountDueUsd: number;
   rate: number;
   totalBs: number;
   couponCode: string | null;
@@ -152,7 +189,7 @@ export interface OrderPricing {
 }
 
 export interface OrderPayment {
-  method: 'pagomovil_bdv';
+  method: 'pagomovil_bdv' | 'wallet';
   reference: string | null;
   verifiedAt: TimestampLike;
   attempts: number;
@@ -181,6 +218,9 @@ export interface Order {
   productSku: string;
   fulfillment: FulfillmentType;
   playerId: string;
+  playerId2: string | null;
+  /** Todos los datos que pidió el juego, por clave de campo. */
+  playerFields: Record<string, string>;
   pricing: OrderPricing;
   payment: OrderPayment;
   dispatch: {
@@ -252,8 +292,49 @@ export interface SavedPlayerId {
   id: string;
   gameId: string;
   playerId: string;
+  /** Campos extra (Zone ID…). Nunca contiene contraseñas. */
+  playerFields?: Record<string, string>;
   label: string;
   isDefault: boolean;
+  createdAt: TimestampLike;
+}
+
+/** Movimiento del saldo a favor (`users/{uid}/wallet`). */
+export interface WalletTransaction {
+  id: string;
+  type: 'credit' | 'debit';
+  amountUsd: number;
+  balanceAfterUsd: number;
+  reason: string;
+  orderId: string | null;
+  orderCode: string | null;
+  actorUid: string | null;
+  createdAt: TimestampLike;
+}
+
+/** Aviso interno para el equipo. */
+export interface AdminAlert {
+  id: string;
+  kind:
+    | 'dispatch_failed'
+    | 'manual_order'
+    | 'new_ticket'
+    | 'ticket_reply'
+    | 'payment_rejected'
+    | 'low_balance'
+    | 'provider_down'
+    | 'test';
+  severity: 'info' | 'warning' | 'critical';
+  title: string;
+  body: string;
+  link: string | null;
+  data: Record<string, unknown> | null;
+  read: boolean;
+  readAt: TimestampLike;
+  delivery: {
+    telegram: 'sent' | 'failed' | 'skipped';
+    webhook: 'sent' | 'failed' | 'skipped';
+  };
   createdAt: TimestampLike;
 }
 
@@ -312,6 +393,7 @@ export interface PublicConfig {
     amountTolerancePercent: number;
     maxVerifyAttempts: number;
     maxOpenOrdersPerUser: number;
+    walletEnabled: boolean;
   };
   features: {
     maintenanceMode: boolean;
@@ -351,6 +433,16 @@ export interface AppConfig extends Omit<PublicConfig, 'rate' | 'whatsapp' | 'sup
     defaultMarginPercent: number;
     roundToUsd: number;
     roundToBs: number;
+  };
+  alerts: {
+    enabled: boolean;
+    telegramChatId: string;
+    webhookUrl: string;
+    notifyOnDispatchFailed: boolean;
+    notifyOnManualOrder: boolean;
+    notifyOnNewTicket: boolean;
+    notifyOnPaymentRejected: boolean;
+    lowBalanceThresholdUsd: number;
   };
   updatedAt: TimestampLike;
   updatedBy: string | null;
@@ -411,17 +503,27 @@ export interface GameCatalogResponse {
   products: PublicProduct[];
 }
 
+export interface PaymentInstructions {
+  bank: OrderPayment['bankSnapshot'];
+  amountBs: number;
+  amountUsd: number;
+  walletAppliedUsd: number;
+  rate: number;
+  expiresAt: number;
+  referenceMinLength: number;
+  referenceMaxLength: number;
+}
+
 export interface CreateOrderResponse {
   order: Order;
-  payment: {
-    bank: OrderPayment['bankSnapshot'];
-    amountBs: number;
-    amountUsd: number;
-    rate: number;
-    expiresAt: number;
-    referenceMinLength: number;
-    referenceMaxLength: number;
-  };
+  payment: PaymentInstructions;
+}
+
+/** Etiqueta legible de un campo del juego, para pintar los datos de una orden. */
+export interface PlayerFieldLabel {
+  key: string;
+  label: string;
+  sensitive: boolean;
 }
 
 export interface VerifyPaymentResponse {
@@ -435,6 +537,10 @@ export interface PricePreview {
   subtotalUsd: number;
   discountUsd: number;
   totalUsd: number;
+  walletEnabled: boolean;
+  walletBalanceUsd: number;
+  walletAppliedUsd: number;
+  amountDueUsd: number;
   totalBs: number;
   rate: number;
   tierPercent: number;

@@ -14,6 +14,7 @@ import { useConfig } from '@/providers/ConfigProvider';
 import { useAuth } from '@/providers/AuthProvider';
 import { useDocumentTitle } from '@/hooks/useMisc';
 import { ActivityTicker } from '@/components/common/ActivityTicker';
+import { CurrencyIcon } from '@/components/common/CurrencyIcon';
 import { AnimatedBackground, CountUp } from '@/components/common/Decor';
 import { HeroArt } from '@/components/common/Brand';
 import { Skeleton, ErrorState, EmptyState, OrderStatusBadge } from '@/components/ui/Feedback';
@@ -75,7 +76,7 @@ function GameTile({
               className="absolute inset-0 flex items-center justify-center text-6xl opacity-90 drop-shadow-2xl transition-transform duration-500 group-hover:scale-110"
               aria-hidden
             >
-              {game.currencyIcon || '🎮'}
+              <CurrencyIcon game={game} className="h-16 w-16 text-6xl" />
             </span>
           )}
 

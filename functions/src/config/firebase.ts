@@ -35,6 +35,7 @@ export const COLLECTIONS = {
   rateHistory: 'rateHistory',
   rateLimits: 'rateLimits',
   stats: 'stats',
+  adminAlerts: 'adminAlerts',
 } as const;
 
 export const CONFIG_DOC_ID = 'app';
@@ -49,6 +50,7 @@ export const tickets = () => db.collection(COLLECTIONS.tickets);
 export const paymentRefs = () => db.collection(COLLECTIONS.paymentRefs);
 export const rateHistory = () => db.collection(COLLECTIONS.rateHistory);
 export const rateLimits = () => db.collection(COLLECTIONS.rateLimits);
+export const adminAlerts = () => db.collection(COLLECTIONS.adminAlerts);
 export const configDoc = () => db.collection(COLLECTIONS.config).doc(CONFIG_DOC_ID);
 export const dailyStats = () =>
   db.collection(COLLECTIONS.stats).doc('daily').collection('days');

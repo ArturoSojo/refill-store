@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Gold">
+  <defs>
+    <linearGradient id="bsRim" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFE79A"/>
+      <stop offset="1" stop-color="#C9821A"/>
+    </linearGradient>
+    <linearGradient id="bsFace" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFD35C"/>
+      <stop offset="1" stop-color="#E09A16"/>
+    </linearGradient>
+  </defs>
+  <circle cx="32" cy="32" r="26" fill="url(#bsRim)"/>
+  <circle cx="32" cy="32" r="20" fill="url(#bsFace)"/>
+  <circle cx="32" cy="32" r="20" fill="none" stroke="#A8690F" stroke-width="1.4" opacity=".5"/>
+  <path d="M32 17l4.6 9.8 10.4 1.6-7.6 7.6 1.9 10.8L32 41.7l-9.3 5.1 1.9-10.8-7.6-7.6 10.4-1.6z" fill="#8C4A0B" opacity=".85"/>
+  <path d="M20 20a24 24 0 0 1 14-7" stroke="#FFF4CE" stroke-width="3" stroke-linecap="round" fill="none" opacity=".65"/>
+</svg>

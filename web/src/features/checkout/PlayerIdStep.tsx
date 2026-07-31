@@ -1,26 +1,34 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { BadgeCheck, Gamepad2, HelpCircle, Loader2, Tag, Trash2 } from 'lucide-react';
+import { AlertTriangle, HelpCircle, Loader2, Tag, Trash2 } from 'lucide-react';
 import { ROUTES } from '@/lib/constants';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Field';
+import { Input, Switch } from '@/components/ui/Field';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Feedback';
+import {
+  PlayerFields,
+  fieldsAreValid,
+  gameFields,
+} from '@/features/catalog/PlayerFields';
 import { useSavedPlayerIds, useDeletePlayerId } from '@/hooks/useAccount';
 import { usePricePreview } from '@/hooks/useOrders';
 import { useAuth } from '@/providers/AuthProvider';
 import { formatBs, formatUsd } from '@/lib/format';
-import { cn, onlyDigits } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import type { Game, PricePreview, PublicProduct } from '@/types/models';
 
 interface PlayerIdStepProps {
   game: Game;
   product: PublicProduct;
-  playerId: string;
-  onPlayerIdChange: (value: string) => void;
+  /** Datos del jugador por clave de campo. */
+  values: Record<string, string>;
+  onValuesChange: (values: Record<string, string>) => void;
   couponCode: string;
   onCouponChange: (value: string) => void;
   couponsEnabled: boolean;
+  useWallet: boolean;
+  onUseWalletChange: (value: boolean) => void;
   onContinue: () => void;
   submitting: boolean;
   /** El usuario debe iniciar sesión antes de poder pagar. */
@@ -31,11 +39,13 @@ interface PlayerIdStepProps {
 export function PlayerIdStep({
   game,
   product,
-  playerId,
-  onPlayerIdChange,
+  values,
+  onValuesChange,
   couponCode,
   onCouponChange,
   couponsEnabled,
+  useWallet,
+  onUseWalletChange,
   onContinue,
   submitting,
   requiresLogin,
@@ -50,23 +60,17 @@ export function PlayerIdStep({
   const deletePlayerId = useDeletePlayerId();
   const pricePreview = usePricePreview();
 
+  const fields = useMemo(() => gameFields(game), [game]);
+  const primaryField = fields[0];
+
   const gameSavedIds = (savedIds.data?.playerIds ?? []).filter(
     (saved) => saved.gameId === game.id
   );
 
-  const pattern = useMemo(() => {
-    try {
-      return new RegExp(game.playerIdPattern);
-    } catch {
-      return /^\d{8,12}$/;
-    }
-  }, [game.playerIdPattern]);
+  const isValid = fieldsAreValid(fields, values);
 
-  const isValid = pattern.test(playerId);
-  const showError = touched && playerId.length > 0 && !isValid;
-
-  // El precio final depende del nivel del usuario y del cupón: se recalcula en
-  // el servidor para que lo que se muestra sea exactamente lo que se cobrará.
+  // El precio final depende del nivel del usuario, del cupón y del saldo: se
+  // recalcula en el servidor para que lo que se muestra sea lo que se cobrará.
   useEffect(() => {
     if (!user) {
       setPreview(null);
@@ -75,7 +79,7 @@ export function PlayerIdStep({
 
     const timeout = setTimeout(() => {
       pricePreview.mutate(
-        { productId: product.id, couponCode: couponCode.trim() || null },
+        { productId: product.id, couponCode: couponCode.trim() || null, useWallet },
         { onSuccess: setPreview }
       );
     }, 400);
@@ -84,10 +88,10 @@ export function PlayerIdStep({
     // `pricePreview` es una mutación estable de React Query; incluirla dispararía
     // el efecto en bucle.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, product.id, couponCode]);
+  }, [user, product.id, couponCode, useWallet]);
 
   const totalBs = preview?.totalBs ?? product.priceBs;
-  const totalUsd = preview?.totalUsd ?? product.priceUsd;
+  const totalUsd = preview?.amountDueUsd ?? preview?.totalUsd ?? product.priceUsd;
   const discount = preview?.discountUsd ?? 0;
 
   return (
@@ -106,54 +110,56 @@ export function PlayerIdStep({
           </Badge>
         </div>
 
-        <Input
-          label={game.playerIdLabel}
-          inputMode="numeric"
-          autoComplete="off"
-          placeholder="Ej: 3363122817"
-          value={playerId}
-          onChange={(event) => onPlayerIdChange(onlyDigits(event.target.value).slice(0, 20))}
+        <PlayerFields
+          fields={fields}
+          values={values}
+          onChange={onValuesChange}
+          showErrors={touched}
           onBlur={() => setTouched(true)}
-          leftIcon={<Gamepad2 className="h-4 w-4" aria-hidden />}
-          error={showError ? game.playerIdHelp : null}
-          hint={
-            !showError ? (
-              <button
-                type="button"
-                onClick={() => setHelpOpen(true)}
-                className="inline-flex items-center gap-1 text-neon-crimson hover:underline"
-              >
-                <HelpCircle className="h-3 w-3" aria-hidden />
-                ¿Dónde encuentro mi ID?
-              </button>
-            ) : null
-          }
-          rightSlot={
-            isValid ? (
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-400">
-                <BadgeCheck className="h-4 w-4" aria-hidden />
-              </span>
-            ) : null
-          }
+          idPrefix="checkout"
         />
+
+        <button
+          type="button"
+          onClick={() => setHelpOpen(true)}
+          className="mt-3 inline-flex items-center gap-1 text-xs text-neon-crimson hover:underline"
+        >
+          <HelpCircle className="h-3 w-3" aria-hidden />
+          ¿Dónde encuentro mis datos?
+        </button>
+
+        {game.validatesPlayerId === false && (
+          <p className="mt-3 flex items-start gap-1.5 rounded-xl bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span>
+              La recarga entra en la cuenta que indiques sin comprobación previa. Revisa bien
+              los datos antes de pagar.
+            </span>
+          </p>
+        )}
 
         {gameSavedIds.length > 0 && (
           <div className="mt-4">
-            <p className="mb-2 text-xs font-medium text-slate-400">Tus IDs guardados</p>
+            <p className="mb-2 text-xs font-medium text-slate-400">Tus accesos guardados</p>
             <div className="flex flex-wrap gap-2">
               {gameSavedIds.map((saved) => (
                 <span
                   key={saved.id}
                   className={cn(
                     'group inline-flex items-center gap-1 rounded-full border px-1 py-1 pl-3 text-xs transition',
-                    playerId === saved.playerId
+                    values[primaryField.key] === saved.playerId
                       ? 'border-neon-red bg-neon-red/15 text-white'
                       : 'border-base-600 bg-base-900 text-slate-300 hover:border-base-500'
                   )}
                 >
                   <button
                     type="button"
-                    onClick={() => onPlayerIdChange(saved.playerId)}
+                    onClick={() =>
+                      onValuesChange({
+                        ...(saved.playerFields ?? {}),
+                        [primaryField.key]: saved.playerId,
+                      })
+                    }
                     className="font-medium"
                   >
                     {saved.label}
@@ -193,6 +199,23 @@ export function PlayerIdStep({
         </div>
       )}
 
+      {preview && preview.walletEnabled && preview.walletBalanceUsd > 0 && (
+        <div className="card border-emerald-500/30 bg-emerald-500/5">
+          <Switch
+            checked={useWallet}
+            onChange={onUseWalletChange}
+            label={`Usar mi saldo a favor (${formatUsd(preview.walletBalanceUsd)})`}
+            description={
+              useWallet && preview.walletAppliedUsd > 0
+                ? preview.amountDueUsd === 0
+                  ? 'Tu saldo cubre la compra completa: no tendrás que transferir nada.'
+                  : `Se descontarán ${formatUsd(preview.walletAppliedUsd)} y transferirás el resto.`
+                : 'Descuenta primero de tu saldo y transfiere sólo la diferencia.'
+            }
+          />
+        </div>
+      )}
+
       <div className="card">
         <dl className="space-y-2 text-sm">
           <div className="flex items-center justify-between">
@@ -216,8 +239,19 @@ export function PlayerIdStep({
             </div>
           )}
 
+          {preview && preview.walletAppliedUsd > 0 && (
+            <div className="flex items-center justify-between">
+              <dt className="text-slate-400">Saldo a favor</dt>
+              <dd className="tabular text-emerald-400">
+                −{formatUsd(preview.walletAppliedUsd)}
+              </dd>
+            </div>
+          )}
+
           <div className="flex items-center justify-between border-t border-base-600 pt-3">
-            <dt className="font-semibold text-white">Total a pagar</dt>
+            <dt className="font-semibold text-white">
+              {preview?.amountDueUsd === 0 ? 'A transferir' : 'Total a pagar'}
+            </dt>
             <dd className="text-right">
               <span className="block text-xl font-extrabold tabular text-white">
                 {formatBs(totalBs)}
@@ -263,18 +297,18 @@ export function PlayerIdStep({
             if (isValid) onContinue();
           }}
         >
-          Continuar al pago
+          {preview?.amountDueUsd === 0 ? 'Pagar con mi saldo' : 'Continuar al pago'}
         </Button>
       )}
 
       <Modal
         open={helpOpen}
         onClose={() => setHelpOpen(false)}
-        title={`¿Dónde encuentro mi ${game.playerIdLabel}?`}
+        title={`¿Dónde encuentro mis datos de ${game.name}?`}
         size="sm"
       >
         <ol className="space-y-3">
-          {(game.howToFindId.length > 0
+          {(game.howToFindId?.length > 0
             ? game.howToFindId
             : ['Abre el juego.', 'Entra a tu perfil.', 'Copia el ID numérico.']
           ).map((step, index) => (
@@ -286,6 +320,15 @@ export function PlayerIdStep({
             </li>
           ))}
         </ol>
+
+        <dl className="mt-5 space-y-2 rounded-xl bg-base-900 px-4 py-3 text-xs">
+          {fields.map((field) => (
+            <div key={field.key}>
+              <dt className="font-semibold text-slate-300">{field.label}</dt>
+              <dd className="text-slate-400">{field.help}</dd>
+            </div>
+          ))}
+        </dl>
       </Modal>
     </div>
   );

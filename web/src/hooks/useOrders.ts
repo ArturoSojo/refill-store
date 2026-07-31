@@ -10,9 +10,19 @@ import type {
   CreateOrderResponse,
   Order,
   OrderEvent,
+  PaymentInstructions,
+  PlayerFieldLabel,
   PricePreview,
   VerifyPaymentResponse,
 } from '@/types/models';
+
+/** Respuesta de `GET /orders/:id`: la orden más todo lo necesario para pagarla. */
+export interface OrderDetailResponse {
+  order: Order;
+  events: OrderEvent[];
+  payment: PaymentInstructions;
+  playerFieldLabels: PlayerFieldLabel[];
+}
 
 export function useMyOrders(status?: string) {
   const { user } = useAuth();
@@ -33,7 +43,7 @@ export function useOrder(orderId: string | undefined) {
 
   return useQuery({
     queryKey: QUERY_KEYS.order(orderId ?? ''),
-    queryFn: () => api.get<{ order: Order; events: OrderEvent[] }>(`/orders/${orderId}`),
+    queryFn: () => api.get<OrderDetailResponse>(`/orders/${orderId}`),
     enabled: Boolean(orderId && user),
     staleTime: 5_000,
   });
@@ -94,9 +104,11 @@ export function useCreateOrder() {
     mutationFn: (input: {
       gameId: string;
       productId: string;
-      playerId: string;
+      /** Datos del jugador por clave de campo: `{ playerId, zoneId }`. */
+      playerFields: Record<string, string>;
       quantity?: number;
       couponCode?: string | null;
+      useWallet?: boolean;
     }) => api.post<CreateOrderResponse>('/orders', input),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['orders'] });
@@ -134,7 +146,11 @@ export function useCancelOrder() {
 /** Previsualiza el total con cupón y descuento por nivel antes de crear la orden. */
 export function usePricePreview() {
   return useMutation({
-    mutationFn: (input: { productId: string; quantity?: number; couponCode?: string | null }) =>
-      api.post<PricePreview>('/orders/preview', input),
+    mutationFn: (input: {
+      productId: string;
+      quantity?: number;
+      couponCode?: string | null;
+      useWallet?: boolean;
+    }) => api.post<PricePreview>('/orders/preview', input),
   });
 }

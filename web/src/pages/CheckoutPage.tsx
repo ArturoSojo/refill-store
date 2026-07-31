@@ -1,9 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ChevronLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useProduct } from '@/hooks/useCatalog';
-import { useCancelOrder, useCreateOrder, useLiveOrder, useVerifyPayment } from '@/hooks/useOrders';
+import {
+  useCancelOrder,
+  useCreateOrder,
+  useLiveOrder,
+  useOrder,
+  useVerifyPayment,
+} from '@/hooks/useOrders';
 import { useDocumentTitle } from '@/hooks/useMisc';
 import { useAuth } from '@/providers/AuthProvider';
 import { useConfig } from '@/providers/ConfigProvider';
@@ -11,6 +17,7 @@ import { CheckoutStepper, type CheckoutStep } from '@/features/checkout/Checkout
 import { PlayerIdStep } from '@/features/checkout/PlayerIdStep';
 import { PaymentStep } from '@/features/checkout/PaymentStep';
 import { ResultStep } from '@/features/checkout/ResultStep';
+import { OpenOrdersDialog } from '@/features/checkout/OpenOrdersDialog';
 import { FullPageLoader, ErrorState } from '@/components/ui/Feedback';
 import { ButtonLink } from '@/components/ui/Button';
 import { ROUTES } from '@/lib/constants';
@@ -20,30 +27,48 @@ import type { CreateOrderResponse, Order } from '@/types/models';
 
 /** Datos que envía la pantalla de compra al pulsar «Continuar». */
 interface CheckoutState {
+  playerFields?: Record<string, string>;
+  /** Formato anterior: un ID suelto. */
   playerId?: string;
   quantity?: number;
   couponCode?: string | null;
+  useWallet?: boolean;
 }
 
 export function CheckoutPage() {
   const { productId } = useParams<{ productId: string }>();
   const location = useLocation();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user, signInWithGoogle } = useAuth();
   const { config } = useConfig();
 
   const incoming = (location.state as CheckoutState | null) ?? null;
 
+  /**
+   * Orden que se está retomando.
+   *
+   * Antes «Completar el pago» abría un checkout vacío y volvía a pedir el ID,
+   * con el reloj de la orden ya corriendo. Ahora se carga la orden existente y
+   * se cae directo en la pantalla de pago, con su cuenta atrás original.
+   */
+  const resumeOrderId = searchParams.get('orden');
+  const resumed = useOrder(resumeOrderId ?? undefined);
+
   const { product, game, isLoading, notFound } = useProduct(productId);
 
-  const [step, setStep] = useState<CheckoutStep>('player');
-  const [playerId, setPlayerId] = useState(incoming?.playerId ?? '');
+  const [step, setStep] = useState<CheckoutStep>(resumeOrderId ? 'payment' : 'player');
+  const [playerValues, setPlayerValues] = useState<Record<string, string>>(
+    incoming?.playerFields ?? (incoming?.playerId ? { playerId: incoming.playerId } : {})
+  );
   const [quantity] = useState(incoming?.quantity ?? 1);
   const [couponCode, setCouponCode] = useState(incoming?.couponCode ?? '');
+  const [useWallet, setUseWallet] = useState(incoming?.useWallet ?? false);
   const [orderData, setOrderData] = useState<CreateOrderResponse | null>(null);
   const [finalOrder, setFinalOrder] = useState<Order | null>(null);
   const [verifyError, setVerifyError] = useState<string | null>(null);
   const [attempts, setAttempts] = useState(0);
+  const [openOrdersVisible, setOpenOrdersVisible] = useState(false);
 
   const createOrder = useCreateOrder();
   const verifyPayment = useVerifyPayment(orderData?.order.id);
@@ -56,6 +81,28 @@ export function CheckoutPage() {
 
   const maxAttempts = config?.checkout.maxVerifyAttempts ?? 5;
 
+  const hasPlayerData = useMemo(
+    () => Object.values(playerValues).some((value) => value.trim().length > 0),
+    [playerValues]
+  );
+
+  // La orden retomada se convierte en el estado de pago sin crear nada nuevo.
+  useEffect(() => {
+    if (!resumeOrderId || !resumed.data?.payment) return;
+
+    const order = resumed.data.order;
+    if (!['awaiting_payment', 'payment_rejected'].includes(order.status)) {
+      // Ya no se puede pagar (se completó, se canceló o caducó): mejor llevarlo
+      // al detalle que dejarlo mirando un formulario inútil.
+      navigate(ROUTES.order(order.id), { replace: true });
+      return;
+    }
+
+    setOrderData({ order, payment: resumed.data.payment });
+    setAttempts(order.payment.attempts ?? 0);
+    setStep('payment');
+  }, [resumeOrderId, resumed.data, navigate]);
+
   const handleCreateOrder = () => {
     if (!game || !product) return;
 
@@ -63,21 +110,39 @@ export function CheckoutPage() {
       {
         gameId: game.id,
         productId: product.id,
-        playerId,
+        playerFields: playerValues,
         quantity,
         couponCode: couponCode.trim() || null,
+        useWallet,
       },
       {
         onSuccess: (data) => {
           setOrderData(data);
           setAttempts(0);
           setVerifyError(null);
+
+          // Pagada íntegra con saldo: no hay nada que transferir, se salta el
+          // paso de pago y se muestra el resultado.
+          if (data.payment.amountBs <= 0) {
+            setFinalOrder(data.order);
+            setStep('result');
+            toast.success('Pagada con tu saldo a favor.');
+            return;
+          }
+
           setStep('payment');
         },
         onError: (error) => {
-          toast.error(errorMessage(error));
-          // Si falla la creación automática, el cliente se queda en el paso 1
-          // y puede corregir el ID o volver a intentarlo a mano.
+          // El tope de órdenes abiertas tiene salida propia: se ofrece
+          // cancelarlas o pagarlas ahí mismo en vez de dejar un toast opaco.
+          if (
+            error instanceof ApiError &&
+            (error.details as { code?: string } | undefined)?.code === 'too_many_open_orders'
+          ) {
+            setOpenOrdersVisible(true);
+          } else {
+            toast.error(errorMessage(error));
+          }
           setStep('player');
         },
       }
@@ -93,16 +158,18 @@ export function CheckoutPage() {
   const autoCreated = useRef(false);
 
   useEffect(() => {
-    if (autoCreated.current) return;
-    if (!incoming?.playerId || !user || !product || !game) return;
+    if (autoCreated.current || resumeOrderId) return;
+    if (!hasPlayerData || !user || !product || !game) return;
     if (step !== 'player' || orderData || createOrder.isPending) return;
 
     autoCreated.current = true;
     handleCreateOrder();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [incoming?.playerId, user, product, game, step, orderData]);
+  }, [hasPlayerData, user, product, game, step, orderData, resumeOrderId]);
 
-  if (isLoading) return <FullPageLoader label="Cargando el producto…" />;
+  if (isLoading || (resumeOrderId && resumed.isLoading)) {
+    return <FullPageLoader label="Cargando tu orden…" />;
+  }
 
   if (notFound || !product || !game) {
     return (
@@ -179,8 +246,7 @@ export function CheckoutPage() {
   };
 
   // Llegó con todo listo pero sin sesión: al iniciarla, el efecto crea la orden.
-  const waitingForAutoOrder =
-    Boolean(incoming?.playerId) && Boolean(user) && step === 'player' && !orderData;
+  const waitingForAutoOrder = hasPlayerData && Boolean(user) && step === 'player' && !orderData;
 
   return (
     <div className="mx-auto max-w-lg px-4 pb-10 pt-4">
@@ -205,11 +271,13 @@ export function CheckoutPage() {
           <PlayerIdStep
             game={game}
             product={product}
-            playerId={playerId}
-            onPlayerIdChange={setPlayerId}
+            values={playerValues}
+            onValuesChange={setPlayerValues}
             couponCode={couponCode}
             onCouponChange={setCouponCode}
             couponsEnabled={config?.features.couponsEnabled ?? false}
+            useWallet={useWallet}
+            onUseWalletChange={setUseWallet}
             onContinue={handleCreateOrder}
             submitting={createOrder.isPending}
             requiresLogin={!user}
@@ -238,6 +306,16 @@ export function CheckoutPage() {
           supportUrl={config?.supportUrl}
         />
       )}
+
+      <OpenOrdersDialog
+        open={openOrdersVisible}
+        onClose={() => setOpenOrdersVisible(false)}
+        onAllClosed={() => {
+          setOpenOrdersVisible(false);
+          autoCreated.current = false;
+          handleCreateOrder();
+        }}
+      />
     </div>
   );
 }

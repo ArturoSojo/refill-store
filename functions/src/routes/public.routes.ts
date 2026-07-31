@@ -43,7 +43,7 @@ publicRouter.get(
 
     ok(res, {
       rate: config.rate.value,
-      games: gameList,
+      games: gameList.map(catalog.toPublicGame),
       products: productList.map((product) =>
         catalog.toPublicProduct(product, config.rate.value, config.pricing.roundToBs)
       ),
@@ -64,7 +64,7 @@ publicRouter.get(
     ]);
 
     ok(res, {
-      game,
+      game: catalog.toPublicGame(game),
       rate: config.rate.value,
       products: productList.map((product) =>
         catalog.toPublicProduct(product, config.rate.value, config.pricing.roundToBs)

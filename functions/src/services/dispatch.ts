@@ -19,12 +19,14 @@ import { notFound } from '../lib/errors';
 import * as inefable from './inefable';
 import * as audit from './audit';
 import * as notifications from './notifications';
+import * as adminAlerts from './adminAlerts';
 import * as stats from './stats';
 import * as usersService from './users';
 import { addEvent } from './orderEvents';
 import { getConfig } from './settings';
+import { resolvePlayerFields } from './catalog';
 import { buildManualOrderUrl } from './whatsapp';
-import type { DispatchCallResult, Order, OrderStatus } from '../types/models';
+import type { DispatchCallResult, Game, Order, OrderStatus } from '../types/models';
 
 export interface DispatchOutcome {
   status: OrderStatus;
@@ -75,7 +77,15 @@ async function loadOrder(orderId: string): Promise<Order> {
 export async function prepareManualOrder(orderId: string): Promise<DispatchOutcome> {
   const order = await loadOrder(orderId);
   const config = await getConfig();
-  const whatsappUrl = buildManualOrderUrl(order, config.whatsapp.adminNumber);
+
+  // El mensaje lleva todos los datos que pidió el juego, no sólo el ID: sin el
+  // Zone ID o el correo, el asesor no puede completar la recarga.
+  const gameSnap = await games().doc(order.gameId).get();
+  const fields = gameSnap.exists
+    ? resolvePlayerFields({ id: gameSnap.id, ...gameSnap.data() } as Game)
+    : [];
+
+  const whatsappUrl = buildManualOrderUrl(order, config.whatsapp.adminNumber, fields);
 
   await orders().doc(orderId).set(
     {
@@ -99,13 +109,27 @@ export async function prepareManualOrder(orderId: string): Promise<DispatchOutco
     status: 'awaiting_manual',
   });
 
-  await notifications.notify({
-    uid: order.uid,
-    title: 'Pago confirmado ✅',
-    body: `Tu ${order.productName} se entrega por WhatsApp. Abre el chat para completarlo.`,
-    type: 'order',
-    link: `/orden/${orderId}`,
-  });
+  await Promise.all([
+    notifications.notify({
+      uid: order.uid,
+      title: 'Pago confirmado ✅',
+      body: `Tu ${order.productName} se entrega por WhatsApp. Abre el chat para completarlo.`,
+      type: 'order',
+      link: `/orden/${orderId}`,
+    }),
+    adminAlerts.alert({
+      kind: 'manual_order',
+      severity: 'warning',
+      title: `Producto manual pagado · ${order.code}`,
+      body: [
+        `${order.productName} (${order.gameName}).`,
+        `Cuenta a recargar: ${order.playerId}.`,
+        `Cobrado: ${order.pricing.totalBs.toFixed(2)} Bs. Espera gestión por WhatsApp.`,
+      ].join('\n'),
+      link: `/admin/ordenes/${orderId}`,
+      data: { code: order.code, playerId: order.playerId, customer: order.user.email },
+    }),
+  ]);
 
   return {
     status: 'awaiting_manual',
@@ -240,11 +264,16 @@ export async function dispatchOrder(
         gameId: providerGameId,
         packageId: call.packageId,
         playerId: order.playerId,
+        playerId2: order.playerId2 ?? null,
         // Estable por orden y por llamada: si la petición se corta y se
         // reintenta, el proveedor devuelve el resultado de la original en vez
         // de cobrar otra recarga. Un combo tiene un id distinto por parte.
         externalOrderId: `${order.code}-${call.index + 1}`,
       });
+
+      // El saldo del proveedor viaja en cada respuesta: es el momento más
+      // barato para detectar que se está agotando.
+      void adminAlerts.checkProviderBalance(result.remainingBalance);
 
       // Se registra la respuesta del proveedor pase lo que pase: es la única
       // pista para diagnosticar después por qué una entrega no salió.
@@ -379,6 +408,25 @@ export async function dispatchOrder(
         targetId: orderId,
         summary: `Falló el despacho de la orden ${order.code}.`,
         data: { error: failure },
+      }),
+      // El cliente ya pagó: esto necesita a una persona ya, no cuando alguien
+      // se acuerde de abrir el panel.
+      adminAlerts.alert({
+        kind: 'dispatch_failed',
+        severity: 'critical',
+        title: `Recarga fallida · ${order.code}`,
+        body: [
+          `${order.productName} (${order.gameName}) para el ID ${order.playerId}.`,
+          `Cobrado: ${order.pricing.totalBs.toFixed(2)} Bs.`,
+          `Motivo: ${failure ?? 'sin detalle del proveedor'}.`,
+        ].join('\n'),
+        link: `/admin/ordenes/${orderId}`,
+        data: {
+          code: order.code,
+          playerId: order.playerId,
+          error: failure,
+          customer: order.user.email,
+        },
       }),
     ]);
 

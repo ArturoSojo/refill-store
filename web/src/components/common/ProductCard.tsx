@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { Clock, MessageCircle, Zap } from 'lucide-react';
+import { CurrencyIcon } from '@/components/common/CurrencyIcon';
 import { ROUTES } from '@/lib/constants';
 import { formatBs, formatUsd } from '@/lib/format';
 import { cn, hexToRgb } from '@/lib/utils';
@@ -64,7 +65,11 @@ export function ProductCard({ product, game, currencyIcon, className }: ProductC
             style={{ backgroundColor: `rgba(${hexToRgb(accent)}, 0.15)` }}
             aria-hidden
           >
-            {currencyIcon ?? game?.currencyIcon ?? '🎮'}
+            {game ? (
+              <CurrencyIcon game={game} className="h-7 w-7 text-xl" />
+            ) : (
+              (currencyIcon ?? '🎮')
+            )}
           </span>
         )}
 

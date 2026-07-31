@@ -17,9 +17,15 @@ export default defineConfig({
     // El puerto 5051 (en vez del 5001 por defecto de Firebase) evita chocar con
     // otros servidores locales: un 5001 ocupado por otra app devuelve un
     // "Cannot GET /..." que parece un fallo de la tienda y no lo es.
+    //
+    // `VITE_API_PROXY_TARGET` permite apuntar a la API ya desplegada para
+    // revisar la interfaz sin levantar el emulador (que necesita Java). OJO:
+    // apuntando ahí se trabaja contra los datos REALES de producción.
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:5051/refill-e254f/us-central1/api',
+        target:
+          process.env.VITE_API_PROXY_TARGET ||
+          'http://127.0.0.1:5051/refill-e254f/us-central1/api',
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api/, ''),
         // Sin backend levantado, devolver un JSON claro es mucho más útil que

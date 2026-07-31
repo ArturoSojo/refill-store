@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Diamante">
+  <defs>
+    <linearGradient id="ffTop" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFD79A"/>
+      <stop offset="1" stop-color="#FF9B21"/>
+    </linearGradient>
+    <linearGradient id="ffBody" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FF8A00"/>
+      <stop offset="1" stop-color="#C24800"/>
+    </linearGradient>
+  </defs>
+  <path d="M20 8h24l12 16-24 32L8 24z" fill="url(#ffBody)"/>
+  <path d="M20 8h24l12 16H8z" fill="url(#ffTop)"/>
+  <path d="M8 24h48L32 56z" fill="url(#ffBody)" opacity=".9"/>
+  <path d="M20 8 14 24l18 32L26 24z" fill="#fff" opacity=".22"/>
+  <path d="M44 8l6 16-18 32 6-32z" fill="#000" opacity=".14"/>
+  <path d="M8 24h48" stroke="#FFE7C2" stroke-width="1.6" opacity=".65"/>
+</svg>

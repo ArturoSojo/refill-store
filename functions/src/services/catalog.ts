@@ -2,7 +2,8 @@
 import { games, products, now } from '../config/firebase';
 import { notFound, failedPrecondition } from '../lib/errors';
 import { applyMargin, round, usdToBs } from '../lib/money';
-import type { Game, Product, PublicProduct } from '../types/models';
+import { DEFAULT_PLAYER_FIELD } from '../types/models';
+import type { Game, PlayerField, Product, PublicProduct } from '../types/models';
 
 export async function listGames(options: { onlyActive?: boolean } = {}): Promise<Game[]> {
   const snap = await games().orderBy('sortOrder', 'asc').get();
@@ -53,6 +54,21 @@ export function toPublicProduct(product: Product, rate: number, roundToBs: numbe
   };
 }
 
+/**
+ * Juego tal como lo consume la tienda: con `playerFields` siempre resuelto.
+ *
+ * Así la interfaz no tiene que repetir la lógica de compatibilidad con los
+ * juegos que se crearon cuando sólo existía un campo de ID.
+ */
+export function toPublicGame(game: Game): Game {
+  return {
+    ...game,
+    playerFields: resolvePlayerFields(game),
+    currencyIconUrl: game.currencyIconUrl ?? '',
+    validatesPlayerId: game.validatesPlayerId ?? false,
+  };
+}
+
 /** Comprobaciones antes de dejar comprar un producto. */
 export function assertPurchasable(product: Product, game: Game): void {
   if (!product.active) throw failedPrecondition('Ese producto no está disponible ahora.');
@@ -67,19 +83,105 @@ export function assertPurchasable(product: Product, game: Game): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Campos que el juego le pide al comprador
+// ---------------------------------------------------------------------------
+
+/**
+ * Lista de campos del juego, reconstruyendo uno solo para los juegos antiguos.
+ *
+ * Los juegos creados antes de que existiera `playerFields` sólo tienen las tres
+ * propiedades sueltas del ID. Resolverlos aquí evita tener que migrar Firestore
+ * y que un documento sin migrar rompa el checkout.
+ */
+export function resolvePlayerFields(game: Game): PlayerField[] {
+  const declared = Array.isArray(game.playerFields) ? game.playerFields : [];
+  if (declared.length > 0) return declared;
+
+  return [
+    {
+      ...DEFAULT_PLAYER_FIELD,
+      label: game.playerIdLabel || DEFAULT_PLAYER_FIELD.label,
+      pattern: game.playerIdPattern || DEFAULT_PLAYER_FIELD.pattern,
+      help: game.playerIdHelp || DEFAULT_PLAYER_FIELD.help,
+    },
+  ];
+}
+
+function compile(pattern: string): RegExp {
+  try {
+    return new RegExp(pattern);
+  } catch {
+    // Patrón mal escrito en el panel: se cae al del documento técnico en vez de
+    // dejar pasar cualquier cosa.
+    return /^\d{8,12}$/;
+  }
+}
+
+export interface ResolvedPlayerData {
+  /** Valor que viaja como `player_id`. */
+  playerId: string;
+  /** Valor que viaja como `player_id2`, si el juego declara uno. */
+  playerId2: string | null;
+  /** Todos los valores, por clave de campo. */
+  values: Record<string, string>;
+}
+
+/**
+ * Valida los datos del comprador contra los campos del juego y resuelve a qué
+ * campo del proveedor va cada uno.
+ *
+ * Acepta tanto el formato nuevo (`{ playerId, zoneId }`) como el viejo (sólo la
+ * cadena del ID), porque una pestaña abierta antes del despliegue seguiría
+ * mandando el formato anterior.
+ */
+export function resolvePlayerData(
+  input: Record<string, string> | string,
+  game: Game
+): ResolvedPlayerData {
+  const fields = resolvePlayerFields(game);
+  const raw =
+    typeof input === 'string' ? { [fields[0]?.key ?? 'playerId']: input } : (input ?? {});
+
+  const values: Record<string, string> = {};
+  let playerId: string | null = null;
+  let playerId2: string | null = null;
+
+  for (const field of fields) {
+    const value = (raw[field.key] ?? '').toString().trim();
+
+    if (!value) {
+      if (field.required) {
+        throw failedPrecondition(`Falta completar «${field.label}».`);
+      }
+      continue;
+    }
+
+    if (!compile(field.pattern).test(value)) {
+      throw failedPrecondition(field.help || `El valor de «${field.label}» no es válido.`);
+    }
+
+    values[field.key] = value;
+    if (field.providerField === 'player_id') playerId = value;
+    if (field.providerField === 'player_id2') playerId2 = value;
+  }
+
+  // Ningún campo se marcó como `player_id`: se usa el primero para no dejar la
+  // orden sin identificador principal.
+  if (playerId === null) {
+    playerId = values[fields[0]?.key ?? 'playerId'] ?? '';
+  }
+
+  if (!playerId) throw failedPrecondition('Falta el identificador de la cuenta a recargar.');
+
+  return { playerId, playerId2, values };
+}
+
 /** Valida el ID del jugador contra el patrón definido en el juego. */
 export function assertValidPlayerId(playerId: string, game: Game): void {
-  let pattern: RegExp;
-  try {
-    pattern = new RegExp(game.playerIdPattern);
-  } catch {
-    // Patrón mal escrito en el panel: se cae al patrón del documento técnico.
-    pattern = /^\d{8,12}$/;
-  }
-  if (!pattern.test(playerId)) {
-    throw failedPrecondition(
-      game.playerIdHelp || 'El ID de jugador no tiene un formato válido.'
-    );
+  const field = resolvePlayerFields(game)[0];
+  if (!compile(field.pattern).test(playerId)) {
+    throw failedPrecondition(field.help || 'El ID de jugador no tiene un formato válido.');
   }
 }
 

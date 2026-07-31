@@ -11,6 +11,7 @@ export const ROUTES = {
   orders: '/mis-ordenes',
   account: '/cuenta',
   playerIds: '/cuenta/ids',
+  wallet: '/cuenta/saldo',
   referrals: '/cuenta/referidos',
   notifications: '/cuenta/notificaciones',
   support: '/soporte',
@@ -26,6 +27,7 @@ export const ROUTES = {
   adminUser: (id: string) => `/admin/usuarios/${id}`,
   adminCoupons: '/admin/cupones',
   adminTickets: '/admin/soporte',
+  adminAlerts: '/admin/avisos',
   adminSettings: '/admin/configuracion',
   adminLogs: '/admin/bitacora',
 } as const;
@@ -39,6 +41,7 @@ export const QUERY_KEYS = {
   orders: (filters?: string) => ['orders', filters ?? 'all'] as const,
   order: (id: string) => ['order', id] as const,
   playerIds: ['player-ids'] as const,
+  wallet: ['wallet'] as const,
   notifications: ['notifications'] as const,
   tickets: ['tickets'] as const,
   ticket: (id: string) => ['ticket', id] as const,
@@ -56,6 +59,8 @@ export const QUERY_KEYS = {
   adminTickets: (status?: string) => ['admin', 'tickets', status ?? 'all'] as const,
   adminRateHistory: ['admin', 'rate-history'] as const,
   adminProviders: ['admin', 'providers'] as const,
+  adminAlerts: (filters: string) => ['admin', 'alerts', filters] as const,
+  adminUserWallet: (id: string) => ['admin', 'user-wallet', id] as const,
 } as const;
 
 /** Estados en los que conviene escuchar la orden en tiempo real. */

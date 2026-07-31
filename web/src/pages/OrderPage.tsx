@@ -1,4 +1,5 @@
-import { Link, useParams } from 'react-router-dom';
+import { useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   CheckCircle2,
   ChevronLeft,
@@ -6,17 +7,20 @@ import {
   Clock,
   LifeBuoy,
   MessageCircle,
+  Wallet,
   XCircle,
 } from 'lucide-react';
-import { useOrder, useLiveOrder } from '@/hooks/useOrders';
-import { useDocumentTitle } from '@/hooks/useMisc';
+import toast from 'react-hot-toast';
+import { useOrder, useLiveOrder, useCancelOrder } from '@/hooks/useOrders';
+import { useDocumentTitle, useCountdown } from '@/hooks/useMisc';
 import { useConfig } from '@/providers/ConfigProvider';
 import { Button, ButtonLink } from '@/components/ui/Button';
+import { ConfirmDialog } from '@/components/ui/Modal';
 import { OrderStatusBadge, FullPageLoader, ErrorState } from '@/components/ui/Feedback';
 import { CopyField } from '@/components/common/CopyField';
 import { ROUTES } from '@/lib/constants';
 import { formatBs, formatDateTime, formatUsd, statusMeta } from '@/lib/format';
-import { cn, openWhatsapp } from '@/lib/utils';
+import { cn, errorMessage, openWhatsapp } from '@/lib/utils';
 import type { OrderEvent } from '@/types/models';
 
 function Timeline({ events }: { events: OrderEvent[] }) {
@@ -57,10 +61,17 @@ function Timeline({ events }: { events: OrderEvent[] }) {
 
 export function OrderPage() {
   const { orderId } = useParams<{ orderId: string }>();
+  const navigate = useNavigate();
   const { data, isLoading, error } = useOrder(orderId);
   const { config } = useConfig();
+  const cancelOrder = useCancelOrder();
+  const [confirmCancel, setConfirmCancel] = useState(false);
 
   const order = useLiveOrder(orderId, data?.order);
+
+  // La cuenta atrás del pago corre aquí igual que en el checkout: si el cliente
+  // vuelve a la orden, ve el tiempo que le queda de verdad.
+  const { display: timeLeft, expired } = useCountdown(order?.expiresAt ?? 0);
 
   useDocumentTitle(order ? `Orden ${order.code}` : 'Orden');
 
@@ -85,6 +96,8 @@ export function OrderPage() {
   const meta = statusMeta(order.status);
   const canPay = ['awaiting_payment', 'payment_rejected'].includes(order.status);
   const showWhatsapp = order.status === 'awaiting_manual' && order.whatsappUrl;
+  const labels = data?.playerFieldLabels ?? [];
+  const walletApplied = order.pricing.walletAppliedUsd ?? 0;
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-6">
@@ -135,9 +148,34 @@ export function OrderPage() {
         )}
 
         {canPay && (
-          <ButtonLink className="mt-4" to={ROUTES.checkout(order.productId)} fullWidth size="lg">
-            Completar el pago
-          </ButtonLink>
+          <>
+            {!expired && timeLeft && (
+              <p className="mt-4 flex items-center justify-center gap-1.5 rounded-full bg-amber-500/15 px-3 py-1.5 text-sm font-semibold text-amber-300">
+                <Clock className="h-3.5 w-3.5" aria-hidden />
+                Tiempo para pagar: <span className="tabular">{timeLeft}</span>
+              </p>
+            )}
+
+            <ButtonLink
+              className="mt-4"
+              // Retoma ESTA orden: mantiene el monto, la tasa, los datos del
+              // jugador y el reloj. Antes abría un checkout nuevo desde cero.
+              to={`${ROUTES.checkout(order.productId)}?orden=${order.id}`}
+              fullWidth
+              size="lg"
+            >
+              {expired ? 'Ver el estado del pago' : 'Completar el pago'}
+            </ButtonLink>
+
+            <Button
+              className="mt-2"
+              variant="ghost"
+              fullWidth
+              onClick={() => setConfirmCancel(true)}
+            >
+              Cancelar esta orden
+            </Button>
+          </>
         )}
       </div>
 
@@ -145,10 +183,25 @@ export function OrderPage() {
         <div className="card">
           <h2 className="mb-3 text-sm font-semibold text-white">Detalle de la compra</h2>
           <dl className="space-y-2 text-sm">
-            <div className="flex justify-between gap-3">
-              <dt className="text-slate-400">ID de jugador</dt>
-              <dd className="tabular text-white">{order.playerId}</dd>
-            </div>
+            {/* Se listan todos los campos que pidió el juego, con su etiqueta
+                real: para Mobile Legends son dos, y con uno solo no se
+                entendería qué número es cuál. */}
+            {(labels.length > 0
+              ? labels
+              : [{ key: 'playerId', label: 'ID de jugador', sensitive: false }]
+            ).map((field) => {
+              const value = order.playerFields?.[field.key] ?? (field.key === 'playerId' ? order.playerId : '');
+              if (!value) return null;
+
+              return (
+                <div key={field.key} className="flex justify-between gap-3">
+                  <dt className="text-slate-400">{field.label}</dt>
+                  <dd className="tabular text-white">
+                    {field.sensitive ? '••••••' : value}
+                  </dd>
+                </div>
+              );
+            })}
             <div className="flex justify-between gap-3">
               <dt className="text-slate-400">Cantidad</dt>
               <dd className="text-white">{order.pricing.quantity}</dd>
@@ -172,11 +225,24 @@ export function OrderPage() {
                 </dd>
               </div>
             )}
+            {walletApplied > 0 && (
+              <div className="flex justify-between gap-3">
+                <dt className="flex items-center gap-1.5 text-slate-400">
+                  <Wallet className="h-3.5 w-3.5 text-emerald-400" aria-hidden />
+                  Saldo a favor
+                </dt>
+                <dd className="tabular text-emerald-400">−{formatUsd(walletApplied)}</dd>
+              </div>
+            )}
             <div className="flex justify-between gap-3 border-t border-base-600 pt-2">
-              <dt className="font-semibold text-white">Total</dt>
+              <dt className="font-semibold text-white">
+                {order.pricing.totalBs > 0 ? 'Total transferido' : 'Total'}
+              </dt>
               <dd className="text-right">
                 <span className="block font-bold tabular text-white">
-                  {formatBs(order.pricing.totalBs)}
+                  {order.pricing.totalBs > 0
+                    ? formatBs(order.pricing.totalBs)
+                    : 'Pagado con saldo'}
                 </span>
                 <span className="block text-xs tabular text-slate-500">
                   {formatUsd(order.pricing.totalUsd)} · tasa {order.pricing.rate}
@@ -284,6 +350,35 @@ export function OrderPage() {
           Necesito ayuda con esta orden
         </ButtonLink>
       )}
+
+      <ConfirmDialog
+        open={confirmCancel}
+        onClose={() => setConfirmCancel(false)}
+        onConfirm={() =>
+          cancelOrder.mutate(order.id, {
+            onSuccess: () => {
+              toast.success(
+                walletApplied > 0
+                  ? `Orden cancelada. Te devolvimos ${formatUsd(walletApplied)} a tu saldo.`
+                  : 'Orden cancelada.'
+              );
+              setConfirmCancel(false);
+              navigate(ROUTES.orders);
+            },
+            onError: (mutationError) => toast.error(errorMessage(mutationError)),
+          })
+        }
+        title="Cancelar la orden"
+        message={
+          walletApplied > 0
+            ? `Se anulará la orden ${order.code} y te devolveremos ${formatUsd(walletApplied)} a tu saldo a favor. Si ya transferiste, no la canceles: escríbenos.`
+            : `Se anulará la orden ${order.code}. Si ya transferiste el dinero, no la canceles: escríbenos por soporte.`
+        }
+        confirmLabel="Sí, cancelar"
+        cancelLabel="Volver"
+        destructive
+        loading={cancelOrder.isPending}
+      />
     </div>
   );
 }

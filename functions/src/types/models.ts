@@ -18,6 +18,55 @@ export interface TimestampLike {
 // Juegos
 // ---------------------------------------------------------------------------
 
+/**
+ * Un dato que el juego le pide al comprador.
+ *
+ * No todos los juegos se recargan con un solo número. Mobile Legends exige ID
+ * **y** Zone ID (sin el segundo, el proveedor responde «Please insert Zone ID
+ * into input2»), y los juegos que se gestionan a mano piden correo y contraseña
+ * de la cuenta. Por eso el juego declara su lista de campos en lugar de tener
+ * un único ID incrustado en el modelo.
+ */
+export interface PlayerField {
+  /** Clave estable dentro de la orden. El primer campo siempre es `playerId`. */
+  key: string;
+  label: string;
+  /** Regex (como string) que valida el valor. */
+  pattern: string;
+  /** Mensaje que se muestra cuando el valor no cumple el patrón. */
+  help: string;
+  placeholder: string;
+  /** Cómo se pinta el campo y qué teclado abre en el móvil. */
+  type: 'text' | 'number' | 'email' | 'password';
+  /**
+   * Campo del cuerpo de despacho al que se copia este valor.
+   *
+   * `player_id` es obligatorio para el proveedor y `player_id2` es el segundo
+   * identificador (Zone ID). `null` = el dato sólo sirve para la gestión manual
+   * y nunca viaja al API.
+   */
+  providerField: 'player_id' | 'player_id2' | null;
+  required: boolean;
+  /**
+   * Dato sensible (contraseñas). No se escribe en la bitácora ni en el mensaje
+   * de WhatsApp; sólo se guarda en la orden para que el equipo pueda entregarla.
+   */
+  sensitive: boolean;
+}
+
+/** Campo único por defecto: el ID numérico de toda la vida. */
+export const DEFAULT_PLAYER_FIELD: PlayerField = {
+  key: 'playerId',
+  label: 'ID de Jugador',
+  pattern: '^\\d{8,12}$',
+  help: 'El ID tiene entre 8 y 12 dígitos, sólo números.',
+  placeholder: 'Ej: 3363122817',
+  type: 'number',
+  providerField: 'player_id',
+  required: true,
+  sensitive: false,
+};
+
 export interface Game {
   /** Slug legible usado como ID de documento: `free-fire`, `blood-strike`. */
   id: string;
@@ -30,7 +79,25 @@ export interface Game {
   /** Cómo se llama la moneda del juego en la interfaz: Diamantes, Gold… */
   currencyLabel: string;
   currencyIcon: string;
-  /** Etiqueta del campo de ID: "ID de Jugador". */
+  /** Imagen de la moneda. Si está vacía se cae al emoji de `currencyIcon`. */
+  currencyIconUrl: string;
+  /**
+   * Campos que se le piden al comprador, en orden.
+   *
+   * Vacío = juego antiguo; se reconstruye un único campo a partir de
+   * `playerIdLabel`/`playerIdPattern`/`playerIdHelp`.
+   */
+  playerFields: PlayerField[];
+  /**
+   * `true` si el proveedor rechaza un ID inexistente.
+   *
+   * Sólo Free Fire lo hace (responde «Error de ID del jugador»). Los juegos
+   * `dynamic` aceptan cualquier número y devuelven «completada»: el dinero se
+   * gasta igual. Cuando esto es `false` la tienda exige confirmar el ID antes
+   * de cobrar, porque un dígito mal escrito no se puede recuperar.
+   */
+  validatesPlayerId: boolean;
+  /** Etiqueta del campo de ID: "ID de Jugador". Legado; ver `playerFields`. */
   playerIdLabel: string;
   /** Regex (como string) que valida el ID. Por defecto `^\\d{8,12}$`. */
   playerIdPattern: string;
@@ -183,6 +250,15 @@ export interface OrderPricing {
   subtotalUsd: number;
   discountUsd: number;
   totalUsd: number;
+  /**
+   * Saldo a favor descontado del total, en USD.
+   *
+   * Se debita de la cartera al crear la orden (así no se puede gastar dos veces
+   * en compras simultáneas) y se devuelve si la orden se cancela o caduca.
+   */
+  walletAppliedUsd: number;
+  /** Lo que queda por transferir tras aplicar el saldo. `0` = pagada con saldo. */
+  amountDueUsd: number;
   /** Tasa Bs/USD congelada al crear la orden. */
   rate: number;
   /** Monto exacto a pagar en bolívares (lo que se compara contra Pabilo). */
@@ -194,7 +270,8 @@ export interface OrderPricing {
 }
 
 export interface OrderPayment {
-  method: 'pagomovil_bdv';
+  /** `wallet` cuando el saldo a favor cubrió el total y no hubo transferencia. */
+  method: 'pagomovil_bdv' | 'wallet';
   reference: string | null;
   verifiedAt: TimestampLike | null;
   attempts: number;
@@ -233,7 +310,17 @@ export interface Order {
   productName: string;
   productSku: string;
   fulfillment: FulfillmentType;
+  /** Valor del campo principal; viaja como `player_id`. */
   playerId: string;
+  /** Segundo identificador (Zone ID). `null` si el juego no lo pide. */
+  playerId2: string | null;
+  /**
+   * Todos los datos que se le pidieron al comprador, por clave de campo.
+   *
+   * Se congelan aquí porque el juego puede cambiar de campos más adelante y
+   * esta orden tiene que seguir siendo legible tal como se compró.
+   */
+  playerFields: Record<string, string>;
   pricing: OrderPricing;
   payment: OrderPayment;
   dispatch: {
@@ -313,8 +400,31 @@ export interface SavedPlayerId {
   id: string;
   gameId: string;
   playerId: string;
+  /** Resto de campos del juego (Zone ID…). Nunca guarda contraseñas. */
+  playerFields: Record<string, string>;
   label: string;
   isDefault: boolean;
+  createdAt: TimestampLike;
+}
+
+/**
+ * Movimiento de la cartera (`users/{uid}/wallet/{id}`).
+ *
+ * El saldo vive en `UserProfile.walletBalanceUsd`, pero sin un libro de
+ * movimientos un reembolso es indistinguible de un error: esta subcolección es
+ * la que permite responder «¿de dónde salió este saldo?».
+ */
+export interface WalletTransaction {
+  id: string;
+  type: 'credit' | 'debit';
+  /** Siempre positivo; el signo lo da `type`. */
+  amountUsd: number;
+  balanceAfterUsd: number;
+  reason: string;
+  orderId: string | null;
+  orderCode: string | null;
+  /** Quién lo hizo: `null` cuando lo genera el propio sistema. */
+  actorUid: string | null;
   createdAt: TimestampLike;
 }
 
@@ -391,6 +501,28 @@ export interface AppConfig {
     amountTolerancePercent: number;
     maxVerifyAttempts: number;
     maxOpenOrdersPerUser: number;
+    /** Permite pagar con el saldo a favor acumulado. */
+    walletEnabled: boolean;
+  };
+  /**
+   * Avisos al equipo cuando algo necesita una persona.
+   *
+   * Telegram es el canal de empuje real (gratis y sin depender del móvil del
+   * dueño); el webhook existe para enrutar el mismo aviso a correo, WhatsApp o
+   * lo que sea desde Make/Zapier/n8n sin tocar este código.
+   */
+  alerts: {
+    enabled: boolean;
+    /** Chat o canal de Telegram donde escribe el bot. */
+    telegramChatId: string;
+    /** URL que recibe el aviso como JSON (`POST`). */
+    webhookUrl: string;
+    notifyOnDispatchFailed: boolean;
+    notifyOnManualOrder: boolean;
+    notifyOnNewTicket: boolean;
+    notifyOnPaymentRejected: boolean;
+    /** Avisa cuando el saldo del proveedor baja de este monto. */
+    lowBalanceThresholdUsd: number;
   };
   features: {
     maintenanceMode: boolean;
@@ -420,6 +552,39 @@ export interface AppConfig {
   };
   updatedAt: TimestampLike | null;
   updatedBy: string | null;
+}
+
+/**
+ * Aviso para el equipo (`adminAlerts/{id}`).
+ *
+ * Se guarda siempre, aunque Telegram o el webhook fallen: la bandeja del panel
+ * es el canal que no depende de nada externo.
+ */
+export interface AdminAlert {
+  id: string;
+  kind:
+    | 'dispatch_failed'
+    | 'manual_order'
+    | 'new_ticket'
+    | 'ticket_reply'
+    | 'payment_rejected'
+    | 'low_balance'
+    | 'provider_down'
+    | 'test';
+  severity: 'info' | 'warning' | 'critical';
+  title: string;
+  body: string;
+  /** Ruta interna del panel a la que lleva el aviso. */
+  link: string | null;
+  data: Record<string, unknown> | null;
+  read: boolean;
+  readAt: TimestampLike | null;
+  /** Resultado del envío por cada canal externo, para poder depurarlo. */
+  delivery: {
+    telegram: 'sent' | 'failed' | 'skipped';
+    webhook: 'sent' | 'failed' | 'skipped';
+  };
+  createdAt: TimestampLike;
 }
 
 /** Subconjunto de la configuración que se expone públicamente. */

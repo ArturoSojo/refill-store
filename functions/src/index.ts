@@ -42,7 +42,9 @@ export const api = onRequest(
 /** Caduca órdenes sin pagar y limpia contadores de rate limit. */
 export const expireOrders = onSchedule(
   {
-    schedule: 'every 15 minutes',
+    // Cada 5 minutos: con 15, una orden de 30 minutos podía seguir viva casi 45
+    // y ocupar cupo del tope de órdenes abiertas del cliente.
+    schedule: 'every 5 minutes',
     timeZone: STORE_TIMEZONE,
     timeoutSeconds: 120,
   },

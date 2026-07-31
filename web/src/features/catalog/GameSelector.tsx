@@ -9,6 +9,7 @@
 import { useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Check } from 'lucide-react';
+import { CurrencyIcon } from '@/components/common/CurrencyIcon';
 import { hexToRgb } from '@/lib/utils';
 import type { Game } from '@/types/models';
 
@@ -73,7 +74,7 @@ export function GameSelector({ games, selectedId, onSelect }: GameSelectorProps)
                       className="absolute inset-0 flex items-center justify-center text-4xl drop-shadow-lg"
                       aria-hidden
                     >
-                      {game.currencyIcon || '🎮'}
+                      <CurrencyIcon game={game} className="h-11 w-11 text-4xl" />
                     </span>
                   )}
 

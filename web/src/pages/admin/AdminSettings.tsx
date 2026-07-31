@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import {
   AlertTriangle,
+  BellRing,
   Landmark,
   Megaphone,
   Percent,
   RefreshCw,
   Save,
+  Send,
   Settings2,
   TrendingUp,
   Zap,
@@ -19,6 +21,7 @@ import {
   useRefreshRate,
   useRateHistory,
   useProvidersStatus,
+  useTestAlert,
 } from '@/hooks/useAdmin';
 import { useAuth } from '@/providers/AuthProvider';
 import { useDocumentTitle } from '@/hooks/useMisc';
@@ -40,6 +43,7 @@ export function AdminSettings() {
   const refreshRate = useRefreshRate();
   const rateHistory = useRateHistory();
   const providers = useProvidersStatus();
+  const testAlert = useTestAlert();
 
   const [rateValue, setRateValue] = useState('');
   const [form, setForm] = useState<Record<string, unknown>>({});
@@ -411,6 +415,137 @@ export function AdminSettings() {
             onChange={(event) =>
               patch('checkout', { referenceMaxLength: Number(event.target.value) })
             }
+            disabled={!isAdmin}
+          />
+        </div>
+
+        <div className="mt-4 border-t border-base-600 pt-4">
+          <Switch
+            checked={sectionValue(
+              'checkout',
+              'walletEnabled',
+              config.checkout.walletEnabled !== false
+            )}
+            onChange={(walletEnabled) => patch('checkout', { walletEnabled })}
+            label="Permitir pagar con saldo a favor"
+            description="El cliente puede aplicar su saldo (reembolsos, referidos) al total y transferir sólo la diferencia. Si lo apagas, el saldo se sigue acumulando pero no se puede gastar."
+            disabled={!isAdmin}
+          />
+        </div>
+      </Card>
+
+      {/* --- Avisos al equipo --- */}
+      <Card>
+        <CardHeader
+          title="Avisos"
+          description="Cómo te enteras cuando algo necesita a una persona"
+          icon={<BellRing className="h-4 w-4" aria-hidden />}
+          action={
+            isAdmin ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                loading={testAlert.isPending}
+                leftIcon={<Send className="h-4 w-4" aria-hidden />}
+                onClick={() =>
+                  testAlert.mutate(undefined, {
+                    onSuccess: (data) =>
+                      toast.success(
+                        data.delivery?.telegram === 'sent' || data.delivery?.webhook === 'sent'
+                          ? 'Aviso de prueba enviado.'
+                          : 'Guardado en el panel, pero no salió por Telegram ni webhook. Revisa los datos y guarda primero los cambios.'
+                      ),
+                    onError: (error) => toast.error(errorMessage(error)),
+                  })
+                }
+              >
+                Probar
+              </Button>
+            ) : undefined
+          }
+        />
+
+        <Switch
+          checked={sectionValue('alerts', 'enabled', config.alerts?.enabled !== false)}
+          onChange={(enabled) => patch('alerts', { enabled })}
+          label="Enviar avisos fuera del panel"
+          description="Si lo apagas, los avisos se siguen guardando en la sección Avisos pero no se envían por Telegram ni webhook."
+          disabled={!isAdmin}
+        />
+
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <Input
+            label="Chat de Telegram"
+            defaultValue={config.alerts?.telegramChatId ?? ''}
+            onChange={(event) => patch('alerts', { telegramChatId: event.target.value.trim() })}
+            placeholder="123456789"
+            hint="Escríbele a tu bot y saca el chat_id de api.telegram.org/bot<token>/getUpdates. El token va en el secreto TELEGRAM_BOT_TOKEN."
+            disabled={!isAdmin}
+          />
+          <Input
+            label="Webhook (correo, WhatsApp…)"
+            defaultValue={config.alerts?.webhookUrl ?? ''}
+            onChange={(event) => patch('alerts', { webhookUrl: event.target.value.trim() })}
+            placeholder="https://hook.eu2.make.com/…"
+            hint="Recibe el aviso en JSON. Úsalo para enrutarlo a correo o WhatsApp desde Make, Zapier o n8n."
+            disabled={!isAdmin}
+          />
+          <Input
+            label="Avisar si el saldo del proveedor baja de (USD)"
+            type="number"
+            step="1"
+            defaultValue={config.alerts?.lowBalanceThresholdUsd ?? 10}
+            onChange={(event) =>
+              patch('alerts', { lowBalanceThresholdUsd: Number(event.target.value) })
+            }
+            hint="0 desactiva este aviso."
+            disabled={!isAdmin}
+          />
+        </div>
+
+        <div className="mt-4 space-y-3 border-t border-base-600 pt-4">
+          <Switch
+            checked={sectionValue(
+              'alerts',
+              'notifyOnDispatchFailed',
+              config.alerts?.notifyOnDispatchFailed !== false
+            )}
+            onChange={(notifyOnDispatchFailed) => patch('alerts', { notifyOnDispatchFailed })}
+            label="Recarga fallida"
+            description="El cliente ya pagó y la entrega no salió. Es el aviso más urgente."
+            disabled={!isAdmin}
+          />
+          <Switch
+            checked={sectionValue(
+              'alerts',
+              'notifyOnManualOrder',
+              config.alerts?.notifyOnManualOrder !== false
+            )}
+            onChange={(notifyOnManualOrder) => patch('alerts', { notifyOnManualOrder })}
+            label="Producto manual pagado"
+            description="Alguien pagó un producto que se entrega por WhatsApp."
+            disabled={!isAdmin}
+          />
+          <Switch
+            checked={sectionValue(
+              'alerts',
+              'notifyOnNewTicket',
+              config.alerts?.notifyOnNewTicket !== false
+            )}
+            onChange={(notifyOnNewTicket) => patch('alerts', { notifyOnNewTicket })}
+            label="Consultas de soporte"
+            description="Tickets nuevos y respuestas de clientes."
+            disabled={!isAdmin}
+          />
+          <Switch
+            checked={sectionValue(
+              'alerts',
+              'notifyOnPaymentRejected',
+              config.alerts?.notifyOnPaymentRejected === true
+            )}
+            onChange={(notifyOnPaymentRejected) => patch('alerts', { notifyOnPaymentRejected })}
+            label="Pagos rechazados"
+            description="Suele ser el cliente escribiendo mal la referencia: actívalo sólo si quieres verlos todos."
             disabled={!isAdmin}
           />
         </div>

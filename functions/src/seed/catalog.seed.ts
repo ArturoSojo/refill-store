@@ -13,7 +13,12 @@
 import { games, products, now } from '../config/firebase';
 import { applyMargin, round } from '../lib/money';
 import { getConfig } from '../services/settings';
-import type { DispatchCall, FulfillmentType, ProductKind } from '../types/models';
+import type {
+  DispatchCall,
+  FulfillmentType,
+  PlayerField,
+  ProductKind,
+} from '../types/models';
 
 interface SeedGame {
   id: string;
@@ -23,6 +28,9 @@ interface SeedGame {
   apiGameType: string;
   currencyLabel: string;
   currencyIcon: string;
+  currencyIconUrl: string;
+  playerFields: PlayerField[];
+  validatesPlayerId: boolean;
   playerIdLabel: string;
   playerIdPattern: string;
   playerIdHelp: string;
@@ -32,6 +40,22 @@ interface SeedGame {
   accentColor: string;
   accentColorSecondary: string;
   sortOrder: number;
+}
+
+/** Campo de ID numérico, que es lo que piden casi todos los juegos. */
+function idField(overrides: Partial<PlayerField> = {}): PlayerField {
+  return {
+    key: 'playerId',
+    label: 'ID de Jugador',
+    pattern: '^\\d{8,12}$',
+    help: 'El ID tiene entre 8 y 12 dígitos, sólo números.',
+    placeholder: 'Ej: 3363122817',
+    type: 'number',
+    providerField: 'player_id',
+    required: true,
+    sensitive: false,
+    ...overrides,
+  };
 }
 
 interface SeedProduct {
@@ -64,6 +88,15 @@ export const SEED_GAMES: SeedGame[] = [
     apiGameType: 'freefire_id',
     currencyLabel: 'Diamantes',
     currencyIcon: '💎',
+    currencyIconUrl: '/coins/diamante-freefire.svg',
+    // El único juego que rechaza un ID inexistente («Error de ID del jugador»).
+    validatesPlayerId: true,
+    playerFields: [
+      idField({
+        label: 'ID de Jugador',
+        help: 'El ID de Free Fire tiene entre 8 y 12 dígitos, sólo números.',
+      }),
+    ],
     playerIdLabel: 'ID de Jugador',
     playerIdPattern: '^\\d{8,12}$',
     playerIdHelp: 'El ID de Free Fire tiene entre 8 y 12 dígitos, sólo números.',
@@ -86,6 +119,14 @@ export const SEED_GAMES: SeedGame[] = [
     apiGameType: 'dynamic',
     currencyLabel: 'Gold',
     currencyIcon: '🪙',
+    currencyIconUrl: '/coins/gold-bloodstrike.svg',
+    validatesPlayerId: false,
+    playerFields: [
+      idField({
+        label: 'ID de Jugador',
+        help: 'El ID de Blood Strike tiene entre 8 y 12 dígitos, sólo números.',
+      }),
+    ],
     playerIdLabel: 'ID de Jugador',
     playerIdPattern: '^\\d{8,12}$',
     playerIdHelp: 'El ID de Blood Strike tiene entre 8 y 12 dígitos, sólo números.',
@@ -99,6 +140,113 @@ export const SEED_GAMES: SeedGame[] = [
     accentColor: '#E01E37',
     accentColorSecondary: '#8B0000',
     sortOrder: 2,
+  },
+  {
+    id: 'mobile-legends',
+    name: 'Mobile Legends',
+    shortName: 'MLBB',
+    apiGameId: 1,
+    apiGameType: 'dynamic',
+    currencyLabel: 'Diamantes',
+    currencyIcon: '💎',
+    currencyIconUrl: '/coins/diamante-mlbb.svg',
+    validatesPlayerId: false,
+    // Dos campos obligatorios: sin el Zone ID el proveedor responde
+    // «Please insert Zone ID into input2» y la recarga no sale.
+    playerFields: [
+      idField({
+        label: 'ID de Jugador',
+        pattern: '^\\d{6,12}$',
+        help: 'El ID de Mobile Legends tiene entre 6 y 12 dígitos.',
+        placeholder: 'Ej: 123456789',
+      }),
+      {
+        key: 'zoneId',
+        label: 'Zone ID',
+        pattern: '^\\d{3,6}$',
+        help: 'El Zone ID es el número entre paréntesis, de 3 a 6 dígitos.',
+        placeholder: 'Ej: 2345',
+        type: 'number',
+        providerField: 'player_id2',
+        required: true,
+        sensitive: false,
+      },
+    ],
+    playerIdLabel: 'ID de Jugador',
+    playerIdPattern: '^\\d{6,12}$',
+    playerIdHelp: 'El ID de Mobile Legends tiene entre 6 y 12 dígitos.',
+    howToFindId: [
+      'Abre Mobile Legends y toca tu avatar arriba a la izquierda.',
+      'En el perfil verás algo como «123456789 (2345)».',
+      'El primer número es tu ID y el que va entre paréntesis es el Zone ID.',
+    ],
+    logoUrl: '',
+    coverUrl: '',
+    accentColor: '#2F80ED',
+    accentColorSecondary: '#00C2FF',
+    sortOrder: 3,
+  },
+  {
+    id: 'honor-of-kings',
+    name: 'Honor of Kings',
+    shortName: 'HoK',
+    apiGameId: 16,
+    apiGameType: 'dynamic',
+    currencyLabel: 'Tokens',
+    currencyIcon: '🪙',
+    currencyIconUrl: '/coins/token-hok.svg',
+    validatesPlayerId: false,
+    playerFields: [
+      idField({
+        label: 'ID de Jugador',
+        pattern: '^\\d{6,14}$',
+        help: 'El ID de Honor of Kings tiene entre 6 y 14 dígitos.',
+      }),
+    ],
+    playerIdLabel: 'ID de Jugador',
+    playerIdPattern: '^\\d{6,14}$',
+    playerIdHelp: 'El ID de Honor of Kings tiene entre 6 y 14 dígitos.',
+    howToFindId: [
+      'Abre Honor of Kings y entra a tu perfil tocando tu avatar.',
+      'Busca la opción «ID» debajo de tu nombre.',
+      'Copia el número completo y pégalo aquí.',
+    ],
+    logoUrl: '',
+    coverUrl: '',
+    accentColor: '#C9A227',
+    accentColorSecondary: '#8C6D1F',
+    sortOrder: 4,
+  },
+  {
+    id: 'marvel-rivals',
+    name: 'Marvel Rivals',
+    shortName: 'Marvel Rivals',
+    apiGameId: 11,
+    apiGameType: 'dynamic',
+    currencyLabel: 'Lattices',
+    currencyIcon: '🔷',
+    currencyIconUrl: '/coins/lattice-marvel.svg',
+    validatesPlayerId: false,
+    playerFields: [
+      idField({
+        label: 'ID de Jugador',
+        pattern: '^\\d{6,14}$',
+        help: 'El ID de Marvel Rivals tiene entre 6 y 14 dígitos.',
+      }),
+    ],
+    playerIdLabel: 'ID de Jugador',
+    playerIdPattern: '^\\d{6,14}$',
+    playerIdHelp: 'El ID de Marvel Rivals tiene entre 6 y 14 dígitos.',
+    howToFindId: [
+      'Abre Marvel Rivals y entra al menú de tu cuenta.',
+      'Tu ID de jugador aparece junto al nombre de usuario.',
+      'Cópialo y pégalo aquí sin espacios.',
+    ],
+    logoUrl: '',
+    coverUrl: '',
+    accentColor: '#5B6BF5',
+    accentColorSecondary: '#9B5BF5',
+    sortOrder: 5,
   },
 ];
 
@@ -376,6 +524,95 @@ const BLOOD_STRIKE_PACKAGES: SeedProduct[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Juegos añadidos después del documento original
+//
+// Los `package_id` y los costos salen del catálogo vivo del proveedor
+// (`GET /api/v1/products`), no del PDF: son los únicos que el API reconoce.
+// ---------------------------------------------------------------------------
+
+/** Genera los paquetes de un juego a partir de la tabla del proveedor. */
+function packagesFor(
+  gameId: string,
+  skuPrefix: string,
+  currency: string,
+  rows: Array<{
+    packageId: number;
+    /** Cantidad base de moneda. */
+    amount: number;
+    bonus?: number;
+    costUsd: number;
+    /** Nombre propio cuando no es una cantidad de moneda (pases, tarjetas). */
+    name?: string;
+    badge?: string | null;
+    featured?: boolean;
+  }>
+): SeedProduct[] {
+  return rows.map((row, index) => {
+    const isSpecial = Boolean(row.name);
+    const total = row.amount + (row.bonus ?? 0);
+    const name =
+      row.name ??
+      (row.bonus
+        ? `${row.amount.toLocaleString('es-VE')} + ${row.bonus.toLocaleString('es-VE')} ${currency}`
+        : `${row.amount.toLocaleString('es-VE')} ${currency}`);
+
+    return {
+      id: `${gameId}-${row.packageId}`,
+      gameId,
+      sku: `${skuPrefix}-${row.packageId}`,
+      name,
+      description: isSpecial
+        ? `${row.name} para tu cuenta. Se acredita automáticamente.`
+        : `Recarga directa de ${total.toLocaleString('es-VE')} ${currency} a tu cuenta.`,
+      fulfillment: 'auto' as FulfillmentType,
+      kind: (isSpecial ? 'special' : 'package') as ProductKind,
+      amount: isSpecial ? 1 : row.amount,
+      bonus: isSpecial ? 0 : (row.bonus ?? 0),
+      costUsd: row.costUsd,
+      calls: [{ packageId: row.packageId, quantity: 1 }],
+      badge: row.badge ?? null,
+      featured: row.featured ?? false,
+      sortOrder: (index + 1) * 10,
+    };
+  });
+}
+
+const MOBILE_LEGENDS_PACKAGES = packagesFor('mobile-legends', 'ML-D', 'Diamantes', [
+  { packageId: 1, amount: 78, bonus: 8, costUsd: 1.24 },
+  { packageId: 2, amount: 156, bonus: 16, costUsd: 2.4, badge: 'POPULAR', featured: true },
+  { packageId: 3, amount: 234, bonus: 23, costUsd: 3.63 },
+  { packageId: 4, amount: 625, bonus: 81, costUsd: 9.55, featured: true },
+  { packageId: 5, amount: 1860, bonus: 335, costUsd: 28.14 },
+  { packageId: 6, amount: 3099, bonus: 589, costUsd: 46.93 },
+  { packageId: 7, amount: 4649, bonus: 883, costUsd: 69.49 },
+  { packageId: 8, amount: 7740, bonus: 1548, costUsd: 119.75, badge: 'MÁXIMO' },
+  { packageId: 9, amount: 0, costUsd: 1.54, name: 'Pase de Diamantes' },
+  { packageId: 49, amount: 0, costUsd: 7.84, name: 'Twilight Pass' },
+]);
+
+const HONOR_OF_KINGS_PACKAGES = packagesFor('honor-of-kings', 'HOK-T', 'Tokens', [
+  { packageId: 102, amount: 16, costUsd: 0.22 },
+  { packageId: 103, amount: 80, costUsd: 0.88 },
+  { packageId: 104, amount: 240, costUsd: 2.65, badge: 'POPULAR', featured: true },
+  { packageId: 105, amount: 400, costUsd: 4.64 },
+  { packageId: 106, amount: 560, costUsd: 6.02 },
+  { packageId: 107, amount: 800, costUsd: 9.07, featured: true },
+  { packageId: 108, amount: 1200, costUsd: 13.12 },
+  { packageId: 109, amount: 2400, costUsd: 26.65 },
+  { packageId: 110, amount: 4000, costUsd: 45.29 },
+  { packageId: 111, amount: 8000, costUsd: 90.53, badge: 'MÁXIMO' },
+]);
+
+const MARVEL_RIVALS_PACKAGES = packagesFor('marvel-rivals', 'MR-L', 'Lattices', [
+  { packageId: 90, amount: 100, costUsd: 1.08 },
+  { packageId: 91, amount: 500, costUsd: 4.78, badge: 'POPULAR', featured: true },
+  { packageId: 92, amount: 1000, costUsd: 9.93, featured: true },
+  { packageId: 93, amount: 2180, costUsd: 19.06 },
+  { packageId: 94, amount: 5680, costUsd: 47.64 },
+  { packageId: 95, amount: 11680, costUsd: 96.23, badge: 'MÁXIMO' },
+]);
+
+// ---------------------------------------------------------------------------
 // CATEGORÍA B — Recargas manuales (se entregan por WhatsApp)
 // ---------------------------------------------------------------------------
 
@@ -529,6 +766,9 @@ export const SEED_PRODUCTS: SeedProduct[] = [
   ...FREE_FIRE_PACKAGES,
   ...FREE_FIRE_COMBOS,
   ...BLOOD_STRIKE_PACKAGES,
+  ...MOBILE_LEGENDS_PACKAGES,
+  ...HONOR_OF_KINGS_PACKAGES,
+  ...MARVEL_RIVALS_PACKAGES,
   ...MANUAL_PRODUCTS,
 ];
 
@@ -567,15 +807,23 @@ export async function seedCatalog(
     if (snap.exists) {
       // Sólo se refrescan los datos técnicos; lo visual (colores, imágenes,
       // textos) puede haber sido personalizado desde el panel y se respeta.
-      await ref.set(
-        {
-          apiGameId: game.apiGameId,
-          apiGameType: game.apiGameType,
-          currencyLabel: game.currencyLabel,
-          updatedAt: timestamp,
-        },
-        { merge: true }
-      );
+      const stored = snap.data() ?? {};
+      const patch: Record<string, unknown> = {
+        apiGameId: game.apiGameId,
+        apiGameType: game.apiGameType,
+        currencyLabel: game.currencyLabel,
+        // Los campos del formulario SÍ son técnicos: si Mobile Legends se queda
+        // sin su Zone ID, ninguna recarga de ese juego sale.
+        playerFields: game.playerFields,
+        validatesPlayerId: game.validatesPlayerId,
+        updatedAt: timestamp,
+      };
+
+      // El ícono es decorativo: sólo se rellena si el juego aún no tiene uno,
+      // para no pisar el que haya subido el administrador.
+      if (!stored.currencyIconUrl) patch.currencyIconUrl = game.currencyIconUrl;
+
+      await ref.set(patch, { merge: true });
       result.gamesUpdated += 1;
     } else {
       await ref.set({

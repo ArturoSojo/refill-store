@@ -44,6 +44,7 @@ import * as pabilo from './pabilo';
 import * as dispatchService from './dispatch';
 import * as audit from './audit';
 import * as notifications from './notifications';
+import * as adminAlerts from './adminAlerts';
 import * as stats from './stats';
 import * as usersService from './users';
 import { addEvent } from './orderEvents';
@@ -120,6 +121,40 @@ export function toCustomerOrder(order: Order): CustomerOrder {
   return { ...rest, pricing };
 }
 
+export interface PaymentInstructions {
+  bank: Order['payment']['bankSnapshot'];
+  amountBs: number;
+  amountUsd: number;
+  walletAppliedUsd: number;
+  rate: number;
+  expiresAt: number;
+  referenceMinLength: number;
+  referenceMaxLength: number;
+}
+
+/**
+ * Instrucciones de pago de una orden.
+ *
+ * Se extrajo de la ruta de creación porque el cliente también las necesita al
+ * RETOMAR una orden pendiente: antes, «Completar el pago» arrancaba un checkout
+ * nuevo desde cero y volvía a pedir el ID.
+ */
+export function toPaymentInstructions(
+  order: Order,
+  config: { checkout: { referenceMinLength: number; referenceMaxLength: number } }
+): PaymentInstructions {
+  return {
+    bank: order.payment.bankSnapshot,
+    amountBs: order.pricing.totalBs,
+    amountUsd: order.pricing.amountDueUsd ?? order.pricing.totalUsd,
+    walletAppliedUsd: order.pricing.walletAppliedUsd ?? 0,
+    rate: order.pricing.rate,
+    expiresAt: order.expiresAt.toMillis(),
+    referenceMinLength: config.checkout.referenceMinLength,
+    referenceMaxLength: config.checkout.referenceMaxLength,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Creación
 // ---------------------------------------------------------------------------
@@ -127,12 +162,41 @@ export function toCustomerOrder(order: Order): CustomerOrder {
 export interface CreateOrderInput {
   gameId: string;
   productId: string;
-  playerId: string;
+  /**
+   * Datos del comprador por clave de campo (`{ playerId, zoneId }`).
+   * Se acepta también una cadena suelta por compatibilidad con clientes viejos.
+   */
+  playerFields: Record<string, string> | string;
   quantity: number;
   couponCode?: string | null;
+  /** Descontar del saldo a favor lo que alcance. */
+  useWallet?: boolean;
   customerNote?: string | null;
   ip: string | null;
   userAgent: string | null;
+}
+
+/**
+ * Caduca las órdenes impagas ya vencidas de un usuario.
+ *
+ * Se llama justo antes del tope de órdenes abiertas: sin esto, una orden que
+ * venció hace horas seguía contando y el cliente quedaba bloqueado hasta que
+ * pasara la tarea programada. Devuelve cuántas cerró.
+ */
+async function expireOwnStaleOrders(uid: string): Promise<number> {
+  const snap = await orders()
+    .where('uid', '==', uid)
+    .where('status', 'in', ['awaiting_payment', 'payment_rejected'])
+    .limit(20)
+    .get();
+
+  const stale = snap.docs.filter((doc) => {
+    const expiresAt = (doc.data() as Order).expiresAt;
+    return expiresAt && expiresAt.toMillis() < Date.now();
+  });
+
+  await Promise.all(stale.map((doc) => expireOrder({ id: doc.id, ...doc.data() } as Order)));
+  return stale.length;
 }
 
 export async function createOrder(
@@ -158,7 +222,7 @@ export async function createOrder(
   }
 
   catalog.assertPurchasable(product, game);
-  catalog.assertValidPlayerId(input.playerId, game);
+  const playerData = catalog.resolvePlayerData(input.playerFields, game);
 
   if (product.fulfillment === 'manual' && !config.features.manualProductsEnabled) {
     throw failedPrecondition('Los productos manuales están desactivados temporalmente.');
@@ -169,15 +233,20 @@ export async function createOrder(
   }
 
   // Evita que un usuario acumule órdenes sin pagar y bloquee el inventario.
+  // Antes de contar se cierran las que ya vencieron: si no, una orden muerta
+  // hace horas seguiría ocupando cupo hasta el siguiente barrido programado.
+  await expireOwnStaleOrders(user.uid);
+
   const openOrders = await orders()
     .where('uid', '==', user.uid)
-    .where('status', 'in', ['awaiting_payment', 'verifying'])
+    .where('status', 'in', ['awaiting_payment', 'verifying', 'payment_rejected'])
     .count()
     .get();
 
   if (openOrders.data().count >= config.checkout.maxOpenOrdersPerUser) {
     throw failedPrecondition(
-      `Tienes ${openOrders.data().count} órdenes sin pagar. Complétalas o cancélalas antes de crear otra.`
+      `Tienes ${openOrders.data().count} órdenes sin pagar. Complétalas o cancélalas antes de crear otra.`,
+      { code: 'too_many_open_orders', openOrders: openOrders.data().count }
     );
   }
 
@@ -211,11 +280,41 @@ export async function createOrder(
   discountUsd = Math.min(discountUsd, round(subtotalUsd - 0.01, 2));
   const totalUsd = round(subtotalUsd - discountUsd, 2);
   const rate = config.rate.value;
-  const totalBs = usdToBs(totalUsd, rate, config.pricing.roundToBs);
   const costUsd = round(product.costUsd * quantity, 4);
+
+  // --- Saldo a favor ---
+  // El débito ocurre AHORA, en una transacción sobre el perfil: si se dejara
+  // para el momento del pago, dos compras simultáneas gastarían el mismo saldo.
+  // Si la orden se cancela o caduca, se devuelve.
+  const walletRequested =
+    input.useWallet && config.checkout.walletEnabled !== false
+      ? Math.min(round(profile.walletBalanceUsd, 2), totalUsd)
+      : 0;
+
+  let walletAppliedUsd = Math.max(0, round(walletRequested, 2));
+  // Un resto de céntimos no se puede transferir ni verificar contra el banco:
+  // si el saldo casi cubre el total, se cubre entero.
+  let amountDueUsd = round(totalUsd - walletAppliedUsd, 2);
+  if (amountDueUsd > 0 && amountDueUsd < 0.01) {
+    walletAppliedUsd = totalUsd;
+    amountDueUsd = 0;
+  }
+
+  const paidWithWallet = walletAppliedUsd > 0 && amountDueUsd === 0;
+  const totalBs = usdToBs(amountDueUsd, rate, config.pricing.roundToBs);
 
   const orderRef = orders().doc();
   const timestamp = now();
+
+  if (walletAppliedUsd > 0) {
+    // Lanza si el saldo ya no alcanza (otra compra lo consumió mientras tanto).
+    await usersService.moveWallet({
+      uid: user.uid,
+      deltaUsd: -walletAppliedUsd,
+      reason: `Pago de la orden ${product.name}`,
+      orderId: orderRef.id,
+    });
+  }
 
   const order: Omit<Order, 'id'> = {
     code: generateOrderCode(),
@@ -232,13 +331,17 @@ export async function createOrder(
     productName: product.name,
     productSku: product.sku,
     fulfillment: product.fulfillment,
-    playerId: input.playerId,
+    playerId: playerData.playerId,
+    playerId2: playerData.playerId2,
+    playerFields: playerData.values,
     pricing: {
       unitUsd,
       quantity,
       subtotalUsd,
       discountUsd,
       totalUsd,
+      walletAppliedUsd,
+      amountDueUsd,
       rate,
       totalBs,
       couponCode,
@@ -246,9 +349,9 @@ export async function createOrder(
       profitUsd: round(totalUsd - costUsd, 4),
     },
     payment: {
-      method: 'pagomovil_bdv',
+      method: paidWithWallet ? 'wallet' : 'pagomovil_bdv',
       reference: null,
-      verifiedAt: null,
+      verifiedAt: paidWithWallet ? timestamp : null,
       attempts: 0,
       providerResponse: null,
       bankSnapshot: {
@@ -273,7 +376,9 @@ export async function createOrder(
       lastError: null,
     },
     whatsappUrl: null,
-    status: 'awaiting_payment',
+    // Pagada con saldo: no hay transferencia que verificar, así que entra
+    // directamente en la cola de entrega.
+    status: paidWithWallet ? 'paid' : 'awaiting_payment',
     customerNote: input.customerNote?.slice(0, 300) ?? null,
     adminNote: null,
     meta: { ip: input.ip, userAgent: input.userAgent },
@@ -288,8 +393,12 @@ export async function createOrder(
     addEvent({
       orderId: orderRef.id,
       type: 'created',
-      message: `Orden creada por ${order.pricing.totalBs.toFixed(2)} Bs.`,
-      status: 'awaiting_payment',
+      message: paidWithWallet
+        ? `Orden creada y pagada con tu saldo a favor ($${walletAppliedUsd.toFixed(2)}).`
+        : walletAppliedUsd > 0
+          ? `Orden creada por ${order.pricing.totalBs.toFixed(2)} Bs (se aplicaron $${walletAppliedUsd.toFixed(2)} de saldo).`
+          : `Orden creada por ${order.pricing.totalBs.toFixed(2)} Bs.`,
+      status: order.status,
       actor: 'customer',
       actorUid: user.uid,
     }),
@@ -302,12 +411,28 @@ export async function createOrder(
       targetType: 'order',
       targetId: orderRef.id,
       summary: `Orden ${order.code}: ${order.productName} para ${order.playerId}.`,
-      data: { totalUsd, totalBs, rate },
+      data: { totalUsd, totalBs, rate, walletAppliedUsd },
       ip: input.ip,
     }),
   ]);
 
-  log.info('Orden creada', { orderId: orderRef.id, code: order.code, totalBs });
+  log.info('Orden creada', { orderId: orderRef.id, code: order.code, totalBs, walletAppliedUsd });
+
+  if (paidWithWallet) {
+    await Promise.all([
+      catalog.decrementStock(product.id, quantity),
+      couponCode ? couponsService.consume(couponCode) : Promise.resolve(),
+    ]);
+
+    if (product.fulfillment === 'auto') {
+      await dispatchService.dispatchOrder(orderRef.id);
+    } else {
+      await dispatchService.prepareManualOrder(orderRef.id);
+    }
+
+    return getOrder(orderRef.id);
+  }
+
   return { id: orderRef.id, ...order };
 }
 
@@ -383,7 +508,7 @@ export async function verifyPayment(
   }
 
   if (order.expiresAt.toMillis() < Date.now()) {
-    await orders().doc(orderId).set({ status: 'expired', updatedAt: now() }, { merge: true });
+    await expireOrder(order);
     throw failedPrecondition(
       'Esta orden expiró. Crea una nueva para que el monto se calcule con la tasa vigente.'
     );
@@ -507,6 +632,14 @@ export async function verifyPayment(
         summary: `Pago rechazado en la orden ${order.code}: ${reason}`,
         ip,
       }),
+      adminAlerts.alert({
+        kind: 'payment_rejected',
+        severity: 'info',
+        title: `Pago rechazado · ${order.code}`,
+        body: `${order.user.email ?? 'Un cliente'} intentó pagar ${order.productName}. ${reason}`,
+        link: `/admin/ordenes/${orderId}`,
+        data: { code: order.code, reference: `***${reference.slice(-4)}` },
+      }),
     ]);
 
     throw paymentRejected(reason, { canRetry: true });
@@ -575,6 +708,51 @@ export async function verifyPayment(
 // Acciones sobre la orden
 // ---------------------------------------------------------------------------
 
+/**
+ * Devuelve a la cartera el saldo que se descontó al crear la orden.
+ *
+ * Se llama al cancelar y al caducar. Es idempotente por bandera: se marca
+ * `pricing.walletRefunded` para que un segundo cierre de la misma orden no
+ * regale el saldo dos veces.
+ */
+async function refundWalletIfApplied(order: Order, reason: string): Promise<number> {
+  const applied = order.pricing?.walletAppliedUsd ?? 0;
+  const alreadyRefunded = (order.pricing as { walletRefunded?: boolean })?.walletRefunded === true;
+  if (applied <= 0 || alreadyRefunded) return 0;
+
+  await usersService.moveWallet({
+    uid: order.uid,
+    deltaUsd: applied,
+    reason,
+    orderId: order.id,
+    orderCode: order.code,
+  });
+
+  await orders()
+    .doc(order.id)
+    .set({ pricing: { walletRefunded: true }, updatedAt: now() }, { merge: true });
+
+  return applied;
+}
+
+/** Cierra una orden impaga y devuelve el saldo que hubiera consumido. */
+async function expireOrder(order: Order): Promise<void> {
+  const refunded = await refundWalletIfApplied(order, `Orden ${order.code} caducada`);
+
+  await orders()
+    .doc(order.id)
+    .set({ status: 'expired', updatedAt: now() }, { merge: true });
+
+  await addEvent({
+    orderId: order.id,
+    type: 'expired',
+    message: refunded > 0
+      ? `Orden caducada por falta de pago. Se devolvieron $${refunded.toFixed(2)} a tu saldo.`
+      : 'Orden caducada: no se recibió el pago dentro del tiempo límite.',
+    status: 'expired',
+  });
+}
+
 export async function cancelOrder(user: AuthUser, orderId: string): Promise<Order> {
   const order = await getOrderFor(orderId, user);
 
@@ -582,13 +760,17 @@ export async function cancelOrder(user: AuthUser, orderId: string): Promise<Orde
     throw failedPrecondition('Esta orden ya no se puede cancelar.');
   }
 
+  const refunded = await refundWalletIfApplied(order, `Orden ${order.code} cancelada`);
+
   await orders().doc(orderId).set({ status: 'cancelled', updatedAt: now() }, { merge: true });
   await addEvent({
     orderId,
     type: 'cancelled',
-    message: 'Orden cancelada por el cliente.',
+    message: refunded > 0
+      ? `Orden cancelada. Se devolvieron $${refunded.toFixed(2)} a tu saldo.`
+      : 'Orden cancelada por el cliente.',
     status: 'cancelled',
-    actor: 'customer',
+    actor: order.uid === user.uid ? 'customer' : 'admin',
     actorUid: user.uid,
   });
 
@@ -690,7 +872,12 @@ export async function refundOrder(
   }
 
   if (options.toWallet) {
-    await usersService.adjustWallet(order.uid, order.pricing.totalUsd);
+    await usersService.adjustWallet(order.uid, order.pricing.totalUsd, {
+      reason: `Reembolso de la orden ${order.code}`,
+      orderId: order.id,
+      orderCode: order.code,
+      actorUid: actor.uid,
+    });
   }
 
   await orders().doc(orderId).set(
@@ -752,21 +939,33 @@ export async function setAdminNote(
 
 /**
  * Marca como expiradas las órdenes que nunca se pagaron.
- * La ejecuta la tarea programada cada 15 minutos.
+ *
+ * La ejecuta la tarea programada. Incluye `payment_rejected` a propósito: una
+ * orden con la referencia rechazada seguía viva para siempre y ocupaba cupo del
+ * tope de órdenes abiertas, que es justo lo que dejaba al cliente bloqueado.
+ *
+ * No se hace en lote porque cada orden puede tener saldo que devolver, y eso
+ * exige una transacción por usuario.
  */
 export async function expireStaleOrders(limit = 200): Promise<number> {
   const snap = await orders()
-    .where('status', '==', 'awaiting_payment')
+    .where('status', 'in', ['awaiting_payment', 'payment_rejected'])
     .where('expiresAt', '<', now())
     .limit(limit)
     .get();
 
   if (snap.empty) return 0;
 
-  const batch = db.batch();
-  const timestamp = now();
-  snap.docs.forEach((doc) => batch.set(doc.ref, { status: 'expired', updatedAt: timestamp }, { merge: true }));
-  await batch.commit();
+  for (const doc of snap.docs) {
+    try {
+      await expireOrder({ id: doc.id, ...doc.data() } as Order);
+    } catch (error) {
+      log.warn('No se pudo caducar una orden', {
+        orderId: doc.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
 
   log.info('Órdenes expiradas', { count: snap.size });
   return snap.size;

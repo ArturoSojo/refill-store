@@ -16,6 +16,7 @@ import {
   useSetUserRole,
   useBanUser,
   useAdjustWallet,
+  useAdminUserWallet,
   useNotifyUser,
 } from '@/hooks/useAdmin';
 import { useAuth } from '@/providers/AuthProvider';
@@ -144,6 +145,7 @@ export function AdminUserDetail() {
   const { uid } = useParams<{ uid: string }>();
   const { isAdmin, user: currentUser } = useAuth();
   const { data, isLoading, error } = useAdminUser(uid);
+  const wallet = useAdminUserWallet(uid);
 
   const setRole = useSetUserRole();
   const banUser = useBanUser();
@@ -315,6 +317,54 @@ export function AdminUserDetail() {
             </>
           )}
         </div>
+      </Card>
+
+      {/* Movimientos del saldo: sin este libro, un reembolso y un error de
+          dedo son indistinguibles cuando el cliente reclama. */}
+      <Card>
+        <CardHeader
+          title="Movimientos de saldo"
+          description={`Saldo actual: ${formatUsd(wallet.data?.balanceUsd ?? profile.walletBalanceUsd)}`}
+        />
+        {wallet.isLoading ? (
+          <Skeleton className="h-20 rounded-xl" />
+        ) : (wallet.data?.transactions.length ?? 0) === 0 ? (
+          <EmptyState title="Sin movimientos" className="py-8" />
+        ) : (
+          <ul className="divide-y divide-base-700">
+            {wallet.data?.transactions.map((item) => (
+              <li key={item.id} className="flex items-center gap-3 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm text-white">{item.reason}</p>
+                  <p className="text-xs text-slate-500">
+                    {formatDateTime(item.createdAt)}
+                    {item.orderCode && (
+                      <>
+                        {' · '}
+                        <span className="font-mono">{item.orderCode}</span>
+                      </>
+                    )}
+                  </p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p
+                    className={
+                      item.type === 'credit'
+                        ? 'text-sm font-bold tabular text-emerald-400'
+                        : 'text-sm font-bold tabular text-slate-300'
+                    }
+                  >
+                    {item.type === 'credit' ? '+' : '−'}
+                    {formatUsd(item.amountUsd)}
+                  </p>
+                  <p className="text-xs tabular text-slate-500">
+                    {formatUsd(item.balanceAfterUsd)}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </Card>
 
       <Card>

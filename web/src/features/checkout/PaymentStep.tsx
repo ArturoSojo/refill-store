@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertTriangle, Clock, Landmark, Receipt, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, Clock, Landmark, Receipt, ShieldCheck, Wallet } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Field';
 import { CopyField } from '@/components/common/CopyField';
@@ -39,7 +39,14 @@ export function PaymentStep({
   const [touched, setTouched] = useState(false);
   const { display: timeLeft, expired } = useCountdown(data.payment.expiresAt);
 
-  const { bank, amountBs, amountUsd, referenceMinLength, referenceMaxLength } = data.payment;
+  const {
+    bank,
+    amountBs,
+    amountUsd,
+    walletAppliedUsd,
+    referenceMinLength,
+    referenceMaxLength,
+  } = data.payment;
 
   const isValidReference =
     reference.length >= referenceMinLength && reference.length <= referenceMaxLength;
@@ -55,6 +62,13 @@ export function PaymentStep({
         <p className="mt-1 text-sm tabular text-slate-400">
           {formatUsd(amountUsd)} · Tasa {formatBs(data.payment.rate)}
         </p>
+
+        {walletAppliedUsd > 0 && (
+          <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-300">
+            <Wallet className="h-3.5 w-3.5" aria-hidden />
+            Ya se descontaron {formatUsd(walletAppliedUsd)} de tu saldo
+          </p>
+        )}
 
         <div className="mt-4 flex items-center justify-center gap-2 text-sm">
           {expired ? (

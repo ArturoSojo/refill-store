@@ -38,6 +38,19 @@ export const DEFAULT_CONFIG: AppConfig = {
     amountTolerancePercent: 0.5,
     maxVerifyAttempts: 5,
     maxOpenOrdersPerUser: 3,
+    walletEnabled: true,
+  },
+  alerts: {
+    enabled: true,
+    telegramChatId: '',
+    webhookUrl: '',
+    notifyOnDispatchFailed: true,
+    notifyOnManualOrder: true,
+    notifyOnNewTicket: true,
+    // Un pago rechazado casi siempre es el cliente escribiendo mal la
+    // referencia: avisar por cada uno sería ruido. Apagado por defecto.
+    notifyOnPaymentRejected: false,
+    lowBalanceThresholdUsd: 10,
   },
   features: {
     maintenanceMode: false,
@@ -141,6 +154,8 @@ export function toPublicConfig(config: AppConfig): PublicConfig {
     rate: config.rate.value,
     bank: config.bank,
     whatsapp: { supportNumber: config.whatsapp.supportNumber },
+    // `alerts` NO va aquí: contiene el chat de Telegram y la URL del webhook
+    // del equipo, que no tienen por qué ser públicos.
     checkout: config.checkout,
     features: {
       maintenanceMode: config.features.maintenanceMode,

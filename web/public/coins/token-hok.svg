@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Token">
+  <defs>
+    <linearGradient id="hokRim" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F7E3A1"/>
+      <stop offset="1" stop-color="#9C7414"/>
+    </linearGradient>
+    <linearGradient id="hokFace" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#EFC94C"/>
+      <stop offset="1" stop-color="#B98A17"/>
+    </linearGradient>
+  </defs>
+  <path d="M32 4l24 14v28L32 60 8 46V18z" fill="url(#hokRim)"/>
+  <path d="M32 11l18 10.5v21L32 53 14 42.5v-21z" fill="url(#hokFace)"/>
+  <path d="M32 19l3.6 8.9 9.4 1.2-6.9 6.4 1.8 9.3L32 40.2l-7.9 4.6 1.8-9.3-6.9-6.4 9.4-1.2z" fill="#6E4C08" opacity=".8"/>
+  <path d="M14 21.5 32 11" stroke="#FFF6D6" stroke-width="2.4" stroke-linecap="round" opacity=".6"/>
+</svg>

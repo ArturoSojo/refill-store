@@ -73,6 +73,14 @@ service cloud.firestore {
         allow read, write: if isSelf(uid);
       }
 
+      // Movimientos de la cartera: el usuario los LEE, nunca los escribe. El
+      // saldo se mueve en transacciones del backend; si el cliente pudiera
+      // escribir aquí, podría regalarse crédito.
+      match /wallet/{movementId} {
+        allow read: if isSelf(uid) || isStaff();
+        allow write: if false;
+      }
+
       // Notificaciones: el usuario lee y marca como leídas; las crea el backend.
       match /notifications/{notifId} {
         allow read: if isSelf(uid);
@@ -115,6 +123,13 @@ service cloud.firestore {
 
     match /auditLogs/{logId} {
       allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // Avisos internos (recargas fallidas, tickets, saldo bajo). Se leen desde el
+    // panel; escribirlos es cosa del backend.
+    match /adminAlerts/{alertId} {
+      allow read: if isStaff();
       allow write: if false;
     }
 

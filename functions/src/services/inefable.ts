@@ -47,6 +47,13 @@ export interface InefableOrderInput {
   packageId: number;
   playerId: string;
   /**
+   * Segundo identificador (`player_id2`), cuando el juego lo exige.
+   *
+   * Mobile Legends lo pide como Zone ID: sin él la recarga se rechaza con
+   * «Please insert Zone ID into input2». Los juegos de un solo campo lo omiten.
+   */
+  playerId2?: string | null;
+  /**
    * Identificador propio y ESTABLE de esta llamada.
    *
    * El proveedor lo usa para deduplicar: si la petición se corta por timeout y
@@ -158,6 +165,9 @@ export async function createOrder(input: InefableOrderInput): Promise<InefableOr
       product_id: input.gameId,
       package_id: input.packageId,
       player_id: input.playerId,
+      // Se omite si el juego no lo usa: mandarlo vacío hace que algunos juegos
+      // fallen la validación en vez de ignorarlo.
+      ...(input.playerId2 ? { player_id2: input.playerId2 } : {}),
       external_order_id: input.externalOrderId,
     },
     // El proveedor tarda 2-3 s en responder; se deja margen holgado.

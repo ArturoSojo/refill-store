@@ -34,6 +34,8 @@ import * as inefable from '../services/inefable';
 import { listEvents } from '../services/orderEvents';
 import { getConfig, updateConfig } from '../services/settings';
 import { seedCatalog } from '../seed/catalog.seed';
+import * as alertsService from '../services/adminAlerts';
+import { DEFAULT_PLAYER_FIELD } from '../types/models';
 import type { Coupon, Order, Ticket, UserProfile } from '../types/models';
 
 export const adminRouter = Router();
@@ -215,8 +217,25 @@ adminRouter.get(
   asyncHandler(async (req, res) => {
     const { id } = parseParams(req, idParam);
     const [order, events] = await Promise.all([ordersService.getOrder(id), listEvents(id)]);
-    const profile = await usersService.getProfileOrNull(order.uid);
-    ok(res, { order, events, customer: profile });
+    const [profile, game] = await Promise.all([
+      usersService.getProfileOrNull(order.uid),
+      catalog.getGame(order.gameId).catch(() => null),
+    ]);
+
+    ok(res, {
+      order,
+      events,
+      customer: profile,
+      // Sin esto, una orden de Mobile Legends mostraría `zoneId: 2345` con la
+      // clave interna en lugar de «Zone ID».
+      playerFieldLabels: game
+        ? catalog.resolvePlayerFields(game).map((field) => ({
+            key: field.key,
+            label: field.label,
+            sensitive: field.sensitive,
+          }))
+        : [],
+    });
   })
 );
 
@@ -336,9 +355,35 @@ adminRouter.get(
 adminRouter.get(
   '/games',
   asyncHandler(async (_req, res) => {
-    ok(res, { games: await catalog.listGames() });
+    const list = await catalog.listGames();
+    ok(res, { games: list.map(catalog.toPublicGame) });
   })
 );
+
+/**
+ * Un campo del formulario de compra.
+ *
+ * El proveedor sólo acepta dos identificadores (`player_id` y `player_id2`),
+ * así que ese es el techo de campos que pueden viajar al API; los demás se
+ * admiten con `providerField: null` para las entregas manuales (correo y clave
+ * de Roblox o CoD, que las gestiona una persona).
+ */
+const playerFieldSchema = z.object({
+  key: z
+    .string()
+    .trim()
+    .min(1)
+    .max(40)
+    .regex(/^[a-zA-Z][a-zA-Z0-9_]*$/, 'La clave del campo sólo admite letras, números y guion bajo.'),
+  label: z.string().trim().min(1).max(40),
+  pattern: z.string().trim().min(1).max(200),
+  help: z.string().trim().max(200).default(''),
+  placeholder: z.string().trim().max(60).default(''),
+  type: z.enum(['text', 'number', 'email', 'password']).default('text'),
+  providerField: z.enum(['player_id', 'player_id2']).nullable().default(null),
+  required: z.boolean().default(true),
+  sensitive: z.boolean().default(false),
+});
 
 const gameSchema = z.object({
   name: z.string().trim().min(2).max(60),
@@ -347,6 +392,9 @@ const gameSchema = z.object({
   apiGameType: z.string().trim().min(1).max(40),
   currencyLabel: z.string().trim().min(1).max(30),
   currencyIcon: z.string().trim().max(8).optional(),
+  currencyIconUrl: z.string().trim().max(500).optional(),
+  playerFields: z.array(playerFieldSchema).min(1).max(3).optional(),
+  validatesPlayerId: z.boolean().optional(),
   playerIdLabel: z.string().trim().min(2).max(40).optional(),
   playerIdPattern: z.string().trim().min(2).max(120).optional(),
   playerIdHelp: z.string().trim().max(200).optional(),
@@ -375,16 +423,80 @@ function assertValidPattern(pattern?: string) {
   }
 }
 
+type PlayerFieldInput = z.infer<typeof playerFieldSchema>;
+
+/**
+ * Valida la lista de campos de un juego.
+ *
+ * Tres reglas que, de saltárselas, dejan el juego imposible de despachar:
+ * exactamente un campo tiene que ser `player_id`, no puede haber dos con la
+ * misma clave, y cada patrón tiene que compilar.
+ */
+function assertValidPlayerFields(fields?: PlayerFieldInput[]) {
+  if (!fields || fields.length === 0) return;
+
+  const keys = new Set<string>();
+  let primaries = 0;
+  let secondaries = 0;
+
+  for (const field of fields) {
+    if (keys.has(field.key)) {
+      throw invalidArgument(`Hay dos campos con la clave «${field.key}».`);
+    }
+    keys.add(field.key);
+    assertValidPattern(field.pattern);
+
+    if (field.providerField === 'player_id') primaries += 1;
+    if (field.providerField === 'player_id2') secondaries += 1;
+  }
+
+  if (primaries !== 1) {
+    throw invalidArgument(
+      'Exactamente un campo debe enviarse como «player_id»: es el identificador principal que exige el proveedor.'
+    );
+  }
+  if (secondaries > 1) {
+    throw invalidArgument('El proveedor sólo admite un campo «player_id2» (Zone ID).');
+  }
+}
+
+/**
+ * Mantiene sincronizados los campos sueltos heredados con `playerFields[0]`.
+ *
+ * Todavía hay pantallas y órdenes viejas que leen `playerIdLabel`; si sólo se
+ * actualizara la lista nueva, esas mostrarían la etiqueta anterior.
+ */
+function legacyIdFields(fields?: PlayerFieldInput[]): Record<string, unknown> {
+  const primary = fields?.find((field) => field.providerField === 'player_id') ?? fields?.[0];
+  if (!primary) return {};
+
+  return {
+    playerIdLabel: primary.label,
+    playerIdPattern: primary.pattern,
+    playerIdHelp: primary.help,
+  };
+}
+
 adminRouter.post(
   '/games',
   requireAdmin,
   asyncHandler(async (req, res) => {
     const body = parseBody(req, gameSchema.extend({ id: z.string().trim().max(40).optional() }));
     assertValidPattern(body.playerIdPattern);
+    assertValidPlayerFields(body.playerFields);
 
     const id = slugify(body.id || body.name);
     const existing = await games().doc(id).get();
     if (existing.exists) throw failedPrecondition('Ya existe un juego con ese identificador.');
+
+    const playerFields = body.playerFields ?? [
+      {
+        ...DEFAULT_PLAYER_FIELD,
+        label: body.playerIdLabel ?? DEFAULT_PLAYER_FIELD.label,
+        pattern: body.playerIdPattern ?? DEFAULT_PLAYER_FIELD.pattern,
+        help: body.playerIdHelp ?? DEFAULT_PLAYER_FIELD.help,
+      },
+    ];
 
     const timestamp = now();
     await games().doc(id).set({
@@ -394,9 +506,12 @@ adminRouter.post(
       apiGameType: body.apiGameType,
       currencyLabel: body.currencyLabel,
       currencyIcon: body.currencyIcon ?? '🎮',
-      playerIdLabel: body.playerIdLabel ?? 'ID de Jugador',
-      playerIdPattern: body.playerIdPattern ?? '^\\d{8,12}$',
-      playerIdHelp: body.playerIdHelp ?? 'Ingresa tu ID numérico del juego.',
+      currencyIconUrl: body.currencyIconUrl ?? '',
+      playerFields,
+      // Sólo Free Fire valida el ID contra el juego; el resto acepta cualquier
+      // número. Se asume lo conservador y la tienda pedirá confirmarlo.
+      validatesPlayerId: body.validatesPlayerId ?? false,
+      ...legacyIdFields(playerFields),
       howToFindId: body.howToFindId ?? [],
       logoUrl: body.logoUrl ?? '',
       coverUrl: body.coverUrl ?? '',
@@ -429,9 +544,17 @@ adminRouter.patch(
     const { id } = parseParams(req, idParam);
     const body = parseBody(req, gameSchema.partial());
     assertValidPattern(body.playerIdPattern);
+    assertValidPlayerFields(body.playerFields);
 
     await catalog.getGame(id);
-    await games().doc(id).set({ ...body, updatedAt: now() }, { merge: true });
+    await games()
+      .doc(id)
+      .set(
+        { ...body, ...legacyIdFields(body.playerFields), updatedAt: now() },
+        // `merge` fusiona mapas pero REEMPLAZA arrays, que es justo lo que hace
+        // falta: quitar un campo del juego tiene que quitarlo de verdad.
+        { merge: true }
+      );
 
     await audit.record({
       action: audit.ACTIONS.GAME_UPDATED,
@@ -844,6 +967,19 @@ adminRouter.post(
   })
 );
 
+/** Movimientos de la cartera de un usuario, para auditar de dónde sale su saldo. */
+adminRouter.get(
+  '/users/:id/wallet',
+  asyncHandler(async (req, res) => {
+    const { id } = parseParams(req, idParam);
+    const [profile, transactions] = await Promise.all([
+      usersService.getProfile(id),
+      usersService.listWalletTransactions(id, 50),
+    ]);
+    ok(res, { balanceUsd: profile.walletBalanceUsd ?? 0, transactions });
+  })
+);
+
 adminRouter.post(
   '/users/:id/wallet',
   requireAdmin,
@@ -857,8 +993,11 @@ adminRouter.post(
       })
     );
 
-    const balance = await usersService.adjustWallet(id, body.deltaUsd);
     const actor = currentUser(req);
+    const balance = await usersService.adjustWallet(id, body.deltaUsd, {
+      reason: body.reason,
+      actorUid: actor.uid,
+    });
 
     await Promise.all([
       audit.record({
@@ -909,6 +1048,72 @@ adminRouter.post(
 );
 
 // ===========================================================================
+// Avisos al equipo
+// ===========================================================================
+
+adminRouter.get(
+  '/alerts',
+  asyncHandler(async (req, res) => {
+    const query = parseQuery(
+      req,
+      z.object({
+        limit: z.coerce.number().int().min(1).max(100).default(40),
+        onlyUnread: z.coerce.boolean().default(false),
+      })
+    );
+
+    const [alerts, unread] = await Promise.all([
+      alertsService.listAlerts({ limit: query.limit, onlyUnread: query.onlyUnread }),
+      alertsService.countUnread(),
+    ]);
+
+    ok(res, { alerts, unread });
+  })
+);
+
+adminRouter.post(
+  '/alerts/read-all',
+  asyncHandler(async (_req, res) => {
+    ok(res, { marked: await alertsService.markAllRead() });
+  })
+);
+
+adminRouter.post(
+  '/alerts/:id/read',
+  asyncHandler(async (req, res) => {
+    const { id } = parseParams(req, idParam);
+    await alertsService.markRead(id);
+    ok(res, { read: true });
+  })
+);
+
+/**
+ * Envía un aviso de prueba por los canales configurados.
+ *
+ * Es la única forma razonable de comprobar que el chat de Telegram y el webhook
+ * están bien puestos sin tener que provocar un despacho fallido de verdad.
+ */
+adminRouter.post(
+  '/alerts/test',
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const actor = currentUser(req);
+
+    await alertsService.alert({
+      kind: 'test',
+      severity: 'info',
+      title: 'Aviso de prueba',
+      body: `Si lees esto, los avisos de Refill Store funcionan. Enviado por ${actor.email ?? actor.uid}.`,
+      link: '/admin',
+    });
+
+    // Se relee para poder decirle al panel por qué canales salió de verdad.
+    const [latest] = await alertsService.listAlerts({ limit: 1 });
+    ok(res, { sent: true, delivery: latest?.delivery ?? null });
+  })
+);
+
+// ===========================================================================
 // Configuración
 // ===========================================================================
 
@@ -947,6 +1152,20 @@ const configPatchSchema = z.object({
       amountTolerancePercent: z.coerce.number().min(0).max(10),
       maxVerifyAttempts: z.coerce.number().int().min(1).max(20),
       maxOpenOrdersPerUser: z.coerce.number().int().min(1).max(20),
+      walletEnabled: z.boolean(),
+    })
+    .partial()
+    .optional(),
+  alerts: z
+    .object({
+      enabled: z.boolean(),
+      telegramChatId: z.string().trim().max(40),
+      webhookUrl: z.string().trim().max(400),
+      notifyOnDispatchFailed: z.boolean(),
+      notifyOnManualOrder: z.boolean(),
+      notifyOnNewTicket: z.boolean(),
+      notifyOnPaymentRejected: z.boolean(),
+      lowBalanceThresholdUsd: z.coerce.number().min(0).max(10_000),
     })
     .partial()
     .optional(),

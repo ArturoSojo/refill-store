@@ -11,6 +11,7 @@
  */
 import { motion } from 'framer-motion';
 import { Check, MessageCircle, Zap } from 'lucide-react';
+import { CurrencyIcon } from '@/components/common/CurrencyIcon';
 import { formatBs, formatUsd } from '@/lib/format';
 import { cn, hexToRgb } from '@/lib/utils';
 import type { Game, PublicProduct } from '@/types/models';
@@ -74,9 +75,7 @@ export function PackageCard({ product, game, selected, onSelect, index = 0 }: Pa
 
       {/* Cantidad de moneda del juego */}
       <div className="mb-2 flex items-baseline gap-1.5 pt-3">
-        <span className="text-2xl leading-none" aria-hidden>
-          {game.currencyIcon || '🎮'}
-        </span>
+        <CurrencyIcon game={game} className="h-7 w-7 self-center text-2xl" />
         <div className="min-w-0">
           {product.kind === 'special' ? (
             <p className="truncate text-sm font-bold leading-tight text-white">{product.name}</p>

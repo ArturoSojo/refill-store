@@ -9,7 +9,14 @@ import { Button } from '@/components/ui/Button';
 import { Input, Select } from '@/components/ui/Field';
 import { Modal, ConfirmDialog } from '@/components/ui/Modal';
 import { EmptyState, Skeleton } from '@/components/ui/Feedback';
-import { errorMessage, onlyDigits } from '@/lib/utils';
+import { CurrencyIcon } from '@/components/common/CurrencyIcon';
+import {
+  PlayerFields,
+  cleanValues,
+  fieldsAreValid,
+  gameFields,
+} from '@/features/catalog/PlayerFields';
+import { errorMessage } from '@/lib/utils';
 
 export function PlayerIdsPage() {
   useDocumentTitle('Mis IDs de jugador');
@@ -22,24 +29,33 @@ export function PlayerIdsPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [toDelete, setToDelete] = useState<string | null>(null);
   const [gameId, setGameId] = useState('');
-  const [playerId, setPlayerId] = useState('');
+  const [values, setValues] = useState<Record<string, string>>({});
   const [label, setLabel] = useState('');
 
   const games = catalog.data?.games ?? [];
   const ids = savedIds.data?.playerIds ?? [];
 
+  const selectedGame = games.find((game) => game.id === gameId) ?? null;
+  // Se guardan todos los campos menos los sensibles: un acceso rápido no es
+  // sitio para la contraseña de la cuenta del jugador.
+  const fields = gameFields(selectedGame).filter((field) => !field.sensitive);
+  const primaryKey = fields[0]?.key ?? 'playerId';
+
   const reset = () => {
     setGameId('');
-    setPlayerId('');
+    setValues({});
     setLabel('');
   };
 
   const submit = () => {
+    const clean = cleanValues(fields, values);
+    const { [primaryKey]: primary, ...extra } = clean;
+
     savePlayerId.mutate(
-      { gameId, playerId, label: label.trim() },
+      { gameId, playerId: primary, playerFields: extra, label: label.trim() },
       {
         onSuccess: () => {
-          toast.success('ID guardado.');
+          toast.success('Acceso guardado.');
           setFormOpen(false);
           reset();
         },
@@ -48,7 +64,8 @@ export function PlayerIdsPage() {
     );
   };
 
-  const canSubmit = gameId && playerId.length >= 6 && label.trim().length >= 2;
+  const canSubmit =
+    Boolean(gameId) && fieldsAreValid(fields, values) && label.trim().length >= 2;
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-6">
@@ -93,14 +110,20 @@ export function PlayerIdsPage() {
                     style={{ backgroundColor: `${game?.accentColor ?? '#F03030'}25` }}
                     aria-hidden
                   >
-                    {game?.currencyIcon ?? '🎮'}
+                    {game ? (
+                      <CurrencyIcon game={game} className="h-6 w-6 text-xl" />
+                    ) : (
+                      '🎮'
+                    )}
                   </span>
 
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold text-white">{saved.label}</p>
                     <p className="truncate text-xs text-slate-400">
                       {game?.name ?? saved.gameId} ·{' '}
-                      <span className="tabular">{saved.playerId}</span>
+                      <span className="tabular">
+                        {[saved.playerId, ...Object.values(saved.playerFields ?? {})].join(' · ')}
+                      </span>
                     </p>
                   </div>
 
@@ -132,19 +155,26 @@ export function PlayerIdsPage() {
           <Select
             label="Juego"
             value={gameId}
-            onChange={(event) => setGameId(event.target.value)}
+            onChange={(event) => {
+              // Cada juego pide campos distintos: lo escrito para el anterior
+              // no tiene por qué encajar en el nuevo.
+              setGameId(event.target.value);
+              setValues({});
+            }}
             placeholder="Selecciona un juego"
             options={games.map((game) => ({ value: game.id, label: game.name }))}
             required
           />
-          <Input
-            label="ID de jugador"
-            inputMode="numeric"
-            value={playerId}
-            onChange={(event) => setPlayerId(onlyDigits(event.target.value).slice(0, 20))}
-            placeholder="Ej: 3363122817"
-            required
-          />
+
+          {gameId && (
+            <PlayerFields
+              fields={fields}
+              values={values}
+              onChange={setValues}
+              showErrors={false}
+              idPrefix="guardado"
+            />
+          )}
           <Input
             label="Nombre para identificarlo"
             value={label}

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { QUERY_KEYS } from '@/lib/constants';
 import type {
+  AdminAlert,
   AdminOverview,
   AppConfig,
   AuditLog,
@@ -10,11 +11,13 @@ import type {
   Game,
   Order,
   OrderEvent,
+  PlayerFieldLabel,
   Product,
   ProvidersStatus,
   Ticket,
   TopProductsResponse,
   UserProfile,
+  WalletTransaction,
 } from '@/types/models';
 
 // --- Dashboard -------------------------------------------------------------
@@ -92,9 +95,12 @@ export function useAdminOrder(orderId: string | undefined) {
   return useQuery({
     queryKey: QUERY_KEYS.adminOrder(orderId ?? ''),
     queryFn: () =>
-      api.get<{ order: Order; events: OrderEvent[]; customer: UserProfile | null }>(
-        `/admin/orders/${orderId}`
-      ),
+      api.get<{
+        order: Order;
+        events: OrderEvent[];
+        customer: UserProfile | null;
+        playerFieldLabels: PlayerFieldLabel[];
+      }>(`/admin/orders/${orderId}`),
     enabled: Boolean(orderId),
     refetchInterval: 30_000,
   });
@@ -490,6 +496,68 @@ export function useAuditLogs(filters: { action?: string; actorUid?: string; limi
   return useQuery({
     queryKey: QUERY_KEYS.adminLogs(query),
     queryFn: () => api.get<{ logs: AuditLog[] }>(`/admin/logs${query}`),
+    staleTime: 30_000,
+  });
+}
+
+// --- Avisos al equipo ------------------------------------------------------
+
+export function useAdminAlerts(options: { onlyUnread?: boolean; limit?: number } = {}) {
+  const query = toQueryString(options);
+
+  return useQuery({
+    queryKey: QUERY_KEYS.adminAlerts(query),
+    queryFn: () => api.get<{ alerts: AdminAlert[]; unread: number }>(`/admin/alerts${query}`),
+    staleTime: 20_000,
+    // El objetivo de un aviso es llegar pronto: en el panel abierto se refresca
+    // cada minuto, aparte del empuje por Telegram o webhook.
+    refetchInterval: 60_000,
+  });
+}
+
+function useAlertsInvalidator() {
+  const queryClient = useQueryClient();
+  return () => void queryClient.invalidateQueries({ queryKey: ['admin', 'alerts'] });
+}
+
+export function useMarkAlertsRead() {
+  const invalidate = useAlertsInvalidator();
+
+  return useMutation({
+    mutationFn: () => api.post<{ marked: number }>('/admin/alerts/read-all'),
+    onSuccess: invalidate,
+  });
+}
+
+export function useMarkAlertRead() {
+  const invalidate = useAlertsInvalidator();
+
+  return useMutation({
+    mutationFn: (id: string) => api.post<{ read: boolean }>(`/admin/alerts/${id}/read`),
+    onSuccess: invalidate,
+  });
+}
+
+export function useTestAlert() {
+  const invalidate = useAlertsInvalidator();
+
+  return useMutation({
+    mutationFn: () =>
+      api.post<{ sent: boolean; delivery: AdminAlert['delivery'] | null }>('/admin/alerts/test'),
+    onSuccess: invalidate,
+  });
+}
+
+// --- Cartera de un usuario -------------------------------------------------
+
+export function useAdminUserWallet(uid: string | undefined) {
+  return useQuery({
+    queryKey: QUERY_KEYS.adminUserWallet(uid ?? ''),
+    queryFn: () =>
+      api.get<{ balanceUsd: number; transactions: WalletTransaction[] }>(
+        `/admin/users/${uid}/wallet`
+      ),
+    enabled: Boolean(uid),
     staleTime: 30_000,
   });
 }

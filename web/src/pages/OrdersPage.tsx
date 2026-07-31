@@ -1,13 +1,19 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Receipt, ShoppingBag } from 'lucide-react';
-import { useMyOrders } from '@/hooks/useOrders';
+import { Receipt, ShoppingBag, X } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { useCancelOrder, useMyOrders } from '@/hooks/useOrders';
 import { useDocumentTitle } from '@/hooks/useMisc';
 import { EmptyState, ErrorState, OrderStatusBadge, Skeleton } from '@/components/ui/Feedback';
-import { ButtonLink } from '@/components/ui/Button';
+import { Button, ButtonLink } from '@/components/ui/Button';
+import { ConfirmDialog } from '@/components/ui/Modal';
 import { ROUTES } from '@/lib/constants';
 import { formatBs, formatRelative } from '@/lib/format';
-import { cn } from '@/lib/utils';
+import { cn, errorMessage } from '@/lib/utils';
+import type { Order } from '@/types/models';
+
+/** Estados en los que el cliente todavía puede pagar o desistir. */
+const CANCELLABLE = ['awaiting_payment', 'payment_rejected'];
 
 const FILTERS = [
   { id: 'all', label: 'Todas', value: undefined },
@@ -19,8 +25,11 @@ export function OrdersPage() {
   useDocumentTitle('Mis órdenes');
   const [filter, setFilter] = useState<(typeof FILTERS)[number]['id']>('all');
 
+  const [toCancel, setToCancel] = useState<Order | null>(null);
+
   const selected = FILTERS.find((item) => item.id === filter);
   const { data, isLoading, error } = useMyOrders(selected?.value);
+  const cancelOrder = useCancelOrder();
 
   const orders = data?.orders ?? [];
 
@@ -72,10 +81,10 @@ export function OrdersPage() {
       ) : (
         <ul className="space-y-3">
           {orders.map((order) => (
-            <li key={order.id}>
+            <li key={order.id} className="card p-0">
               <Link
                 to={ROUTES.order(order.id)}
-                className="card card-hover flex items-center gap-4 p-4"
+                className="card-hover flex items-center gap-4 rounded-2xl p-4"
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
@@ -103,10 +112,54 @@ export function OrdersPage() {
                   </p>
                 </div>
               </Link>
+
+              {/* Una orden sin pagar ocupa cupo del tope de órdenes abiertas:
+                  poder cerrarla desde aquí es lo que evita quedarse atascado. */}
+              {CANCELLABLE.includes(order.status) && (
+                <div className="flex gap-2 border-t border-base-600 px-4 py-2.5">
+                  <ButtonLink
+                    to={`${ROUTES.checkout(order.productId)}?orden=${order.id}`}
+                    size="sm"
+                    className="flex-1"
+                  >
+                    Completar el pago
+                  </ButtonLink>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-red-300"
+                    leftIcon={<X className="h-3.5 w-3.5" aria-hidden />}
+                    onClick={() => setToCancel(order)}
+                  >
+                    Cancelar
+                  </Button>
+                </div>
+              )}
             </li>
           ))}
         </ul>
       )}
+
+      <ConfirmDialog
+        open={Boolean(toCancel)}
+        onClose={() => setToCancel(null)}
+        onConfirm={() => {
+          if (!toCancel) return;
+          cancelOrder.mutate(toCancel.id, {
+            onSuccess: () => {
+              toast.success('Orden cancelada.');
+              setToCancel(null);
+            },
+            onError: (error_) => toast.error(errorMessage(error_)),
+          });
+        }}
+        title="Cancelar la orden"
+        message={`Se anulará la orden ${toCancel?.code ?? ''}. Si ya transferiste el dinero, no la canceles: escríbenos por soporte.`}
+        confirmLabel="Sí, cancelar"
+        cancelLabel="Volver"
+        destructive
+        loading={cancelOrder.isPending}
+      />
     </div>
   );
 }

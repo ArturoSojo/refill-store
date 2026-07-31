@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { Link, NavLink, Outlet } from 'react-router-dom';
 import {
+  BellRing,
   Gamepad2,
   LayoutDashboard,
   LifeBuoy,
@@ -16,6 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import { useAuth } from '@/providers/AuthProvider';
+import { useAdminAlerts } from '@/hooks/useAdmin';
 import { BrandMark } from '@/components/common/Brand';
 import { ROUTES } from '@/lib/constants';
 import { cn, initials } from '@/lib/utils';
@@ -23,6 +25,7 @@ import { cn, initials } from '@/lib/utils';
 const NAV = [
   { to: ROUTES.admin, label: 'Resumen', icon: LayoutDashboard, end: true },
   { to: ROUTES.adminOrders, label: 'Órdenes', icon: Receipt, end: false },
+  { to: ROUTES.adminAlerts, label: 'Avisos', icon: BellRing, end: false },
   { to: ROUTES.adminProducts, label: 'Productos', icon: Package, end: false },
   { to: ROUTES.adminGames, label: 'Juegos', icon: Gamepad2, end: false },
   { to: ROUTES.adminUsers, label: 'Usuarios', icon: Users, end: false },
@@ -34,6 +37,10 @@ const NAV = [
 
 function NavItems({ onNavigate }: { onNavigate?: () => void }) {
   const { isAdmin } = useAuth();
+  // El contador va en el menú porque un despacho fallido no puede esperar a que
+  // a alguien se le ocurra abrir la sección.
+  const alerts = useAdminAlerts({ onlyUnread: true, limit: 1 });
+  const unread = alerts.data?.unread ?? 0;
 
   return (
     <ul className="space-y-1">
@@ -41,6 +48,8 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
         // La bitácora y la configuración son sólo para administradores.
         const adminOnly = item.to === ROUTES.adminLogs;
         if (adminOnly && !isAdmin) return null;
+
+        const badge = item.to === ROUTES.adminAlerts && unread > 0 ? unread : null;
 
         return (
           <li key={item.to}>
@@ -58,7 +67,12 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
               }
             >
               <item.icon className="h-4 w-4 shrink-0" aria-hidden />
-              {item.label}
+              <span className="flex-1">{item.label}</span>
+              {badge && (
+                <span className="rounded-full bg-neon-red px-1.5 py-0.5 text-[10px] font-bold text-white">
+                  {badge > 99 ? '99+' : badge}
+                </span>
+              )}
             </NavLink>
           </li>
         );

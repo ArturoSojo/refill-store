@@ -11,6 +11,7 @@ import { OrdersPage } from '@/pages/OrdersPage';
 import { LoginPage } from '@/pages/LoginPage';
 import { AccountPage } from '@/pages/AccountPage';
 import { PlayerIdsPage } from '@/pages/PlayerIdsPage';
+import { WalletPage } from '@/pages/WalletPage';
 import { ReferralsPage } from '@/pages/ReferralsPage';
 import { NotificationsPage } from '@/pages/NotificationsPage';
 import { SupportPage, TicketPage } from '@/pages/SupportPage';
@@ -25,6 +26,7 @@ import { AdminUsers, AdminUserDetail } from '@/pages/admin/AdminUsers';
 import { AdminCoupons } from '@/pages/admin/AdminCoupons';
 import { AdminSettings } from '@/pages/admin/AdminSettings';
 import { AdminSupport, AdminLogs } from '@/pages/admin/AdminSupport';
+import { AdminAlerts } from '@/pages/admin/AdminAlerts';
 
 export function App() {
   return (
@@ -84,6 +86,14 @@ export function App() {
             }
           />
           <Route
+            path="cuenta/saldo"
+            element={
+              <RequireAuth>
+                <WalletPage />
+              </RequireAuth>
+            }
+          />
+          <Route
             path="cuenta/referidos"
             element={
               <RequireAuth>
@@ -121,6 +131,7 @@ export function App() {
           <Route path="usuarios/:uid" element={<AdminUserDetail />} />
           <Route path="cupones" element={<AdminCoupons />} />
           <Route path="soporte" element={<AdminSupport />} />
+          <Route path="avisos" element={<AdminAlerts />} />
           <Route path="configuracion" element={<AdminSettings />} />
           <Route path="bitacora" element={<AdminLogs />} />
           <Route path="*" element={<Navigate to="/admin" replace />} />

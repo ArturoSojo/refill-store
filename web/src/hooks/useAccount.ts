@@ -9,7 +9,23 @@ import type {
   TicketMessage,
   UserNotification,
   UserProfile,
+  WalletTransaction,
 } from '@/types/models';
+
+/** Saldo a favor y sus movimientos. */
+export function useWallet() {
+  const { user } = useAuth();
+
+  return useQuery({
+    queryKey: QUERY_KEYS.wallet,
+    queryFn: () =>
+      api.get<{ balanceUsd: number; enabled: boolean; transactions: WalletTransaction[] }>(
+        '/me/wallet'
+      ),
+    enabled: Boolean(user),
+    staleTime: 20_000,
+  });
+}
 
 export function useSavedPlayerIds() {
   const { user } = useAuth();
@@ -29,6 +45,8 @@ export function useSavePlayerId() {
     mutationFn: (input: {
       gameId: string;
       playerId: string;
+      /** Campos extra del juego (Zone ID…). El servidor descarta contraseñas. */
+      playerFields?: Record<string, string>;
       label: string;
       isDefault?: boolean;
     }) => api.post<{ id: string; updated: boolean }>('/me/player-ids', input),

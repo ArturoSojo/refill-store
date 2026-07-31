@@ -141,11 +141,17 @@ misma que las funciones, para que las lecturas no crucen regiones).
 firebase functions:secrets:set PABILO_API_KEY
 firebase functions:secrets:set PABILO_USER_BANK_ID
 firebase functions:secrets:set INEFABLE_API_KEY
-firebase functions:secrets:set SETUP_TOKEN      # inventa una cadena larga
+firebase functions:secrets:set SETUP_TOKEN         # inventa una cadena larga
+firebase functions:secrets:set TELEGRAM_BOT_TOKEN  # opcional: avisos al equipo
 ```
 
 Los valores de los tres primeros están en el documento de especificaciones.
 `SETUP_TOKEN` es temporal: lo borras en cuanto tengas tu administrador.
+
+`TELEGRAM_BOT_TOKEN` tiene que **existir** para poder desplegar, pero puede quedarse con un
+marcador (`sin-configurar`): mientras no contenga un token real —los de Telegram tienen la
+forma `123456:ABC…`— los avisos se guardan en el panel y no se intenta ningún envío. El chat
+destino se pone en **Panel → Configuración → Avisos**.
 
 ### 6. Desplegar
 
@@ -351,7 +357,26 @@ dueño legítimo de esa referencia pueda usarla.
 puede reintentar. Nunca se rechaza un pago por un fallo de red: el dinero pudo haber salido.
 
 **Órdenes sin pagar.** Caducan a los 30 minutos (configurable). Una tarea programada las
-marca como expiradas cada 15 minutos.
+marca como expiradas cada 5 minutos, y además se caducan al vuelo cuando el cliente intenta
+crear otra orden: así una orden muerta nunca ocupa cupo del tope de órdenes abiertas. Las
+órdenes con la referencia rechazada caducan igual —antes se quedaban vivas para siempre—.
+
+**Salir del muro de órdenes abiertas.** Al chocar con el tope, el checkout abre un diálogo
+con las órdenes que lo están bloqueando y permite pagarlas o cancelarlas ahí mismo. También
+hay botón de cancelar en *Mis órdenes* y en el detalle de cada orden.
+
+**Retomar una orden.** «Completar el pago» abre `/comprar/{producto}?orden={id}`, que
+reconstruye la pantalla de pago de **esa** orden: mismo monto, misma tasa, mismos datos del
+jugador y el reloj original corriendo. No se crea una orden nueva ni se vuelve a pedir el ID.
+
+**Saldo a favor.** Los reembolsos y las recompensas por referido van a la cartera del
+cliente (`users/{uid}/wallet`), que ahora **se puede gastar**: al comprar, el saldo se
+descuenta del total y sólo se transfiere la diferencia. Si lo cubre entero, la orden se
+marca pagada sin pasar por Pabilo y se despacha de inmediato.
+
+El débito ocurre **al crear la orden**, dentro de una transacción: sin eso, dos compras
+simultáneas leerían el mismo saldo y ambas creerían tenerlo. Si la orden se cancela o
+caduca, el saldo vuelve (una sola vez, marcada con `pricing.walletRefunded`).
 
 ## Catálogo
 
@@ -373,8 +398,31 @@ Combos: 200+20 (`1` ×2), 410+41 (`2`+`1`), 620+62 (`3`+`1`), 830+83 (`3`+`2`).
 **Blood Strike** — `game_id: 15`, `game_type: dynamic`
 Paquetes `112, 96, 97, 98, 99, 100, 101` con los costos del documento.
 
-**Productos manuales** (Categoría B): pases y tarjetas de ambos juegos. No se envían al
-proveedor; tras verificar el pago se genera el enlace de WhatsApp.
+**Mobile Legends** — `game_id: 1`, `game_type: dynamic`
+Paquetes `1-9` y `49`. **Pide dos campos**: ID de Jugador y Zone ID. Sin el segundo, el
+proveedor responde `Please insert Zone ID into input2` y la recarga no sale.
+
+**Honor of Kings** — `game_id: 16`. Paquetes `102-111`.
+
+**Marvel Rivals** — `game_id: 11`. Paquetes `90-95`.
+
+Los `package_id` y costos de estos tres salen del catálogo vivo del proveedor
+(`GET /api/v1/products`), no del PDF.
+
+**Productos manuales** (Categoría B): pases y tarjetas de Free Fire y Blood Strike. No se
+envían al proveedor; tras verificar el pago se genera el enlace de WhatsApp.
+
+> ### ⚠️ El proveedor NO valida el ID en casi ningún juego
+>
+> Sólo Free Fire (`game_id: -1`) rechaza un ID inexistente («Error de ID del jugador»). Los
+> juegos `dynamic` —Blood Strike, Mobile Legends, Honor of Kings, Marvel Rivals— aceptan
+> **cualquier** número, responden `completada` y **cobran igual**. Comprobado enviando el ID
+> `1`: HTTP 200 y saldo descontado.
+>
+> Por eso cada juego tiene la bandera `validatesPlayerId`. Cuando está en `false`, la tienda
+> muestra un aviso junto al formulario y **exige confirmar los datos** antes de crear la
+> orden. No lo actives en un juego sin haber comprobado que el proveedor rechaza IDs falsos:
+> una recarga a un ID equivocado no se recupera.
 
 > **Sobre los precios de venta:** el documento sólo especifica **costos**. Al sembrar, el
 > precio de venta se calcula aplicando el **margen por defecto (25 %)** redondeado a
@@ -456,9 +504,10 @@ Ruta `/admin`, visible para roles `staff` y `admin`.
 | **Resumen**       | Ingresos, utilidad, órdenes, usuarios, gráficos, top de productos y alertas activas |
 | **Órdenes**       | Filtrar, buscar por código/ID/referencia, exportar CSV                              |
 | Detalle de orden  | Reintentar despacho, completar manualmente, reembolsar, nota interna, historial      |
+| **Avisos**        | Bandeja de alertas del equipo, con el resultado de envío por cada canal              |
 | **Productos**     | CRUD, editor de llamadas (`package_id`), stock, destacados, recálculo por margen     |
-| **Juegos**        | CRUD, `game_id`/`game_type`, patrón de validación del ID, colores e imágenes         |
-| **Usuarios**      | Buscar, ver ficha e historial, cambiar rol, bloquear, ajustar saldo, notificar       |
+| **Juegos**        | CRUD, `game_id`/`game_type`, **campos que pide el juego**, icono de moneda, colores  |
+| **Usuarios**      | Buscar, ficha e historial, rol, bloqueo, saldo con su libro de movimientos, notificar |
 | **Cupones**       | Porcentaje o monto fijo, mínimos, topes, límites por usuario, vigencia, por juego    |
 | **Soporte**       | Consultas de los clientes y cambio de estado                                        |
 | **Configuración** | Tasa (manual/automática), datos bancarios, WhatsApp, checkout, márgenes, avisos      |
@@ -470,6 +519,37 @@ Interruptores útiles en Configuración:
   pudiendo comprar para probar.
 - **Despacho automático** — si lo apagas, los pagos se verifican pero las recargas quedan
   esperando acción manual. Sirve si el proveedor está caído.
+- **Pago con saldo a favor** — permite gastar el saldo acumulado. Si lo apagas, el saldo se
+  sigue acumulando pero no se puede usar.
+
+### Campos por juego
+
+Cada juego declara qué le pide al comprador (**Panel → Juegos → editar**). El proveedor sólo
+acepta dos identificadores, así que las opciones de cada campo son:
+
+| Se envía como | Para qué sirve                                                          |
+| ------------- | ----------------------------------------------------------------------- |
+| `player_id`   | Identificador principal. **Exactamente un campo** debe llevarlo.         |
+| `player_id2`  | Segundo identificador (Zone ID de Mobile Legends). Como mucho uno.       |
+| *(ninguno)*   | Sólo para entregas manuales: correo y contraseña de Roblox o CoD Mobile. |
+
+Los campos marcados como **sensibles** (contraseñas) no se guardan como acceso rápido del
+cliente y aparecen ocultos en el panel hasta que se pulsa el ojo. Aun así **se almacenan en
+claro** en la orden, porque es la única forma de que el equipo pueda completar la entrega:
+trata ese dato con el mismo cuidado que una credencial propia.
+
+### Avisos al equipo
+
+Tres canales, independientes entre sí:
+
+1. **Bandeja del panel** (`/admin/avisos`) — siempre se escribe, aunque el resto falle.
+2. **Telegram** — empuje real al móvil. Necesita `TELEGRAM_BOT_TOKEN` y el chat destino.
+3. **Webhook** — un `POST` con el aviso en JSON. Es la vía para llevarlo a correo o WhatsApp
+   desde Make, Zapier o n8n sin meter credenciales SMTP en este proyecto.
+
+Se avisa de: recarga fallida (el cliente ya pagó), producto manual pagado, tickets nuevos y
+respuestas, saldo bajo del proveedor y, si lo activas, pagos rechazados. El botón *Probar
+envío* manda un aviso real y dice por qué canales salió.
 
 ## Seguridad
 

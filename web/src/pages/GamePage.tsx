@@ -9,11 +9,10 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence } from 'framer-motion';
 import {
-  BadgeCheck,
+  AlertTriangle,
   ChevronLeft,
-  Gamepad2,
   HelpCircle,
   Loader2,
   Sparkles,
@@ -30,13 +29,20 @@ import { useConfig } from '@/providers/ConfigProvider';
 import { GameSelector } from '@/features/catalog/GameSelector';
 import { PackageCard } from '@/features/catalog/PackageCard';
 import { PurchaseBar } from '@/features/catalog/PurchaseBar';
+import {
+  PlayerFields,
+  cleanValues,
+  fieldsAreValid,
+  gameFields,
+} from '@/features/catalog/PlayerFields';
 import { AnimatedBackground } from '@/components/common/Decor';
-import { Input } from '@/components/ui/Field';
-import { Modal } from '@/components/ui/Modal';
+import { Input, Switch } from '@/components/ui/Field';
+import { Modal, ConfirmDialog } from '@/components/ui/Modal';
 import { ErrorState, FullPageLoader, EmptyState } from '@/components/ui/Feedback';
 import { ButtonLink } from '@/components/ui/Button';
 import { ROUTES } from '@/lib/constants';
-import { cn, hexToRgb, onlyDigits } from '@/lib/utils';
+import { formatUsd } from '@/lib/format';
+import { cn, hexToRgb } from '@/lib/utils';
 import type { PricePreview, PublicProduct } from '@/types/models';
 
 type Tab = 'auto' | 'manual';
@@ -52,14 +58,16 @@ export function GamePage() {
   const savedIds = useSavedPlayerIds();
   const pricePreview = usePricePreview();
 
-  const [playerId, setPlayerId] = useState('');
+  const [playerValues, setPlayerValues] = useState<Record<string, string>>({});
   const [touched, setTouched] = useState(false);
   const [tab, setTab] = useState<Tab>('auto');
   const [quantity, setQuantity] = useState(1);
   const [couponCode, setCouponCode] = useState('');
   const [showCoupon, setShowCoupon] = useState(false);
+  const [useWallet, setUseWallet] = useState(false);
   const [preview, setPreview] = useState<PricePreview | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const games = catalog.data?.games ?? [];
   const game = games.find((item) => item.id === slug) ?? games[0];
@@ -76,28 +84,24 @@ export function GamePage() {
 
   useDocumentTitle(game ? `Recargar ${game.name}` : 'Recargar');
 
-  const pattern = useMemo(() => {
-    try {
-      return new RegExp(game?.playerIdPattern ?? '^\\d{8,12}$');
-    } catch {
-      return /^\d{8,12}$/;
-    }
-  }, [game?.playerIdPattern]);
-
-  const idIsValid = pattern.test(playerId);
-  const showIdError = touched && playerId.length > 0 && !idIsValid;
+  const fields = useMemo(() => gameFields(game), [game]);
+  const idIsValid = fieldsAreValid(fields, playerValues);
+  const primaryField = fields[0];
 
   const gameSavedIds = (savedIds.data?.playerIds ?? []).filter(
     (saved) => saved.gameId === game?.id
   );
 
-  // Al cambiar de juego se limpia el paquete: los `package_id` no se comparten.
+  // Al cambiar de juego se limpia el paquete Y los datos del jugador: ni los
+  // `package_id` ni los campos se comparten entre juegos.
   const selectGame = (gameId: string) => {
     if (gameId === game?.id) return;
     setSearchParams({}, { replace: true });
     setQuantity(1);
     setPreview(null);
     setTab('auto');
+    setPlayerValues({});
+    setTouched(false);
     navigate(ROUTES.game(gameId));
   };
 
@@ -119,14 +123,19 @@ export function GamePage() {
 
     const timeout = setTimeout(() => {
       pricePreview.mutate(
-        { productId: selected.id, quantity, couponCode: couponCode.trim() || null },
+        {
+          productId: selected.id,
+          quantity,
+          couponCode: couponCode.trim() || null,
+          useWallet,
+        },
         { onSuccess: setPreview }
       );
     }, 350);
 
     return () => clearTimeout(timeout);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, selected?.id, quantity, couponCode]);
+  }, [user, selected?.id, quantity, couponCode, useWallet]);
 
   if (catalog.isLoading) return <FullPageLoader label="Cargando el catálogo…" />;
 
@@ -148,19 +157,38 @@ export function GamePage() {
 
   const accent = game.accentColor || '#F03030';
 
+  const missingLabel = fields
+    .filter((field) => field.required && !(playerValues[field.key] ?? '').trim())
+    .map((field) => field.label)
+    .join(' y ');
+
   const continueDisabled = !selected || !idIsValid;
   const disabledReason = !selected
     ? undefined
     : !idIsValid
-      ? `Escribe tu ${game.playerIdLabel} para continuar`
+      ? `Completa ${missingLabel || primaryField.label} para continuar`
       : undefined;
+
+  const startCheckout = () => {
+    if (!selected) return;
+
+    // El checkout recibe todo hecho: no vuelve a pedir los datos del jugador.
+    navigate(ROUTES.checkout(selected.id), {
+      state: {
+        playerFields: cleanValues(fields, playerValues),
+        quantity,
+        couponCode: couponCode.trim() || null,
+        useWallet,
+      },
+    });
+  };
 
   const goToPayment = () => {
     if (!selected || !idIsValid) {
       setTouched(true);
       if (!idIsValid) {
-        toast.error(`Necesitamos tu ${game.playerIdLabel} para continuar.`);
-        document.getElementById('player-id-input')?.scrollIntoView({
+        toast.error(`Necesitamos tu ${missingLabel || primaryField.label} para continuar.`);
+        document.getElementById(`compra-${primaryField.key}`)?.scrollIntoView({
           behavior: 'smooth',
           block: 'center',
         });
@@ -168,10 +196,14 @@ export function GamePage() {
       return;
     }
 
-    // El checkout recibe todo hecho: no vuelve a pedir el ID.
-    navigate(ROUTES.checkout(selected.id), {
-      state: { playerId, quantity, couponCode: couponCode.trim() || null },
-    });
+    // El proveedor de estos juegos acepta cualquier número y cobra igual: un
+    // dígito mal escrito se pierde. Por eso se pide confirmar antes de cobrar.
+    if (game.validatesPlayerId === false) {
+      setConfirmOpen(true);
+      return;
+    }
+
+    startCheckout();
   };
 
   return (
@@ -205,7 +237,9 @@ export function GamePage() {
             <span className="flex h-5 w-5 items-center justify-center rounded-md bg-brand-gradient text-[10px] font-black text-white">
               2
             </span>
-            {game.playerIdLabel}
+            {fields.length > 1
+              ? `${fields.map((field) => field.label).join(' + ')}`
+              : primaryField.label}
           </h2>
 
           <div
@@ -215,28 +249,13 @@ export function GamePage() {
               background: `linear-gradient(180deg, rgba(${hexToRgb(accent)}, 0.06), transparent)`,
             }}
           >
-            <Input
-              id="player-id-input"
-              inputMode="numeric"
-              autoComplete="off"
-              placeholder={`Ej: 3363122817`}
-              value={playerId}
-              onChange={(event) => setPlayerId(onlyDigits(event.target.value).slice(0, 20))}
+            <PlayerFields
+              fields={fields}
+              values={playerValues}
+              onChange={setPlayerValues}
+              showErrors={touched}
               onBlur={() => setTouched(true)}
-              leftIcon={<Gamepad2 className="h-4 w-4" aria-hidden />}
-              error={showIdError ? game.playerIdHelp : null}
-              className="text-lg font-semibold tracking-wide"
-              rightSlot={
-                idIsValid ? (
-                  <motion.span
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-400"
-                  >
-                    <BadgeCheck className="h-4 w-4" aria-hidden />
-                  </motion.span>
-                ) : null
-              }
+              idPrefix="compra"
             />
 
             <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -246,7 +265,7 @@ export function GamePage() {
                 className="inline-flex items-center gap-1 text-xs text-neon-crimson hover:underline"
               >
                 <HelpCircle className="h-3 w-3" aria-hidden />
-                ¿Dónde encuentro mi ID?
+                ¿Dónde encuentro mis datos?
               </button>
 
               {gameSavedIds.length > 0 && (
@@ -257,12 +276,16 @@ export function GamePage() {
                       key={saved.id}
                       type="button"
                       onClick={() => {
-                        setPlayerId(saved.playerId);
+                        // Un acceso guardado trae el ID y sus campos extra.
+                        setPlayerValues({
+                          ...(saved.playerFields ?? {}),
+                          [primaryField.key]: saved.playerId,
+                        });
                         setTouched(true);
                       }}
                       className={cn(
                         'rounded-full border px-2.5 py-1 text-xs font-medium transition',
-                        playerId === saved.playerId
+                        playerValues[primaryField.key] === saved.playerId
                           ? 'border-neon-red bg-neon-red/15 text-white'
                           : 'border-base-600 bg-base-900 text-slate-400 hover:text-white'
                       )}
@@ -273,6 +296,16 @@ export function GamePage() {
                 </>
               )}
             </div>
+
+            {game.validatesPlayerId === false && (
+              <p className="mt-3 flex items-start gap-1.5 rounded-xl bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                <span>
+                  En {game.name} la recarga entra en la cuenta que indiques sin comprobación
+                  previa. Revisa bien tus datos: una vez enviada no se puede revertir.
+                </span>
+              </p>
+            )}
           </div>
         </section>
 
@@ -379,6 +412,24 @@ export function GamePage() {
           </section>
         )}
 
+        {/* Saldo a favor */}
+        {preview && preview.walletEnabled && preview.walletBalanceUsd > 0 && selected && (
+          <section className="mt-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-3">
+            <Switch
+              checked={useWallet}
+              onChange={setUseWallet}
+              label={`Usar mi saldo a favor (${formatUsd(preview.walletBalanceUsd)})`}
+              description={
+                useWallet && preview.walletAppliedUsd > 0
+                  ? preview.amountDueUsd === 0
+                    ? 'Tu saldo cubre la compra completa: no tendrás que transferir nada.'
+                    : `Se descontarán ${formatUsd(preview.walletAppliedUsd)} y transferirás el resto.`
+                  : 'Descuenta primero de tu saldo y transfiere sólo la diferencia.'
+              }
+            />
+          </section>
+        )}
+
         {preview && preview.tierPercent > 0 && (
           <p className="mt-3 flex items-center gap-1.5 text-xs text-emerald-300">
             <Sparkles className="h-3.5 w-3.5" aria-hidden />
@@ -407,10 +458,41 @@ export function GamePage() {
         disabledReason={disabledReason}
       />
 
+      <ConfirmDialog
+        open={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={() => {
+          setConfirmOpen(false);
+          startCheckout();
+        }}
+        title="Confirma tus datos"
+        message={
+          <div className="space-y-3">
+            <p>
+              {game.name} acredita la recarga en la cuenta que indiques{' '}
+              <strong className="text-white">sin verificarla antes</strong>. Si algún dato está
+              mal, la recarga se pierde.
+            </p>
+            <dl className="space-y-1.5 rounded-xl bg-base-900 px-4 py-3">
+              {fields.map((field) => (
+                <div key={field.key} className="flex items-center justify-between gap-3">
+                  <dt className="text-xs text-slate-400">{field.label}</dt>
+                  <dd className="tabular text-sm font-semibold text-white">
+                    {field.type === 'password' ? '••••••' : (playerValues[field.key] ?? '—')}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        }
+        confirmLabel="Están correctos, continuar"
+        cancelLabel="Volver a revisar"
+      />
+
       <Modal
         open={helpOpen}
         onClose={() => setHelpOpen(false)}
-        title={`¿Dónde encuentro mi ${game.playerIdLabel}?`}
+        title={`¿Dónde encuentro mis datos de ${game.name}?`}
         size="sm"
       >
         <ol className="space-y-3">
