@@ -233,6 +233,87 @@ export async function checkProviderBalance(remainingBalance: number | null): Pro
   }
 }
 
+export interface TelegramChat {
+  id: string;
+  name: string;
+  type: string;
+}
+
+/**
+ * Descubre a qué chats puede escribir el bot.
+ *
+ * Telegram no ofrece «dame mi chat_id»: el único camino es que alguien le
+ * escriba al bot y leer `getUpdates`. Automatizarlo evita el paso más molesto
+ * del montaje —buscar el número a mano en una URL de la API— y evita también
+ * pegar un chat equivocado, que falla en silencio.
+ */
+export async function detectTelegramChats(): Promise<{
+  ok: boolean;
+  botName: string | null;
+  chats: TelegramChat[];
+  message: string | null;
+}> {
+  const token = TELEGRAM_BOT_TOKEN.value() ?? '';
+  if (!hasTelegramToken(token)) {
+    return {
+      ok: false,
+      botName: null,
+      chats: [],
+      message: 'Falta el secreto TELEGRAM_BOT_TOKEN.',
+    };
+  }
+
+  const [me, updates] = await Promise.all([
+    fetchJson<{ ok?: boolean; result?: { username?: string } }>(
+      `https://api.telegram.org/bot${token}/getMe`,
+      { method: 'GET', timeoutMs: 10_000, retries: 1 }
+    ),
+    fetchJson<{
+      ok?: boolean;
+      result?: Array<Record<string, { chat?: { id?: number; title?: string; first_name?: string; last_name?: string; type?: string } }>>;
+    }>(`https://api.telegram.org/bot${token}/getUpdates`, {
+      method: 'GET',
+      timeoutMs: 10_000,
+      retries: 1,
+    }),
+  ]);
+
+  if (!me.ok || me.data?.ok !== true) {
+    return { ok: false, botName: null, chats: [], message: 'Telegram rechazó el token del bot.' };
+  }
+
+  const botName = me.data.result?.username ? `@${me.data.result.username}` : null;
+  const found = new Map<string, TelegramChat>();
+
+  for (const update of updates.data?.result ?? []) {
+    // El chat puede venir en `message`, `channel_post`, `my_chat_member`…: se
+    // recorre el update entero en vez de adivinar el nombre del campo.
+    for (const value of Object.values(update)) {
+      const chat = value?.chat;
+      if (!chat?.id) continue;
+
+      found.set(String(chat.id), {
+        id: String(chat.id),
+        name:
+          chat.title ??
+          [chat.first_name, chat.last_name].filter(Boolean).join(' ') ??
+          String(chat.id),
+        type: chat.type ?? 'private',
+      });
+    }
+  }
+
+  return {
+    ok: true,
+    botName,
+    chats: [...found.values()],
+    message:
+      found.size === 0
+        ? `Nadie le ha escrito al bot todavía. Abre ${botName ?? 'el bot'} en Telegram, envíale /start y vuelve a intentarlo.`
+        : null,
+  };
+}
+
 export async function listAlerts(options: { limit?: number; onlyUnread?: boolean } = {}) {
   const limit = options.limit ?? 50;
   const snap = options.onlyUnread

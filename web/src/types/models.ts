@@ -598,7 +598,12 @@ export interface AdminOverview {
 }
 
 export interface ProvidersStatus {
-  pabilo: { configured: boolean };
+  pabilo: {
+    configured: boolean;
+    /** `false` si Pabilo ya no reconoce la cuenta bancaria configurada. */
+    accountOk: boolean;
+    message: string | null;
+  };
   inefable: {
     configured: boolean;
     reachable: boolean;

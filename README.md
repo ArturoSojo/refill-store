@@ -151,7 +151,15 @@ Los valores de los tres primeros están en el documento de especificaciones.
 `TELEGRAM_BOT_TOKEN` tiene que **existir** para poder desplegar, pero puede quedarse con un
 marcador (`sin-configurar`): mientras no contenga un token real —los de Telegram tienen la
 forma `123456:ABC…`— los avisos se guardan en el panel y no se intenta ningún envío. El chat
-destino se pone en **Panel → Configuración → Avisos**.
+destino se pone en **Panel → Configuración → Avisos**, con el botón *Detectar
+automáticamente* (necesita que alguien le haya escrito `/start` al bot antes).
+
+> **`PABILO_USER_BANK_ID` puede caducar.** Es el identificador de la cuenta bancaria dentro
+> de Pabilo, y cambia si la cuenta se recrea. Cuando eso pasa, Pabilo responde **HTTP 500**
+> con `user_bank not found`, que se parece a una caída suya pero no lo es: ningún pago se
+> puede verificar hasta cambiar el secreto. Por eso el panel comprueba la cuenta de verdad
+> (**Configuración → Integraciones**) en lugar de limitarse a mirar si el secreto existe, y
+> el mensaje al cliente distingue «no se arregla reintentando» de «intenta en unos minutos».
 
 ### 6. Desplegar
 

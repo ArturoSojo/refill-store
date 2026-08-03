@@ -538,6 +538,19 @@ export function useMarkAlertRead() {
   });
 }
 
+/** Chats a los que el bot puede escribir; evita buscar el `chat_id` a mano. */
+export function useTelegramChats() {
+  return useMutation({
+    mutationFn: () =>
+      api.get<{
+        ok: boolean;
+        botName: string | null;
+        chats: Array<{ id: string; name: string; type: string }>;
+        message: string | null;
+      }>('/admin/alerts/telegram/chats'),
+  });
+}
+
 export function useTestAlert() {
   const invalidate = useAlertsInvalidator();
 

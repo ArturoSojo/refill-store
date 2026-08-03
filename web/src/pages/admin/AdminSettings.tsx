@@ -21,6 +21,7 @@ import {
   useRefreshRate,
   useRateHistory,
   useProvidersStatus,
+  useTelegramChats,
   useTestAlert,
 } from '@/hooks/useAdmin';
 import { useAuth } from '@/providers/AuthProvider';
@@ -44,6 +45,7 @@ export function AdminSettings() {
   const rateHistory = useRateHistory();
   const providers = useProvidersStatus();
   const testAlert = useTestAlert();
+  const telegramChats = useTelegramChats();
 
   const [rateValue, setRateValue] = useState('');
   const [form, setForm] = useState<Record<string, unknown>>({});
@@ -106,13 +108,30 @@ export function AdminSettings() {
           icon={<Zap className="h-4 w-4" aria-hidden />}
         />
         <div className="grid gap-3 sm:grid-cols-2">
-          <div className="flex items-center justify-between rounded-xl bg-base-900/60 px-4 py-3">
-            <div>
+          <div className="flex items-start justify-between gap-3 rounded-xl bg-base-900/60 px-4 py-3">
+            <div className="min-w-0">
               <p className="text-sm font-medium text-white">Pabilo</p>
               <p className="text-xs text-slate-400">Verificación de Pago Móvil</p>
+              {/* Tener la clave cargada no basta: si la cuenta bancaria dejó de
+                  existir en Pabilo, todos los pagos se rechazan. */}
+              {providers.data?.pabilo.message && (
+                <p className="mt-1 text-xs text-red-400">{providers.data.pabilo.message}</p>
+              )}
             </div>
-            <Badge variant={providers.data?.pabilo.configured ? 'success' : 'danger'}>
-              {providers.data?.pabilo.configured ? 'Configurado' : 'Falta clave'}
+            <Badge
+              variant={
+                !providers.data?.pabilo.configured
+                  ? 'danger'
+                  : providers.data.pabilo.accountOk
+                    ? 'success'
+                    : 'danger'
+              }
+            >
+              {!providers.data?.pabilo.configured
+                ? 'Falta clave'
+                : providers.data.pabilo.accountOk
+                  ? 'Operativo'
+                  : 'Con problema'}
             </Badge>
           </div>
           <div className="flex items-center justify-between rounded-xl bg-base-900/60 px-4 py-3">
@@ -476,10 +495,42 @@ export function AdminSettings() {
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <Input
             label="Chat de Telegram"
-            defaultValue={config.alerts?.telegramChatId ?? ''}
+            value={sectionValue('alerts', 'telegramChatId', config.alerts?.telegramChatId ?? '')}
             onChange={(event) => patch('alerts', { telegramChatId: event.target.value.trim() })}
             placeholder="123456789"
-            hint="Escríbele a tu bot y saca el chat_id de api.telegram.org/bot<token>/getUpdates. El token va en el secreto TELEGRAM_BOT_TOKEN."
+            hint={
+              isAdmin ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    telegramChats.mutate(undefined, {
+                      onSuccess: (data) => {
+                        if (data.chats.length === 1) {
+                          // Un solo chat: se rellena solo, que es el caso normal.
+                          patch('alerts', { telegramChatId: data.chats[0].id });
+                          toast.success(`Chat detectado: ${data.chats[0].name}. Guarda los cambios.`);
+                        } else if (data.chats.length > 1) {
+                          toast(
+                            `Varios chats: ${data.chats.map((c) => `${c.name} (${c.id})`).join(', ')}`,
+                            { duration: 8000 }
+                          );
+                        } else {
+                          toast.error(data.message ?? 'No se encontró ningún chat.', {
+                            duration: 8000,
+                          });
+                        }
+                      },
+                      onError: (error) => toast.error(errorMessage(error)),
+                    })
+                  }
+                  className="font-semibold text-neon-crimson hover:underline"
+                >
+                  {telegramChats.isPending ? 'Buscando…' : 'Detectar automáticamente'}
+                </button>
+              ) : (
+                'El token del bot va en el secreto TELEGRAM_BOT_TOKEN.'
+              )
+            }
             disabled={!isAdmin}
           />
           <Input

@@ -66,6 +66,17 @@ function toNumber(value: unknown): number | null {
 }
 
 /**
+ * `true` si Pabilo dice que la cuenta bancaria configurada no existe.
+ *
+ * Lo devuelve como 500 con `user_bank not found`, indistinguible a simple vista
+ * de una caída suya. Se mira el cuerpo porque el código HTTP miente sobre de
+ * quién es la culpa.
+ */
+function isUnknownBankAccount(response: { status: number; raw: string }): boolean {
+  return response.status >= 400 && /user_?bank not found/i.test(response.raw);
+}
+
+/**
  * Consulta a Pabilo si la referencia corresponde a un pago válido y sin usar.
  *
  * No lanza excepción cuando el pago simplemente no es válido: eso es una
@@ -111,6 +122,24 @@ export async function verifyPayment(input: PabiloVerifyInput): Promise<PabiloVer
     throw providerError(
       'No pudimos comunicarnos con el verificador de pagos. Intenta de nuevo en un minuto.',
       { transport: response.raw }
+    );
+  }
+
+  // Cuenta bancaria inexistente en Pabilo: parece una caída (responde 500) pero
+  // es un error de CONFIGURACIÓN, y no se arregla esperando. Pasó de verdad: al
+  // recrearse la cuenta cambió su identificador y `PABILO_USER_BANK_ID` quedó
+  // apuntando a una que ya no existía, así que todos los pagos se rechazaban con
+  // un «intenta más tarde» que nunca iba a dejar de aparecer.
+  if (isUnknownBankAccount(response)) {
+    log.error('Pabilo no reconoce la cuenta bancaria configurada', {
+      bankId: `***${bankId.slice(-6)}`,
+      body: response.raw.slice(0, 200),
+    });
+
+    throw providerError(
+      'La verificación de pagos está mal configurada (Pabilo no reconoce la cuenta). ' +
+        'Avísale al soporte: no se arregla reintentando.',
+      { httpStatus: response.status, reason: 'unknown_user_bank' }
     );
   }
 
@@ -160,4 +189,61 @@ export async function verifyPayment(input: PabiloVerifyInput): Promise<PabiloVer
 /** Comprobación de configuración usada por el panel de administración. */
 export function isPabiloConfigured(): boolean {
   return Boolean(PABILO_API_KEY.value() && PABILO_USER_BANK_ID.value());
+}
+
+export interface PabiloHealth {
+  configured: boolean;
+  /** `true` si Pabilo respondió y reconoce la cuenta bancaria. */
+  accountOk: boolean;
+  message: string | null;
+}
+
+/**
+ * Comprueba que Pabilo reconoce la cuenta configurada.
+ *
+ * Consulta una referencia inexistente: es una lectura, no mueve dinero. «No
+ * encontré ese pago» significa que la cuenta está bien; «user_bank not found»
+ * significa que el `PABILO_USER_BANK_ID` apunta a una cuenta que ya no existe.
+ *
+ * Tener esto en el panel es la diferencia entre enterarse ahora o enterarse
+ * cuando un cliente reclame que pagó y la web le dijo que reintentara.
+ */
+export async function checkAccount(): Promise<PabiloHealth> {
+  const bankId = PABILO_USER_BANK_ID.value();
+  const apiKey = PABILO_API_KEY.value();
+
+  if (!bankId || !apiKey) {
+    return { configured: false, accountOk: false, message: 'Faltan las credenciales.' };
+  }
+
+  const response = await fetchJson(
+    `${pabiloBaseUrl().replace(/\/+$/, '')}/userbankpayment/${bankId}/betaserio`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', appKey: apiKey },
+      // Referencia imposible: sólo interesa saber si la CUENTA existe.
+      body: { bank_reference: '000000000000', amount: 1 },
+      timeoutMs: 15_000,
+      retries: 1,
+    }
+  );
+
+  if (isUnknownBankAccount(response)) {
+    return {
+      configured: true,
+      accountOk: false,
+      message:
+        'Pabilo no reconoce la cuenta bancaria. Revisa PABILO_USER_BANK_ID: los pagos no se pueden verificar.',
+    };
+  }
+
+  if (response.status === 0 || response.status >= 500) {
+    return { configured: true, accountOk: false, message: 'Pabilo no responde.' };
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    return { configured: true, accountOk: false, message: 'La appKey de Pabilo fue rechazada.' };
+  }
+
+  return { configured: true, accountOk: true, message: null };
 }

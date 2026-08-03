@@ -100,12 +100,22 @@ adminRouter.get(
 adminRouter.get(
   '/providers/status',
   asyncHandler(async (_req, res) => {
-    const balance = inefable.isInefableConfigured()
-      ? await inefable.getBalance()
-      : { ok: false, balanceUsd: null, accountName: null, message: 'Sin API key.' };
+    const [balance, pabiloHealth] = await Promise.all([
+      inefable.isInefableConfigured()
+        ? inefable.getBalance()
+        : Promise.resolve({
+            ok: false,
+            balanceUsd: null,
+            accountName: null,
+            message: 'Sin API key.',
+          }),
+      // No basta con que el secreto exista: la cuenta puede haber dejado de
+      // existir en Pabilo y los pagos fallarían sin que nadie se entere.
+      pabilo.checkAccount(),
+    ]);
 
     ok(res, {
-      pabilo: { configured: pabilo.isPabiloConfigured() },
+      pabilo: pabiloHealth,
       inefable: {
         configured: inefable.isInefableConfigured(),
         reachable: balance.ok,
@@ -1084,6 +1094,15 @@ adminRouter.post(
     const { id } = parseParams(req, idParam);
     await alertsService.markRead(id);
     ok(res, { read: true });
+  })
+);
+
+/** Chats a los que el bot de Telegram puede escribir, para no buscarlos a mano. */
+adminRouter.get(
+  '/alerts/telegram/chats',
+  requireAdmin,
+  asyncHandler(async (_req, res) => {
+    ok(res, await alertsService.detectTelegramChats());
   })
 );
 
