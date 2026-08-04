@@ -36,7 +36,7 @@ import {
   paymentRejected,
 } from '../lib/errors';
 import { generateOrderCode, normalizeReference } from '../lib/ids';
-import { amountMatches, round, usdToBs } from '../lib/money';
+import { checkAmount, round, usdToBs } from '../lib/money';
 import { log } from '../lib/logger';
 import * as catalog from './catalog';
 import * as couponsService from './coupons';
@@ -351,6 +351,7 @@ export async function createOrder(
     payment: {
       method: paidWithWallet ? 'wallet' : 'pagomovil_bdv',
       reference: null,
+      reportedAmountBs: null,
       verifiedAt: paidWithWallet ? timestamp : null,
       attempts: 0,
       providerResponse: null,
@@ -584,22 +585,40 @@ export async function verifyPayment(
   }
 
   // --- Rechazo ---
-  const amountOk =
-    result.reportedAmountBs === null ||
-    amountMatches(
-      order.pricing.totalBs,
-      result.reportedAmountBs,
-      config.checkout.amountTolerancePercent
-    );
+  //
+  // Quién comprueba el monto depende de cómo respondió Pabilo:
+  //
+  //  - `amountVerifiedByProvider`: la búsqueda filtrada por monto encontró el
+  //    movimiento, así que el importe ya coincide exacto.
+  //  - Si no, el movimiento se localizó SIN filtrar por monto y es la tolerancia
+  //    de aquí la que decide. En ese caso el monto real es imprescindible: sin
+  //    él no hay nada que comparar y se rechaza, porque aceptar a ciegas dejaría
+  //    pasar cualquier importe.
+  const amountCheck =
+    result.reportedAmountBs === null
+      ? null
+      : checkAmount(
+          order.pricing.totalBs,
+          result.reportedAmountBs,
+          config.checkout.amountTolerancePercent
+        );
+
+  const amountOk = result.amountVerifiedByProvider
+    ? true
+    : amountCheck !== null && amountCheck.ok;
 
   if (!result.isNew || !amountOk) {
     await releaseReferenceLock(reference);
 
     const reason = !result.found
-      ? 'No encontramos ese pago. Revisa que la referencia y el monto sean exactos.'
+      ? 'No encontramos ningún pago con esa referencia. Revisa que la hayas copiado completa.'
       : !result.isNew
         ? 'Esa referencia ya fue utilizada en otra compra.'
-        : `El monto del pago (${result.reportedAmountBs} Bs) no coincide con el de la orden (${order.pricing.totalBs} Bs).`;
+        : amountCheck === null
+          ? 'No pudimos leer el monto de ese pago. Escríbenos por WhatsApp y lo revisamos.'
+          : `Ese pago es de ${result.reportedAmountBs!.toFixed(2)} Bs y faltan ` +
+            `${amountCheck.shortfallBs.toFixed(2)} Bs para cubrir la orden ` +
+            `(${order.pricing.totalBs.toFixed(2)} Bs).`;
 
     await orders().doc(orderId).set(
       {
@@ -653,6 +672,7 @@ export async function verifyPayment(
       // a cero.
       payment: {
         reference,
+        reportedAmountBs: result.reportedAmountBs,
         verifiedAt: now(),
         providerResponse: result.raw,
       },
@@ -661,13 +681,21 @@ export async function verifyPayment(
     { merge: true }
   );
 
+  // Pagó de más: la orden se acepta igual (está cubierta), pero el excedente no
+  // se queda callado. Es dinero del cliente y el equipo decide si se lo abona al
+  // saldo o se lo devuelve.
+  const surplusBs = amountCheck?.surplusBs ?? 0;
+  const surplusIsRelevant = surplusBs > (amountCheck?.toleranceBs ?? 0);
+
   await Promise.all([
     addEvent({
       orderId,
       type: 'payment_verified',
-      message: 'Pago verificado correctamente.',
+      message: surplusIsRelevant
+        ? `Pago verificado. Transferiste ${surplusBs.toFixed(2)} Bs de más; ya lo estamos revisando.`
+        : 'Pago verificado correctamente.',
       status: 'paid',
-      data: { reportedAmountBs: result.reportedAmountBs },
+      data: { reportedAmountBs: result.reportedAmountBs, surplusBs },
     }),
     audit.record({
       action: audit.ACTIONS.ORDER_PAYMENT_VERIFIED,
@@ -676,11 +704,26 @@ export async function verifyPayment(
       targetType: 'order',
       targetId: orderId,
       summary: `Pago verificado en la orden ${order.code} (${order.pricing.totalBs} Bs).`,
+      data: { reportedAmountBs: result.reportedAmountBs, surplusBs },
       ip,
     }),
     catalog.decrementStock(order.productId, order.pricing.quantity),
     order.pricing.couponCode
       ? couponsService.consume(order.pricing.couponCode)
+      : Promise.resolve(),
+    surplusIsRelevant
+      ? adminAlerts.alert({
+          kind: 'payment_rejected',
+          severity: 'info',
+          title: `Pagaron de más · ${order.code}`,
+          body: [
+            `${order.user.email ?? 'Un cliente'} transfirió ${result.reportedAmountBs?.toFixed(2)} Bs`,
+            `para una orden de ${order.pricing.totalBs.toFixed(2)} Bs.`,
+            `Sobran ${surplusBs.toFixed(2)} Bs: puedes abonárselos al saldo desde su ficha.`,
+          ].join(' '),
+          link: `/admin/ordenes/${orderId}`,
+          data: { code: order.code, surplusBs, reportedAmountBs: result.reportedAmountBs },
+        })
       : Promise.resolve(),
   ]);
 

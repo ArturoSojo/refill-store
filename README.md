@@ -355,6 +355,44 @@ Netlify, hay que añadirlo también ahí y a la lista de orígenes de la API.
 se guarda con su propio estado y **el reintento del panel sólo repite las que quedaron en
 error**. Repetir una llamada exitosa sería regalar diamantes.
 
+> ### ⚠️ En Pabilo, `amount` **filtra**: no es un dato informativo
+>
+> Pabilo sólo devuelve el movimiento si el monto coincide **exacto** con el que se le manda.
+> Un céntimo de diferencia y responde «no encontrado», igual que si la referencia no
+> existiera. El campo es opcional.
+>
+> Eso dejaba **inservible la tolerancia**: el pago se rechazaba antes de llegar a comparar
+> nada, así que daba lo mismo tenerla en 0,5 % o en 8 %. Un cliente que transfería 3.708,70
+> en lugar de 3.708,60 recibía «no encontramos ese pago».
+>
+> La solución (la misma que usa el bot de WhatsApp): si la consulta **con** monto no
+> encuentra nada, se repite **sin** monto, y es la tienda quien decide si la diferencia entra
+> en la tolerancia.
+>
+> **Cuidado con lo que eso abre.** Sin el filtro de monto, Pabilo devuelve el movimiento sea
+> cual sea su importe. Por eso, cuando se usa el respaldo, leer el monto real es obligatorio:
+> si no se puede leer, se rechaza. Si no, pagar 1 Bs valdría por una orden de 3.000.
+
+### La tolerancia del monto
+
+`checkout.amountTolerancePercent` es cuánto puede desviarse lo transferido del total de la
+orden. Existe porque los bancos redondean los céntimos de forma distinta y porque mucha
+gente teclea el monto sin decimales.
+
+Es **asimétrica**, porque pagar de más y pagar de menos no son el mismo hecho:
+
+| | Qué pasa |
+| --- | --- |
+| **Paga de menos** | Se admite hasta el porcentaje configurado. Más allá, se rechaza indicando cuánto falta. Es una pérdida directa. |
+| **Paga de más** | Se acepta **siempre**: la orden está cubierta y rechazar a quien pagó de más sólo genera un reclamo. Si el excedente supera la tolerancia, se avisa al equipo para que decida si lo abona al saldo del cliente. |
+
+El monto real que informa el banco se guarda en `payment.reportedAmountBs`, que es lo que
+permite cuadrar la caja cuando no coincide con el total.
+
+> El porcentaje se aplica **sólo al lado de pagar de menos**. Con un 8 %, una orden de
+> 3.000 Bs se daría por pagada con 2.760. Un valor razonable es **1 %**, que cubre el
+> redondeo sin regalar dinero.
+
 **Referencias duplicadas.** `is_new` de Pabilo protege contra reutilizar una referencia ya
 consumida, pero no contra dos peticiones simultáneas con la misma referencia: ambas verían
 `is_new: true`. Por eso, antes de llamar a Pabilo se toma un candado en

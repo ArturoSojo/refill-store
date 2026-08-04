@@ -4,7 +4,7 @@
  * Endpoint (según especificaciones):
  *   POST {base}/userbankpayment/{PABILO_USER_BANK_ID}/betaserio
  *   Headers: Content-Type: application/json, appKey: PABILO_API_KEY
- *   Body:    { bank_reference: "12345678", amount: 150.50 }
+ *   Body:    { bank_reference: "12345678", amount: 150.50 }   // `amount` opcional
  *
  * Regla del negocio: `data.is_new === true` ⇒ el pago existe y NO se había
  * usado antes. Si `is_new === false`, la referencia ya fue consumida por otra
@@ -14,6 +14,28 @@
  * reutilizadas, pero no la única. El servicio de órdenes toma además un candado
  * local en `paymentRefs/{referencia}` para que dos peticiones simultáneas con la
  * misma referencia no puedan pasar las dos.
+ *
+ * ---------------------------------------------------------------------------
+ * `amount` FILTRA la búsqueda; no es un dato informativo
+ * ---------------------------------------------------------------------------
+ * Pabilo sólo devuelve el movimiento si el monto coincide EXACTO con el que se
+ * le manda. Un céntimo de diferencia y responde «no encontrado», exactamente
+ * igual que si la referencia no existiera.
+ *
+ * Eso dejaba inservible la tolerancia de la tienda: se rechazaba el pago antes
+ * de llegar a comparar nada, así que daba lo mismo tenerla en 0,5 % o en 8 %.
+ * Un cliente que transfería 3.708,70 en vez de 3.708,60 recibía «no encontramos
+ * ese pago».
+ *
+ * La solución es la misma que usa el bot de WhatsApp: si la consulta con monto
+ * no encuentra nada, se repite SIN monto para que el banco devuelva el
+ * movimiento real, y es la tienda —no Pabilo— quien decide si la diferencia
+ * entra en la tolerancia.
+ *
+ * Ojo con la trampa que eso abre: sin el filtro de monto, Pabilo devuelve el
+ * movimiento sea cual sea su importe. Por eso, cuando se usa el respaldo, leer
+ * el monto real es OBLIGATORIO: si no se puede leer, se rechaza. Si no, pagar
+ * 1 Bs valdría por una orden de 3.000.
  */
 import { PABILO_API_KEY, PABILO_USER_BANK_ID, pabiloBaseUrl } from '../config/env';
 import { fetchJson } from '../lib/fetchJson';
@@ -34,6 +56,13 @@ export interface PabiloVerifyResult {
   found: boolean;
   /** Monto que el banco reporta para esa referencia, si viene. */
   reportedAmountBs: number | null;
+  /**
+   * `true` cuando fue el propio Pabilo quien comprobó el monto (la consulta con
+   * `amount` encontró el movimiento). Con esto en `true` la tienda no necesita
+   * volver a compararlo; con `false` tiene que hacerlo ella, y el monto real es
+   * obligatorio.
+   */
+  amountVerifiedByProvider: boolean;
   /** Fecha del pago informada por el proveedor, si viene. */
   reportedDate: string | null;
   /** Mensaje legible para mostrar al cliente. */
@@ -43,14 +72,19 @@ export interface PabiloVerifyResult {
   httpStatus: number;
 }
 
+interface PabiloMovement {
+  is_new?: boolean;
+  amount?: number | string;
+  date?: string;
+  reference?: string;
+  /** El movimiento suele venir anidado aquí. */
+  user_bank_payment?: Record<string, unknown>;
+  userBankPayment?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
 interface PabiloRawResponse {
-  data?: {
-    is_new?: boolean;
-    amount?: number | string;
-    date?: string;
-    reference?: string;
-    [key: string]: unknown;
-  };
+  data?: PabiloMovement;
   message?: string;
   error?: string;
   [key: string]: unknown;
@@ -77,6 +111,72 @@ function isUnknownBankAccount(response: { status: number; raw: string }): boolea
 }
 
 /**
+ * Saca el monto del movimiento.
+ *
+ * Pabilo lo devuelve anidado (`data.user_bank_payment.amount`) y no siempre con
+ * la misma envoltura, así que se buscan las variantes conocidas. Devolver `null`
+ * aquí es significativo: quien llama decide si eso es aceptable o motivo de
+ * rechazo.
+ */
+function extractAmount(movement: PabiloMovement | undefined): number | null {
+  if (!movement) return null;
+
+  const nested = (movement.user_bank_payment ?? movement.userBankPayment) as
+    | Record<string, unknown>
+    | undefined;
+
+  return toNumber(movement.amount) ?? toNumber(nested?.amount) ?? null;
+}
+
+function extractDate(movement: PabiloMovement | undefined): string | null {
+  if (!movement) return null;
+
+  const nested = (movement.user_bank_payment ?? movement.userBankPayment) as
+    | Record<string, unknown>
+    | undefined;
+  const value = movement.date ?? nested?.date;
+
+  return typeof value === 'string' ? value : null;
+}
+
+/** Una consulta a Pabilo. `amountBs: null` = sin filtrar por monto. */
+async function query(
+  bankId: string,
+  apiKey: string,
+  bankReference: string,
+  amountBs: number | null
+) {
+  const url = `${pabiloBaseUrl().replace(/\/+$/, '')}/userbankpayment/${bankId}/betaserio`;
+
+  const response = await fetchJson<PabiloRawResponse>(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', appKey: apiKey },
+    body: {
+      bank_reference: bankReference,
+      // Omitido a propósito cuando es `null`: mandarlo convierte la consulta en
+      // una búsqueda por monto exacto.
+      ...(amountBs === null ? {} : { amount: Number(amountBs.toFixed(2)) }),
+    },
+    timeoutMs: 25_000,
+    retries: 2,
+  });
+
+  log.info('Respuesta de Pabilo', {
+    status: response.status,
+    reference: `***${bankReference.slice(-4)}`,
+    filtradoPorMonto: amountBs !== null,
+    body: response.data ?? response.raw.slice(0, 400),
+  });
+
+  return response;
+}
+
+/** `true` si la respuesta significa «no hay movimiento con esa referencia». */
+function isNotFound(response: { status: number; data: PabiloRawResponse | null }): boolean {
+  return !response.data?.data || [400, 404, 422].includes(response.status);
+}
+
+/**
  * Consulta a Pabilo si la referencia corresponde a un pago válido y sin usar.
  *
  * No lanza excepción cuando el pago simplemente no es válido: eso es una
@@ -93,28 +193,22 @@ export async function verifyPayment(input: PabiloVerifyInput): Promise<PabiloVer
     );
   }
 
-  const url = `${pabiloBaseUrl().replace(/\/+$/, '')}/userbankpayment/${bankId}/betaserio`;
+  // 1) Consulta filtrando por el monto exacto. Es el camino normal: si acierta,
+  //    fue Pabilo quien comprobó el importe y no hay nada más que discutir.
+  let response = await query(bankId, apiKey, input.bankReference, input.amountBs);
+  let amountVerifiedByProvider = true;
 
-  const response = await fetchJson<PabiloRawResponse>(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      appKey: apiKey,
-    },
-    body: {
-      bank_reference: input.bankReference,
-      amount: Number(input.amountBs.toFixed(2)),
-    },
-    timeoutMs: 25_000,
-    retries: 2,
-  });
+  // 2) No encontró nada: puede ser que la referencia no exista… o que el cliente
+  //    haya transferido unos céntimos de más. Se vuelve a preguntar SIN monto
+  //    para que devuelva el movimiento real y poder compararlo aquí.
+  if (response.status !== 0 && !isUnknownBankAccount(response) && isNotFound(response)) {
+    const withoutAmount = await query(bankId, apiKey, input.bankReference, null);
 
-  log.info('Respuesta de Pabilo', {
-    status: response.status,
-    reference: `***${input.bankReference.slice(-4)}`,
-    amountBs: input.amountBs,
-    body: response.data ?? response.raw.slice(0, 400),
-  });
+    if (!isNotFound(withoutAmount)) {
+      response = withoutAmount;
+      amountVerifiedByProvider = false;
+    }
+  }
 
   // Error de red o proveedor caído: hay que reintentar más tarde, no rechazar
   // el pago (el cliente podría haber pagado de verdad).
@@ -156,28 +250,30 @@ export async function verifyPayment(input: PabiloVerifyInput): Promise<PabiloVer
     (typeof response.data?.error === 'string' && response.data.error) ||
     null;
 
-  // 404 / 422: el proveedor no encontró la referencia.
-  if (!data || response.status === 404 || response.status === 422) {
+  // Ni con monto ni sin él: esa referencia no existe en la cuenta.
+  if (isNotFound(response)) {
     return {
       isNew: false,
       found: false,
       reportedAmountBs: null,
+      amountVerifiedByProvider: false,
       reportedDate: null,
       message:
         providerMessage ??
-        'No encontramos ese pago. Verifica el número de referencia y el monto exacto.',
+        'No encontramos ningún pago con esa referencia. Revisa que la hayas copiado completa.',
       raw: (response.data as Record<string, unknown>) ?? null,
       httpStatus: response.status,
     };
   }
 
-  const isNew = data.is_new === true;
+  const isNew = data?.is_new === true;
 
   return {
     isNew,
     found: true,
-    reportedAmountBs: toNumber(data.amount),
-    reportedDate: typeof data.date === 'string' ? data.date : null,
+    reportedAmountBs: extractAmount(data),
+    amountVerifiedByProvider,
+    reportedDate: extractDate(data),
     message: isNew
       ? 'Pago verificado correctamente.'
       : 'Esa referencia ya fue utilizada en otra compra.',

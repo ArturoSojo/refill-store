@@ -191,6 +191,8 @@ export interface OrderPricing {
 export interface OrderPayment {
   method: 'pagomovil_bdv' | 'wallet';
   reference: string | null;
+  /** Monto real que reporta el banco; puede diferir del total por la tolerancia. */
+  reportedAmountBs: number | null;
   verifiedAt: TimestampLike;
   attempts: number;
   providerResponse: Record<string, unknown> | null;

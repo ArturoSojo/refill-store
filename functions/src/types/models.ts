@@ -273,6 +273,14 @@ export interface OrderPayment {
   /** `wallet` cuando el saldo a favor cubrió el total y no hubo transferencia. */
   method: 'pagomovil_bdv' | 'wallet';
   reference: string | null;
+  /**
+   * Monto que el banco reporta para esa referencia.
+   *
+   * Puede no coincidir con `pricing.totalBs`: la tolerancia admite pequeñas
+   * diferencias, y sin guardar el importe real no habría forma de saber cuánto
+   * entró de verdad ni de cuadrar la caja.
+   */
+  reportedAmountBs: number | null;
   verifiedAt: TimestampLike | null;
   attempts: number;
   /** Eco de la respuesta relevante de Pabilo, para auditoría. */
