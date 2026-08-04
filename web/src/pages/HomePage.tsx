@@ -196,7 +196,10 @@ function Hero() {
             {
               icon: Sparkles,
               title: 'Sube de nivel',
-              text: 'Cada compra suma puntos y te da descuento permanente.',
+              // El nivel lo determina el TOTAL GASTADO, no los puntos. El texto
+              // anterior («cada compra suma puntos y te da descuento») atribuía
+              // el descuento a unos puntos que no se canjean por nada.
+              text: 'Mientras más compras, mejor nivel y más descuento en cada recarga.',
             },
           ].map((item, index) => (
             <motion.div
