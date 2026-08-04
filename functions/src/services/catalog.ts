@@ -17,6 +17,41 @@ export async function getGame(gameId: string): Promise<Game> {
   return { id: snap.id, ...snap.data() } as Game;
 }
 
+/**
+ * Orden en que se muestran los productos de un juego.
+ *
+ * Se ordena por la CANTIDAD de moneda que entrega cada uno, de menor a mayor.
+ * Antes mandaba un número puesto a mano (`sortOrder`) y eso se desordenaba solo:
+ * cada producto creado desde el panel nacía con 99 y caía al final, así que un
+ * combo de 200 aparecía después del paquete de 5.000. Ordenar por lo que el
+ * cliente compara —cuántos diamantes recibe— no hay que mantenerlo nunca.
+ *
+ * Dos matices:
+ *  - Los combos entran donde les toca por su cantidad, no en un bloque aparte:
+ *    100, 200, 310… es como los busca el jugador.
+ *  - Los especiales (pases, tarjetas) no son una cantidad de moneda comparable,
+ *    así que van al final ordenados por precio.
+ *
+ * `sortOrder` sobrevive sólo para desempatar dos productos con la misma
+ * cantidad.
+ */
+export function compareProducts(a: Product, b: Product): number {
+  const aSpecial = a.kind === 'special' ? 1 : 0;
+  const bSpecial = b.kind === 'special' ? 1 : 0;
+  if (aSpecial !== bSpecial) return aSpecial - bSpecial;
+
+  if (aSpecial === 1) {
+    if (a.priceUsd !== b.priceUsd) return a.priceUsd - b.priceUsd;
+    return a.sortOrder - b.sortOrder;
+  }
+
+  const totalA = a.amount + a.bonus;
+  const totalB = b.amount + b.bonus;
+  if (totalA !== totalB) return totalA - totalB;
+
+  return a.sortOrder - b.sortOrder;
+}
+
 export async function listProducts(
   options: { gameId?: string; onlyActive?: boolean } = {}
 ): Promise<Product[]> {
@@ -26,7 +61,12 @@ export async function listProducts(
 
   const all = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }) as Product);
   const filtered = options.onlyActive ? all.filter((product) => product.active) : all;
-  return filtered.sort((a, b) => a.sortOrder - b.sortOrder);
+
+  // Los productos de juegos distintos no se comparan entre sí: primero se
+  // agrupan por juego y dentro de cada uno se ordena por cantidad.
+  return filtered.sort((a, b) =>
+    a.gameId === b.gameId ? compareProducts(a, b) : a.gameId.localeCompare(b.gameId)
+  );
 }
 
 export async function getProduct(productId: string): Promise<Product> {

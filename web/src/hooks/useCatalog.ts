@@ -46,15 +46,17 @@ export function useProduct(productId: string | undefined) {
   };
 }
 
-/** Agrupa los productos de un juego en las dos categorías del documento. */
+/**
+ * Agrupa los productos de un juego en las dos categorías del documento.
+ *
+ * No reordena: el catálogo llega ya ordenado de menor a mayor cantidad desde el
+ * servidor, y `filter` respeta ese orden. Volver a ordenarlo aquí por
+ * `sortOrder` era justamente lo que devolvía los combos nuevos al final de la
+ * lista.
+ */
 export function groupProducts(products: PublicProduct[]) {
-  const automatic = products
-    .filter((product) => product.fulfillment === 'auto')
-    .sort((a, b) => a.sortOrder - b.sortOrder);
-
-  const manual = products
-    .filter((product) => product.fulfillment === 'manual')
-    .sort((a, b) => a.sortOrder - b.sortOrder);
-
-  return { automatic, manual };
+  return {
+    automatic: products.filter((product) => product.fulfillment === 'auto'),
+    manual: products.filter((product) => product.fulfillment === 'manual'),
+  };
 }

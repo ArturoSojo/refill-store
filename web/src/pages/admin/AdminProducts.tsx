@@ -504,10 +504,11 @@ export function AdminProducts() {
 
           <div className="grid gap-4 sm:grid-cols-3">
             <Input
-              label="Orden"
+              label="Desempate"
               type="number"
               value={form.sortOrder}
               onChange={(event) => setForm({ ...form, sortOrder: event.target.value })}
+              hint="La tienda ordena sola de menor a mayor cantidad. Esto sólo decide entre dos productos que den lo mismo."
             />
             <Input
               label="Stock"

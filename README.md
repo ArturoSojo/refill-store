@@ -480,6 +480,21 @@ envían al proveedor; tras verificar el pago se genera el enlace de WhatsApp.
 > orden. No lo actives en un juego sin haber comprobado que el proveedor rechaza IDs falsos:
 > una recarga a un ID equivocado no se recupera.
 
+### En qué orden se muestran los productos
+
+De **menor a mayor cantidad de moneda** (`amount + bonus`), calculado solo. Los combos entran
+donde les toca por su cantidad —100, 200, 310…—, no en un bloque aparte, porque es como los
+busca el jugador. Los especiales (pases, tarjetas) van al final, ordenados por precio.
+
+`sortOrder` ya no manda: sólo desempata dos productos que entreguen lo mismo. Antes decidía
+el orden y se desordenaba solo, porque cada producto creado desde el panel nacía con 99 y
+caía al final: un combo de 200 aparecía después del paquete de 5.000.
+
+> Como el orden sale de `amount` y `bonus`, esos dos campos tienen que reflejar lo que el
+> producto entrega **de verdad**. También son los que pinta la tarjeta («+80 extra»), así que
+> un valor viejo ahí no es un detalle cosmético: promete al cliente algo que no va a recibir.
+> Al cambiar las llamadas de un producto, actualízalos.
+
 > **Sobre los precios de venta:** el documento sólo especifica **costos**. Al sembrar, el
 > precio de venta se calcula aplicando el **margen por defecto (25 %)** redondeado a
 > múltiplos de 5 centavos. Ajústalos en **Panel → Productos**, uno a uno o en masa con
