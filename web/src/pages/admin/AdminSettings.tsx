@@ -389,15 +389,18 @@ export function AdminSettings() {
             hint="Pasado ese tiempo la orden expira"
             disabled={!isAdmin}
           />
+          {/* Ya no es una tolerancia: pagar de menos se rechaza siempre, sin
+              margen. Lo único que decide este número es cuándo un pago de más
+              merece un aviso. */}
           <Input
-            label="Tolerancia del monto (%)"
+            label="Avisar si pagan de más (%)"
             type="number"
             step="0.1"
             defaultValue={config.checkout.amountTolerancePercent}
             onChange={(event) =>
               patch('checkout', { amountTolerancePercent: Number(event.target.value) })
             }
-            hint="Diferencia admitida entre lo pagado y lo esperado"
+            hint="Pagar de menos NUNCA se acepta. Esto sólo marca a partir de qué excedente te llega un aviso para devolvérselo al cliente."
             disabled={!isAdmin}
           />
           <Input

@@ -37,52 +37,52 @@ export function applyMargin(costUsd: number, marginPercent: number, roundStep = 
 }
 
 export interface AmountCheck {
-  /** `true` si el pago cubre la orden dentro de lo aceptable. */
+  /** `true` si lo transferido cubre el total de la orden. */
   ok: boolean;
   /** Cuánto faltó, en Bs. `0` si pagó igual o de más. */
   shortfallBs: number;
   /** Cuánto sobró, en Bs. `0` si pagó igual o de menos. */
   surplusBs: number;
-  /** Margen que se admitió por debajo del total, en Bs. */
-  toleranceBs: number;
+  /** A partir de este excedente se avisa al equipo, en Bs. */
+  alertAboveBs: number;
 }
 
 /**
  * ¿El pago cubre la orden?
  *
- * La tolerancia es **asimétrica**, y no por capricho: pagar de más y pagar de
- * menos no son el mismo hecho.
+ * La regla es de una sola dirección: **el monto transferido nunca puede ser
+ * menor que el total**. Ni un céntimo. Pagar de menos es una pérdida directa, y
+ * un porcentaje de holgura sobre montos grandes se convierte en mucho dinero:
+ * con un 8 %, una orden de 3.000 Bs se daría por pagada con 2.760.
  *
- *  - **De menos** es una pérdida directa. Sólo se admite el margen configurado,
- *    que existe porque los bancos redondean los céntimos de forma distinta y
- *    porque mucha gente teclea el monto sin decimales.
- *  - **De más** no perjudica al negocio: la orden queda cubierta. Rechazar a
- *    quien pagó de más sólo genera un reclamo. Se acepta y se registra el
- *    excedente para que el equipo decida si lo devuelve al saldo del cliente.
+ * Hacia arriba no hay límite: la orden queda cubierta y rechazar a quien pagó de
+ * más sólo genera un reclamo. El excedente se registra, y si pasa de
+ * `alertAboveBs` se avisa al equipo para que decida si se lo abona al cliente.
  *
- * Con una tolerancia simétrica del 8 %, una orden de 3.000 Bs se daría por
- * pagada con 2.760: eso es lo que se evita aquí.
+ * Los dos montos se redondean a céntimos antes de compararlos. Sin eso, un pago
+ * exacto podría rechazarse por el error de representación de los decimales
+ * (3708.60 guardado como 3708.5999999999995).
  */
 export function checkAmount(
   expectedBs: number,
   receivedBs: number,
-  tolerancePercent: number
+  alertOverPercent: number
 ): AmountCheck {
-  const toleranceBs = Math.max((expectedBs * tolerancePercent) / 100, 0.01);
+  const alertAboveBs = Math.max((expectedBs * alertOverPercent) / 100, 0.01);
 
   if (!Number.isFinite(receivedBs)) {
-    return { ok: false, shortfallBs: expectedBs, surplusBs: 0, toleranceBs };
+    return { ok: false, shortfallBs: expectedBs, surplusBs: 0, alertAboveBs };
   }
 
-  const difference = round(receivedBs - expectedBs, 2);
+  const difference = round(round(receivedBs, 2) - round(expectedBs, 2), 2);
   const shortfallBs = difference < 0 ? Math.abs(difference) : 0;
   const surplusBs = difference > 0 ? difference : 0;
 
   return {
-    ok: shortfallBs <= toleranceBs,
+    ok: shortfallBs === 0,
     shortfallBs,
     surplusBs,
-    toleranceBs,
+    alertAboveBs,
   };
 }
 

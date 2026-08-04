@@ -589,11 +589,11 @@ export async function verifyPayment(
   // Quién comprueba el monto depende de cómo respondió Pabilo:
   //
   //  - `amountVerifiedByProvider`: la búsqueda filtrada por monto encontró el
-  //    movimiento, así que el importe ya coincide exacto.
-  //  - Si no, el movimiento se localizó SIN filtrar por monto y es la tolerancia
-  //    de aquí la que decide. En ese caso el monto real es imprescindible: sin
-  //    él no hay nada que comparar y se rechaza, porque aceptar a ciegas dejaría
-  //    pasar cualquier importe.
+  //    movimiento, así que el importe coincide exacto.
+  //  - Si no, el movimiento se localizó SIN filtrar por monto y la comprobación
+  //    la hace `checkAmount`: sólo pasa si lo transferido cubre el total. En ese
+  //    caso el monto real es imprescindible; sin él no hay nada que comparar y
+  //    se rechaza, porque aceptar a ciegas dejaría pasar cualquier importe.
   const amountCheck =
     result.reportedAmountBs === null
       ? null
@@ -616,9 +616,10 @@ export async function verifyPayment(
         ? 'Esa referencia ya fue utilizada en otra compra.'
         : amountCheck === null
           ? 'No pudimos leer el monto de ese pago. Escríbenos por WhatsApp y lo revisamos.'
-          : `Ese pago es de ${result.reportedAmountBs!.toFixed(2)} Bs y faltan ` +
-            `${amountCheck.shortfallBs.toFixed(2)} Bs para cubrir la orden ` +
-            `(${order.pricing.totalBs.toFixed(2)} Bs).`;
+          : `Ese pago es de ${result.reportedAmountBs!.toFixed(2)} Bs y la orden es de ` +
+            `${order.pricing.totalBs.toFixed(2)} Bs: faltan ` +
+            `${amountCheck.shortfallBs.toFixed(2)} Bs. Transfiere el monto exacto y ` +
+            'verifica con esa nueva referencia.';
 
     await orders().doc(orderId).set(
       {
@@ -685,7 +686,7 @@ export async function verifyPayment(
   // se queda callado. Es dinero del cliente y el equipo decide si se lo abona al
   // saldo o se lo devuelve.
   const surplusBs = amountCheck?.surplusBs ?? 0;
-  const surplusIsRelevant = surplusBs > (amountCheck?.toleranceBs ?? 0);
+  const surplusIsRelevant = surplusBs > (amountCheck?.alertAboveBs ?? 0);
 
   await Promise.all([
     addEvent({

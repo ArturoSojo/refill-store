@@ -373,25 +373,27 @@ error**. Repetir una llamada exitosa sería regalar diamantes.
 > cual sea su importe. Por eso, cuando se usa el respaldo, leer el monto real es obligatorio:
 > si no se puede leer, se rechaza. Si no, pagar 1 Bs valdría por una orden de 3.000.
 
-### La tolerancia del monto
+### La comprobación del monto
 
-`checkout.amountTolerancePercent` es cuánto puede desviarse lo transferido del total de la
-orden. Existe porque los bancos redondean los céntimos de forma distinta y porque mucha
-gente teclea el monto sin decimales.
-
-Es **asimétrica**, porque pagar de más y pagar de menos no son el mismo hecho:
+La regla es de **una sola dirección**: lo transferido nunca puede ser menor que el total de
+la orden. Ni un céntimo.
 
 | | Qué pasa |
 | --- | --- |
-| **Paga de menos** | Se admite hasta el porcentaje configurado. Más allá, se rechaza indicando cuánto falta. Es una pérdida directa. |
-| **Paga de más** | Se acepta **siempre**: la orden está cubierta y rechazar a quien pagó de más sólo genera un reclamo. Si el excedente supera la tolerancia, se avisa al equipo para que decida si lo abona al saldo del cliente. |
+| **Paga de menos** | Se rechaza **siempre**, sin margen, indicando cuánto falta. Un porcentaje de holgura sobre montos grandes se convierte en mucho dinero: con un 8 %, una orden de 3.000 Bs se daría por pagada con 2.760. |
+| **Paga exacto** | Se acepta. |
+| **Paga de más** | Se acepta **sin límite**: la orden está cubierta y rechazar a quien pagó de más sólo genera un reclamo. El excedente se registra y, si supera el umbral configurado, se avisa al equipo para que decida si se lo abona al saldo del cliente. |
+
+Los dos importes se redondean a céntimos antes de compararse. Sin eso, un pago exacto podría
+rechazarse por el error de representación de los decimales (`3708.60` guardado como
+`3708.5999999999995`).
 
 El monto real que informa el banco se guarda en `payment.reportedAmountBs`, que es lo que
 permite cuadrar la caja cuando no coincide con el total.
 
-> El porcentaje se aplica **sólo al lado de pagar de menos**. Con un 8 %, una orden de
-> 3.000 Bs se daría por pagada con 2.760. Un valor razonable es **1 %**, que cubre el
-> redondeo sin regalar dinero.
+> `checkout.amountTolerancePercent` **ya no admite pagos de menos**. Lo único que decide hoy
+> es a partir de qué excedente llega el aviso al equipo; en el panel aparece como *«Avisar si
+> pagan de más (%)»*.
 
 **Referencias duplicadas.** `is_new` de Pabilo protege contra reutilizar una referencia ya
 consumida, pero no contra dos peticiones simultáneas con la misma referencia: ambas verían
