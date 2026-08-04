@@ -84,13 +84,18 @@ export const SEED_GAMES: SeedGame[] = [
     id: 'free-fire',
     name: 'Free Fire',
     shortName: 'Free Fire',
-    apiGameId: -1,
-    apiGameType: 'freefire_id',
+    // «Free fire 20%» del catálogo del proveedor: entre un 3 % y un 5 % más
+    // barato que la ruta `-1 / freefire_id`. El cambio se hizo desde el panel y
+    // aquí se refleja para que volver a sembrar no lo deshaga.
+    apiGameId: 24,
+    apiGameType: 'dynamic',
     currencyLabel: 'Diamantes',
     currencyIcon: '💎',
     currencyIconUrl: '/coins/diamante-freefire.svg',
-    // El único juego que rechaza un ID inexistente («Error de ID del jugador»).
-    validatesPlayerId: true,
+    // Lo que se paga por ese descuento: siendo `dynamic`, el proveedor ya no
+    // comprueba el ID —devuelve `player_name` vacío— y acepta cualquier número.
+    // Con `-1` sí lo rechazaba. Por eso la tienda exige confirmar los datos.
+    validatesPlayerId: false,
     playerFields: [
       idField({
         label: 'ID de Jugador',
@@ -254,6 +259,16 @@ export const SEED_GAMES: SeedGame[] = [
 // CATEGORÍA A — Recargas automáticas (API Inefable)
 // ---------------------------------------------------------------------------
 
+/**
+ * Paquetes de Free Fire.
+ *
+ * Los `package_id` son los de `game_id 24` («Free fire 20%»), NO los 1-6 de la
+ * ruta `-1`. Un `package_id` sólo tiene sentido dentro de su juego: dejar aquí
+ * los viejos haría que sembrar el catálogo rompiera todas las recargas.
+ *
+ * Ojo con el de 2.160: en la ruta `-1` ese paquete daba 2.180 diamantes y aquí
+ * da 20 menos. El nombre tiene que decir lo que se entrega de verdad.
+ */
 const FREE_FIRE_PACKAGES: SeedProduct[] = [
   {
     id: 'ff-d-110',
@@ -265,8 +280,8 @@ const FREE_FIRE_PACKAGES: SeedProduct[] = [
     kind: 'package',
     amount: 100,
     bonus: 10,
-    costUsd: 0.699,
-    calls: [{ packageId: 1, quantity: 1 }],
+    costUsd: 0.719,
+    calls: [{ packageId: 169, quantity: 1 }],
     sortOrder: 10,
   },
   {
@@ -279,8 +294,8 @@ const FREE_FIRE_PACKAGES: SeedProduct[] = [
     kind: 'package',
     amount: 310,
     bonus: 31,
-    costUsd: 2.11,
-    calls: [{ packageId: 2, quantity: 1 }],
+    costUsd: 2.16,
+    calls: [{ packageId: 170, quantity: 1 }],
     badge: 'POPULAR',
     featured: true,
     sortOrder: 20,
@@ -295,8 +310,8 @@ const FREE_FIRE_PACKAGES: SeedProduct[] = [
     kind: 'package',
     amount: 520,
     bonus: 52,
-    costUsd: 3.595,
-    calls: [{ packageId: 3, quantity: 1 }],
+    costUsd: 3.63,
+    calls: [{ packageId: 171, quantity: 1 }],
     sortOrder: 30,
   },
   {
@@ -309,23 +324,25 @@ const FREE_FIRE_PACKAGES: SeedProduct[] = [
     kind: 'package',
     amount: 1060,
     bonus: 106,
-    costUsd: 6.658,
-    calls: [{ packageId: 4, quantity: 1 }],
+    costUsd: 6.77,
+    calls: [{ packageId: 172, quantity: 1 }],
     featured: true,
     sortOrder: 40,
   },
   {
+    // El id del documento se conserva («…-2398») aunque ahora entregue 2.378:
+    // las órdenes ya emitidas apuntan a él y renombrarlo las dejaría huérfanas.
     id: 'ff-d-2398',
     gameId: 'free-fire',
-    sku: 'FF-D-2398',
-    name: '2.180 + 218 Diamantes',
-    description: 'Recarga directa de 2.398 diamantes a tu cuenta de Free Fire.',
+    sku: 'FF-D-2378',
+    name: '2.160 + 218 Diamantes',
+    description: 'Recarga directa de 2.378 diamantes a tu cuenta de Free Fire.',
     fulfillment: 'auto',
     kind: 'package',
-    amount: 2180,
+    amount: 2160,
     bonus: 218,
-    costUsd: 13.1,
-    calls: [{ packageId: 5, quantity: 1 }],
+    costUsd: 13.45,
+    calls: [{ packageId: 173, quantity: 1 }],
     sortOrder: 50,
   },
   {
@@ -338,8 +355,8 @@ const FREE_FIRE_PACKAGES: SeedProduct[] = [
     kind: 'package',
     amount: 5600,
     bonus: 560,
-    costUsd: 34.1,
-    calls: [{ packageId: 6, quantity: 1 }],
+    costUsd: 34.3,
+    calls: [{ packageId: 174, quantity: 1 }],
     badge: 'MÁXIMO',
     sortOrder: 60,
   },
@@ -360,8 +377,8 @@ const FREE_FIRE_COMBOS: SeedProduct[] = [
     kind: 'combo',
     amount: 200,
     bonus: 20,
-    costUsd: 1.398,
-    calls: [{ packageId: 1, quantity: 2 }],
+    costUsd: 1.438,
+    calls: [{ packageId: 169, quantity: 2 }],
     sortOrder: 15,
   },
   {
@@ -374,10 +391,10 @@ const FREE_FIRE_COMBOS: SeedProduct[] = [
     kind: 'combo',
     amount: 410,
     bonus: 41,
-    costUsd: 2.809,
+    costUsd: 2.879,
     calls: [
-      { packageId: 2, quantity: 1 },
-      { packageId: 1, quantity: 1 },
+      { packageId: 170, quantity: 1 },
+      { packageId: 169, quantity: 1 },
     ],
     sortOrder: 25,
   },
@@ -391,10 +408,10 @@ const FREE_FIRE_COMBOS: SeedProduct[] = [
     kind: 'combo',
     amount: 620,
     bonus: 62,
-    costUsd: 4.294,
+    costUsd: 4.349,
     calls: [
-      { packageId: 3, quantity: 1 },
-      { packageId: 1, quantity: 1 },
+      { packageId: 171, quantity: 1 },
+      { packageId: 169, quantity: 1 },
     ],
     sortOrder: 35,
   },
@@ -408,10 +425,10 @@ const FREE_FIRE_COMBOS: SeedProduct[] = [
     kind: 'combo',
     amount: 830,
     bonus: 83,
-    costUsd: 5.705,
+    costUsd: 5.79,
     calls: [
-      { packageId: 3, quantity: 1 },
-      { packageId: 2, quantity: 1 },
+      { packageId: 171, quantity: 1 },
+      { packageId: 170, quantity: 1 },
     ],
     badge: 'COMBO',
     sortOrder: 45,

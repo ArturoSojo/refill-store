@@ -428,18 +428,28 @@ caduca, el saldo vuelve (una sola vez, marcada con `pricing.walletRefunded`).
 
 Transcrito del documento técnico en `functions/src/seed/catalog.seed.ts`.
 
-**Free Fire** — `game_id: -1`, `game_type: freefire_id`
+**Free Fire** — `game_id: 24`, `game_type: dynamic` («Free fire 20 %» en el proveedor)
 
 | Producto        | package_id | Costo   |
 | --------------- | ---------- | ------- |
-| 100 + 10 💎     | 1          | $0,699  |
-| 310 + 31 💎     | 2          | $2,110  |
-| 520 + 52 💎     | 3          | $3,595  |
-| 1.060 + 106 💎  | 4          | $6,658  |
-| 2.180 + 218 💎  | 5          | $13,100 |
-| 5.600 + 560 💎  | 6          | $34,100 |
+| 100 + 10 💎     | 169        | $0,719  |
+| 310 + 31 💎     | 170        | $2,160  |
+| 520 + 52 💎     | 171        | $3,630  |
+| 1.060 + 106 💎  | 172        | $6,770  |
+| 2.160 + 218 💎  | 173        | $13,450 |
+| 5.600 + 560 💎  | 174        | $34,300 |
 
-Combos: 200+20 (`1` ×2), 410+41 (`2`+`1`), 620+62 (`3`+`1`), 830+83 (`3`+`2`).
+Combos: 200+20 (`169` ×2), 410+41 (`170`+`169`), 620+62 (`171`+`169`), 830+83 (`171`+`170`).
+
+> **No usa la ruta `-1 / freefire_id`.** Se cambió a `24` porque sale entre un 3 % y un 5 %
+> más barato. El precio de ese descuento es que `24` es un juego `dynamic` y **deja de
+> validar el ID del jugador** (devuelve `player_name` vacío y acepta cualquier número),
+> mientras que `-1` sí rechazaba IDs inexistentes. De ahí que Free Fire lleve ahora
+> `validatesPlayerId: false` y la tienda pida confirmar los datos antes de cobrar.
+>
+> Ojo al cambiar de ruta: **los `package_id` sólo valen dentro de su juego**, y las
+> cantidades no siempre coinciden. El paquete de esta ruta entrega **2.160** diamantes donde
+> el de `-1` daba 2.180, así que el producto se renombró para no prometer de más.
 
 **Blood Strike** — `game_id: 15`, `game_type: dynamic`
 Paquetes `112, 96, 97, 98, 99, 100, 101` con los costos del documento.
