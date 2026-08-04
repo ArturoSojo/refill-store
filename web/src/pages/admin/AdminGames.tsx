@@ -10,6 +10,7 @@ import { Input, Select, Switch, Textarea } from '@/components/ui/Field';
 import { Modal, ConfirmDialog } from '@/components/ui/Modal';
 import { Badge, EmptyState, Skeleton } from '@/components/ui/Feedback';
 import { CurrencyIcon } from '@/components/common/CurrencyIcon';
+import { ImageUpload } from '@/components/common/ImageUpload';
 import { errorMessage } from '@/lib/utils';
 import { DEFAULT_PLAYER_FIELD, type Game, type PlayerField } from '@/types/models';
 
@@ -392,30 +393,15 @@ export function AdminGames() {
               placeholder="💎"
               hint="Se usa si no hay imagen."
             />
-            <Input
-              label="Imagen de la moneda"
-              value={form.currencyIconUrl}
-              onChange={(event) => setForm({ ...form, currencyIconUrl: event.target.value })}
-              placeholder="/coins/diamante-mlbb.svg"
-              hint="Ruta o URL. Manda sobre el emoji."
-            />
           </div>
 
-          {(form.currencyIconUrl || form.currencyIcon) && (
-            <div className="flex items-center gap-3 rounded-xl bg-base-900 px-4 py-3">
-              <CurrencyIcon
-                game={{
-                  currencyIcon: form.currencyIcon,
-                  currencyIconUrl: form.currencyIconUrl,
-                  currencyLabel: form.currencyLabel,
-                }}
-                className="h-8 w-8 text-2xl"
-              />
-              <p className="text-xs text-slate-400">
-                Así se verá junto a la cantidad de {form.currencyLabel || 'monedas'}.
-              </p>
-            </div>
-          )}
+          <ImageUpload
+            label="Imagen de la moneda"
+            value={form.currencyIconUrl}
+            onChange={(currencyIconUrl) => setForm({ ...form, currencyIconUrl })}
+            folder="monedas"
+            hint="Manda sobre el emoji. Se ve junto a la cantidad en cada paquete."
+          />
 
           {/* --- Datos que se le piden al comprador --- */}
           <div className="rounded-2xl border border-base-600 bg-base-900/50 p-4">
@@ -586,17 +572,19 @@ export function AdminGames() {
           />
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <Input
-              label="URL del logo"
+            <ImageUpload
+              label="Logo del juego"
               value={form.logoUrl}
-              onChange={(event) => setForm({ ...form, logoUrl: event.target.value })}
-              placeholder="https://…"
+              onChange={(logoUrl) => setForm({ ...form, logoUrl })}
+              folder="juegos"
+              hint="Se usa en el selector de juegos."
             />
-            <Input
-              label="URL de la portada"
+            <ImageUpload
+              label="Portada"
               value={form.coverUrl}
-              onChange={(event) => setForm({ ...form, coverUrl: event.target.value })}
-              placeholder="https://…"
+              onChange={(coverUrl) => setForm({ ...form, coverUrl })}
+              folder="juegos"
+              hint="Imagen grande de la tarjeta en la portada."
             />
           </div>
 

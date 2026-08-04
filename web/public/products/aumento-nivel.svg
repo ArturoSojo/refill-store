@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-hidden="true">
+  <defs>
+    <linearGradient id="aumentonivelA" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFC46B"/><stop offset="1" stop-color="#FF6B00"/>
+    </linearGradient>
+    <linearGradient id="aumentonivelB" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FF6B00"/><stop offset="1" stop-color="#B23F00"/>
+    </linearGradient>
+  </defs>
+  <path d="M32 6l16 17H38v12H26V23H16z" fill="url(#aumentonivelA)"/>
+  <rect x="16" y="40" width="32" height="6" rx="3" fill="url(#aumentonivelB)"/>
+  <rect x="16" y="50" width="32" height="6" rx="3" fill="url(#aumentonivelB)" opacity=".55"/>
+</svg>

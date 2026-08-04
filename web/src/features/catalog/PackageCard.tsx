@@ -75,7 +75,20 @@ export function PackageCard({ product, game, selected, onSelect, index = 0 }: Pa
 
       {/* Cantidad de moneda del juego */}
       <div className="mb-2 flex items-baseline gap-1.5 pt-3">
-        <CurrencyIcon game={game} className="h-7 w-7 self-center text-2xl" />
+        {/* Un pase o una tarjeta no entregan monedas del juego, así que pintar
+            ahí el diamante confunde: si el producto trae su propia imagen, esa
+            manda. */}
+        {product.imageUrl ? (
+          <img
+            src={product.imageUrl}
+            alt=""
+            aria-hidden
+            loading="lazy"
+            className="h-7 w-7 shrink-0 self-center object-contain"
+          />
+        ) : (
+          <CurrencyIcon game={game} className="h-7 w-7 self-center text-2xl" />
+        )}
         <div className="min-w-0">
           {product.kind === 'special' ? (
             <p className="truncate text-sm font-bold leading-tight text-white">{product.name}</p>

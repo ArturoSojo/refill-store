@@ -482,6 +482,28 @@ envían al proveedor; tras verificar el pago se genera el enlace de WhatsApp.
 > orden. No lo actives en un juego sin haber comprobado que el proveedor rechaza IDs falsos:
 > una recarga a un ID equivocado no se recupera.
 
+### Imágenes del catálogo
+
+Se suben desde el panel (**Productos** y **Juegos**) con el selector de archivo, que las
+reescala a 256 px y las convierte a WebP **en el navegador** antes de subirlas: un icono se
+ve a 44 px y mandar la foto original de 4 MB sería lento para quien la sube y para todos los
+que luego abren la tienda. También se puede pegar una URL, que es lo que permite seguir
+usando las rutas locales (`/products/…`, `/coins/…`).
+
+> **El bucket no es el de por defecto.** El nombre reservado `…firebasestorage.app` sólo lo
+> puede crear el asistente de la consola de Firebase, así que se aprovisionó
+> `refill-e254f-catalogo` y se vinculó con `buckets/{bucket}:addFirebase`. Por eso
+> `VITE_FIREBASE_STORAGE_BUCKET` lleva ese nombre y `firebase.json` declara el `bucket` en el
+> bloque `storage`. Sin eso, el SDK apuntaría a un bucket que no existe.
+
+Escribir en `catalog/**` exige rol admin (reglas de Storage); leer es público. El CORS del
+bucket sólo admite los dominios de la tienda.
+
+> **No uses enlaces de Canva ni de servicios parecidos.** Los que genera al exportar llevan
+> firma y `exp=`: caducan en pocos días y devuelven 403. Pasó con los siete iconos de pases y
+> tarjetas, que quedaron rotos sin que nadie se enterara porque la tarjeta caía al ícono de
+> la moneda. Sube el archivo y quedará en el bucket del proyecto.
+
 ### En qué orden se muestran los productos
 
 De **menor a mayor cantidad de moneda** (`amount + bonus`), calculado solo. Los combos entran

@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/Button';
 import { Input, Select, Switch, Textarea } from '@/components/ui/Field';
 import { Modal, ConfirmDialog } from '@/components/ui/Modal';
 import { Badge, EmptyState, Skeleton } from '@/components/ui/Feedback';
+import { ImageUpload } from '@/components/common/ImageUpload';
 import { formatBs, formatUsd } from '@/lib/format';
 import { cn, errorMessage } from '@/lib/utils';
 import type { DispatchCall, Product } from '@/types/models';
@@ -533,13 +534,15 @@ export function AdminProducts() {
               onChange={(event) => setForm({ ...form, badge: event.target.value.toUpperCase() })}
               placeholder="POPULAR"
             />
-            <Input
-              label="URL de imagen"
-              value={form.imageUrl}
-              onChange={(event) => setForm({ ...form, imageUrl: event.target.value })}
-              placeholder="https://…"
-            />
           </div>
+
+          <ImageUpload
+            label="Icono del producto"
+            value={form.imageUrl}
+            onChange={(imageUrl) => setForm({ ...form, imageUrl })}
+            folder="productos"
+            hint="Si lo dejas vacío se usa el ícono de la moneda del juego. Para pases y tarjetas conviene poner uno propio."
+          />
 
           <div className="space-y-3 border-t border-base-600 pt-4">
             <Switch

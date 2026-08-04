@@ -70,6 +70,12 @@ interface SeedProduct {
   bonus: number;
   costUsd: number;
   calls: DispatchCall[];
+  /**
+   * Icono propio del producto. Los pases y tarjetas lo necesitan: sin él la
+   * tarjeta cae al ícono de la moneda del juego y un Pase Booyah aparece con un
+   * diamante, que no es lo que entrega.
+   */
+  imageUrl?: string;
   badge?: string | null;
   featured?: boolean;
   sortOrder: number;
@@ -647,6 +653,7 @@ const MANUAL_PRODUCTS: SeedProduct[] = [
     bonus: 0,
     costUsd: 3.15,
     calls: [],
+    imageUrl: '/products/pase-booyah.svg',
     sortOrder: 110,
   },
   {
@@ -661,6 +668,7 @@ const MANUAL_PRODUCTS: SeedProduct[] = [
     bonus: 0,
     costUsd: 2.35,
     calls: [],
+    imageUrl: '/products/tarjeta-semanal.svg',
     badge: 'POPULAR',
     sortOrder: 120,
   },
@@ -676,6 +684,7 @@ const MANUAL_PRODUCTS: SeedProduct[] = [
     bonus: 0,
     costUsd: 10.56,
     calls: [],
+    imageUrl: '/products/tarjeta-mensual.svg',
     sortOrder: 130,
   },
   {
@@ -690,6 +699,7 @@ const MANUAL_PRODUCTS: SeedProduct[] = [
     bonus: 0,
     costUsd: 4.55,
     calls: [],
+    imageUrl: '/products/aumento-nivel.svg',
     sortOrder: 140,
   },
   // Blood Strike
@@ -705,6 +715,7 @@ const MANUAL_PRODUCTS: SeedProduct[] = [
     bonus: 0,
     costUsd: 0.57,
     calls: [],
+    imageUrl: '/products/cofre.svg',
     sortOrder: 110,
   },
   {
@@ -719,6 +730,7 @@ const MANUAL_PRODUCTS: SeedProduct[] = [
     bonus: 0,
     costUsd: 1.15,
     calls: [],
+    imageUrl: '/products/pase-temporada.svg',
     sortOrder: 120,
   },
   {
@@ -733,6 +745,7 @@ const MANUAL_PRODUCTS: SeedProduct[] = [
     bonus: 0,
     costUsd: 1.15,
     calls: [],
+    imageUrl: '/products/bolsa-suerte.svg',
     sortOrder: 130,
   },
   {
@@ -747,6 +760,7 @@ const MANUAL_PRODUCTS: SeedProduct[] = [
     bonus: 0,
     costUsd: 2.6,
     calls: [],
+    imageUrl: '/products/pase-mejora.svg',
     sortOrder: 140,
   },
   {
@@ -761,6 +775,7 @@ const MANUAL_PRODUCTS: SeedProduct[] = [
     bonus: 0,
     costUsd: 4.45,
     calls: [],
+    imageUrl: '/products/pase-elite.svg',
     sortOrder: 150,
   },
   {
@@ -775,6 +790,7 @@ const MANUAL_PRODUCTS: SeedProduct[] = [
     bonus: 0,
     costUsd: 9.35,
     calls: [],
+    imageUrl: '/products/pase-premium.svg',
     sortOrder: 160,
   },
 ];
@@ -873,6 +889,10 @@ export async function seedCatalog(
       };
       if (options.overwritePrices) patch.priceUsd = priceUsd;
 
+      // El icono sólo se rellena si el producto no tiene uno: el administrador
+      // puede haber subido el suyo desde el panel y sembrar no debe pisarlo.
+      if (product.imageUrl && !snap.data()?.imageUrl) patch.imageUrl = product.imageUrl;
+
       await ref.set(patch, { merge: true });
       result.productsUpdated += 1;
     } else {
@@ -889,7 +909,7 @@ export async function seedCatalog(
         priceUsd,
         compareAtUsd: null,
         calls: product.calls,
-        imageUrl: '',
+        imageUrl: product.imageUrl ?? '',
         badge: product.badge ?? null,
         active: true,
         featured: product.featured ?? false,

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-hidden="true">
+  <defs>
+    <linearGradient id="cornucopiaA" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FF7A8A"/><stop offset="1" stop-color="#E01E37"/>
+    </linearGradient>
+    <linearGradient id="cornucopiaB" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#E01E37"/><stop offset="1" stop-color="#7A0B18"/>
+    </linearGradient>
+  </defs>
+  <path d="M10 30h44a4 4 0 0 1 4 4v16a4 4 0 0 1-4 4H10a4 4 0 0 1-4-4V34a4 4 0 0 1 4-4z" fill="url(#cornucopiaB)"/>
+  <path d="M8 24a24 24 0 0 1 48 0l-4 6H12z" fill="url(#cornucopiaA)" transform="rotate(-8 32 24)"/>
+  <circle cx="22" cy="21" r="6" fill="#FFD873"/>
+  <circle cx="34" cy="15" r="4.6" fill="#FFB43C"/>
+  <circle cx="44" cy="21" r="5.2" fill="#FFD873" opacity=".9"/>
+  <rect x="6" y="30" width="52" height="6" rx="3" fill="#2B0A10" opacity=".45"/>
+</svg>

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-hidden="true">
+  <defs>
+    <linearGradient id="pasediamantesA" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8FD4FF"/><stop offset="1" stop-color="#2F80ED"/>
+    </linearGradient>
+    <linearGradient id="pasediamantesB" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2F80ED"/><stop offset="1" stop-color="#123E77"/>
+    </linearGradient>
+  </defs>
+  <path d="M8 20a4 4 0 0 1 4-4h40a4 4 0 0 1 4 4v6a6 6 0 0 0 0 12v6a4 4 0 0 1-4 4H12a4 4 0 0 1-4-4v-6a6 6 0 0 0 0-12z" fill="url(#pasediamantesB)"/>
+  <path d="M32 22l7 6-7 14-7-14z" fill="#BFF3FF"/>
+  <path d="M25 28h14l-7 14z" fill="#fff" opacity=".55"/>
+</svg>

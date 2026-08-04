@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-hidden="true">
+  <defs>
+    <linearGradient id="bolsasuerteA" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FF7A8A"/><stop offset="1" stop-color="#E01E37"/>
+    </linearGradient>
+    <linearGradient id="bolsasuerteB" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#E01E37"/><stop offset="1" stop-color="#7A0B18"/>
+    </linearGradient>
+  </defs>
+  <path d="M22 20h20l9 20a13 13 0 0 1-12 17H25a13 13 0 0 1-12-17z" fill="url(#bolsasuerteB)"/>
+  <path d="M24 20c0-6 3.6-11 8-11s8 5 8 11" fill="none" stroke="url(#bolsasuerteA)" stroke-width="4" stroke-linecap="round"/>
+  <path d="M32 32l3.4 7 7.6 1.1-5.5 5.3 1.3 7.6-6.8-3.6-6.8 3.6 1.3-7.6-5.5-5.3 7.6-1.1z" fill="#FFD873" opacity=".9"/>
+</svg>

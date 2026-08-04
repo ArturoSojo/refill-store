@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-hidden="true">
+  <defs>
+    <linearGradient id="pasemejoraA" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FF7A8A"/><stop offset="1" stop-color="#E01E37"/>
+    </linearGradient>
+    <linearGradient id="pasemejoraB" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#E01E37"/><stop offset="1" stop-color="#7A0B18"/>
+    </linearGradient>
+  </defs>
+  <path d="M32 5l21 7v20c0 13-9 22-21 27C20 54 11 45 11 32V12z" fill="url(#pasemejoraB)"/>
+  <path d="M32 10l16 5.5V32c0 10-6.6 17.3-16 21.4z" fill="#000" opacity=".16"/>
+  <path d="M32 5l21 7-21 7-21-7z" fill="url(#pasemejoraA)"/>
+  <path d="M32 21l11 12h-6.5v11h-9V33H21z" fill="#fff" opacity=".92"/>
+</svg>

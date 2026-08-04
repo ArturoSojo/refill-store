@@ -14,6 +14,7 @@ import {
   type Auth,
 } from 'firebase/auth';
 import { getFirestore, connectFirestoreEmulator, type Firestore } from 'firebase/firestore';
+import { getStorage, connectStorageEmulator, type FirebaseStorage } from 'firebase/storage';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -29,6 +30,19 @@ export const app: FirebaseApp = initializeApp(firebaseConfig);
 export const auth: Auth = getAuth(app);
 export const db: Firestore = getFirestore(app);
 
+/**
+ * Bucket de imágenes del catálogo.
+ *
+ * Se nombra explícitamente porque NO es el bucket por defecto del proyecto: el
+ * nombre reservado `…firebasestorage.app` sólo lo puede crear el asistente de la
+ * consola, así que se aprovisionó uno propio y se vinculó a Firebase. Sin este
+ * parámetro el SDK apuntaría a un bucket que no existe.
+ */
+export const storage: FirebaseStorage = getStorage(
+  app,
+  `gs://${import.meta.env.VITE_FIREBASE_STORAGE_BUCKET}`
+);
+
 // La sesión sobrevive al cierre del navegador: en móvil, pedir login en cada
 // visita haría abandonar la compra.
 void setPersistence(auth, browserLocalPersistence);
@@ -39,4 +53,5 @@ googleProvider.setCustomParameters({ prompt: 'select_account' });
 if (import.meta.env.VITE_USE_EMULATORS === 'true') {
   connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
   connectFirestoreEmulator(db, '127.0.0.1', 8080);
+  connectStorageEmulator(storage, '127.0.0.1', 9499);
 }

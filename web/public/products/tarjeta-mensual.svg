@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-hidden="true">
+  <defs>
+    <linearGradient id="tarjetamensualA" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFC46B"/><stop offset="1" stop-color="#FF6B00"/>
+    </linearGradient>
+    <linearGradient id="tarjetamensualB" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FF6B00"/><stop offset="1" stop-color="#B23F00"/>
+    </linearGradient>
+  </defs>
+  <rect x="7" y="14" width="50" height="36" rx="6" fill="url(#tarjetamensualB)"/>
+  <rect x="7" y="14" width="50" height="11" rx="6" fill="url(#tarjetamensualA)"/>
+  <rect x="7" y="21" width="50" height="4" fill="url(#tarjetamensualA)"/>
+  <circle cx="16" cy="19.5" r="1.8" fill="#fff" opacity=".8"/>
+  <circle cx="23" cy="19.5" r="1.8" fill="#fff" opacity=".8"/>
+  <text x="32" y="44" text-anchor="middle" font-family="Verdana,DejaVu Sans,sans-serif" font-size="18" font-weight="bold" fill="#fff">30</text>
+</svg>
