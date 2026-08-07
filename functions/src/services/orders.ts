@@ -271,6 +271,7 @@ export async function createOrder(
       subtotalUsd,
       gameId: game.id,
       productId: product.id,
+      playerId: playerData.playerId,
     });
     discountUsd = round(discountUsd + evaluation.discountUsd, 2);
     couponCode = evaluation.coupon.code;

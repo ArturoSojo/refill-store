@@ -151,6 +151,8 @@ export function usePricePreview() {
       quantity?: number;
       couponCode?: string | null;
       useWallet?: boolean;
+      /** Permite validar ya el límite del cupón por ID de jugador. */
+      playerId?: string | null;
     }) => api.post<PricePreview>('/orders/preview', input),
   });
 }

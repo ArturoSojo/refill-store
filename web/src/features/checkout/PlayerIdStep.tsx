@@ -79,7 +79,14 @@ export function PlayerIdStep({
 
     const timeout = setTimeout(() => {
       pricePreview.mutate(
-        { productId: product.id, couponCode: couponCode.trim() || null, useWallet },
+        {
+          productId: product.id,
+          couponCode: couponCode.trim() || null,
+          useWallet,
+          // Sólo con los datos completos: valida el cupón contra esa cuenta del
+          // juego antes de crear la orden.
+          playerId: isValid ? (values[primaryField.key] ?? null) : null,
+        },
         { onSuccess: setPreview }
       );
     }, 400);
@@ -88,7 +95,7 @@ export function PlayerIdStep({
     // `pricePreview` es una mutación estable de React Query; incluirla dispararía
     // el efecto en bucle.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, product.id, couponCode, useWallet]);
+  }, [user, product.id, couponCode, useWallet, isValid, values]);
 
   const totalBs = preview?.totalBs ?? product.priceBs;
   const totalUsd = preview?.amountDueUsd ?? preview?.totalUsd ?? product.priceUsd;

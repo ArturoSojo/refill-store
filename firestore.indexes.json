@@ -62,6 +62,15 @@
       "collectionGroup": "orders",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "gameId", "order": "ASCENDING" },
+        { "fieldPath": "playerId", "order": "ASCENDING" },
+        { "fieldPath": "pricing.couponCode", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "orders",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "expiresAt", "order": "ASCENDING" }
       ]

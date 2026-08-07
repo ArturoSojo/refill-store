@@ -482,6 +482,26 @@ envían al proveedor; tras verificar el pago se genera el enlace de WhatsApp.
 > orden. No lo actives en un juego sin haber comprobado que el proveedor rechaza IDs falsos:
 > una recarga a un ID equivocado no se recupera.
 
+### Límite de uso de los cupones
+
+`perUserLimit` se aplica **por dos caminos a la vez**: la cuenta y el ID de jugador.
+
+Sólo por cuenta no protege de nada: crear correos nuevos es gratis, así que «un uso por
+usuario» se vuelve ilimitado para quien esté dispuesto a registrarse varias veces y recargar
+siempre el mismo personaje. Contando también por ID, el cupón se agota para esa cuenta del
+juego venga del correo que venga.
+
+El conteo por ID va acotado al juego: un `123456789` de Free Fire y uno de Blood Strike son
+personas distintas.
+
+> **Qué órdenes gastan un uso.** Las pagadas y las que todavía se pueden pagar
+> (`awaiting_payment`, `verifying`, `payment_rejected`). Las canceladas y las caducadas **no**
+> —antes sí, y abandonar un pago quemaba el cupón sin que nadie cobrara nada—. `refunded` sí
+> cuenta, para que no se recicle pidiendo la devolución.
+>
+> Se incluyen las órdenes aún sin pagar a propósito: si sólo contaran las cobradas, alguien
+> podría crear varias a la vez con el mismo cupón y pagarlas todas.
+
 ### Imágenes del catálogo
 
 Se suben desde el panel (**Productos** y **Juegos**) con el selector de archivo, que las

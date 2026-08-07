@@ -128,6 +128,9 @@ export function GamePage() {
           quantity,
           couponCode: couponCode.trim() || null,
           useWallet,
+          // Sólo cuando el ID está completo: así el cupón se valida contra esa
+          // cuenta del juego antes de llegar al pago.
+          playerId: idIsValid ? (playerValues[primaryField.key] ?? null) : null,
         },
         { onSuccess: setPreview }
       );
@@ -135,7 +138,7 @@ export function GamePage() {
 
     return () => clearTimeout(timeout);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, selected?.id, quantity, couponCode, useWallet]);
+  }, [user, selected?.id, quantity, couponCode, useWallet, idIsValid, playerValues]);
 
   if (catalog.isLoading) return <FullPageLoader label="Cargando el catálogo…" />;
 

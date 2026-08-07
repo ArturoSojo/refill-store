@@ -209,6 +209,8 @@ const previewSchema = z.object({
   quantity: z.coerce.number().int().min(1).max(10).default(1),
   couponCode: z.string().trim().max(32).optional().nullable(),
   useWallet: z.boolean().default(false),
+  /** Opcional: permite comprobar ya el límite del cupón por ID de jugador. */
+  playerId: z.string().trim().max(120).optional().nullable(),
 });
 
 ordersRouter.post(
@@ -237,6 +239,9 @@ ordersRouter.post(
           subtotalUsd,
           gameId: product.gameId,
           productId: product.id,
+          // Si el cliente ya escribió el ID, se avisa aquí de que el cupón está
+          // agotado para esa cuenta, en vez de dejarle llegar hasta el pago.
+          playerId: body.playerId ?? null,
         });
         discountUsd = Number((discountUsd + evaluation.discountUsd).toFixed(2));
         couponCode = evaluation.coupon.code;

@@ -161,7 +161,11 @@ export function AdminCoupons() {
                     {coupon.usageCount}
                     {coupon.usageLimit !== null ? ` / ${coupon.usageLimit}` : ''} usos
                   </p>
-                  <p className="text-slate-500">{coupon.perUserLimit} por usuario</p>
+                  <p className="text-slate-500">
+                    {coupon.perUserLimit > 0
+                      ? `${coupon.perUserLimit} por usuario y por ID`
+                      : 'sin límite por usuario'}
+                  </p>
                 </div>
 
                 {isAdmin && (
@@ -292,11 +296,11 @@ export function AdminCoupons() {
               placeholder="Sin límite"
             />
             <Input
-              label="Usos por usuario"
+              label="Usos por usuario y por ID"
               type="number"
               value={form.perUserLimit}
               onChange={(event) => setForm({ ...form, perUserLimit: event.target.value })}
-              hint="0 = sin límite por usuario"
+              hint="Se aplica a las dos cosas: a la cuenta y al ID del juego. Con 1, quien ya lo usó no puede repetirlo aunque se registre con otro correo. 0 = sin límite."
             />
           </div>
 
