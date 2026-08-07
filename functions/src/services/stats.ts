@@ -68,12 +68,27 @@ export async function trackEvent(event: StatEvent): Promise<void> {
         patch.revenueBs = FieldValue.increment(round(pricing.totalBs, 2));
         patch.costUsd = FieldValue.increment(round(pricing.costUsd, 2));
         patch.profitUsd = FieldValue.increment(round(pricing.profitUsd, 2));
-        patch[`byGame.${gameId}.orders`] = FieldValue.increment(1);
-        patch[`byGame.${gameId}.revenueUsd`] = FieldValue.increment(round(pricing.totalUsd, 2));
-        patch[`byProduct.${productId}.orders`] = FieldValue.increment(1);
-        patch[`byProduct.${productId}.revenueUsd`] = FieldValue.increment(
-          round(pricing.totalUsd, 2)
-        );
+
+        // Los desgloses van como objetos ANIDADOS, no con la clave
+        // `byGame.free-fire.orders`. En `set()` una clave con puntos es un
+        // nombre de campo literal —sólo `update()` la interpreta como ruta—,
+        // así que la notación de puntos creaba campos sueltos y los mapas
+        // `byGame` y `byProduct` quedaban vacíos: de ahí que los gráficos de
+        // ingresos por juego y de productos más vendidos salieran sin datos.
+        // Con `merge: true` los mapas se fusionan clave a clave, así que esto
+        // no pisa lo acumulado por otros juegos ni productos del mismo día.
+        patch.byGame = {
+          [gameId]: {
+            orders: FieldValue.increment(1),
+            revenueUsd: FieldValue.increment(round(pricing.totalUsd, 2)),
+          },
+        };
+        patch.byProduct = {
+          [productId]: {
+            orders: FieldValue.increment(1),
+            revenueUsd: FieldValue.increment(round(pricing.totalUsd, 2)),
+          },
+        };
         break;
       }
 
@@ -86,9 +101,24 @@ export async function trackEvent(event: StatEvent): Promise<void> {
         break;
 
       case 'order_refunded': {
-        const { pricing } = event.order;
+        const { pricing, gameId, productId } = event.order;
         patch.revenueUsd = FieldValue.increment(-round(pricing.totalUsd, 2));
         patch.profitUsd = FieldValue.increment(-round(pricing.profitUsd, 2));
+
+        // El desglose también tiene que descontar, o acaba sumando más que el
+        // total del periodo y los porcentajes por juego salen inflados.
+        patch.byGame = {
+          [gameId]: {
+            orders: FieldValue.increment(-1),
+            revenueUsd: FieldValue.increment(-round(pricing.totalUsd, 2)),
+          },
+        };
+        patch.byProduct = {
+          [productId]: {
+            orders: FieldValue.increment(-1),
+            revenueUsd: FieldValue.increment(-round(pricing.totalUsd, 2)),
+          },
+        };
         break;
       }
 
@@ -97,7 +127,6 @@ export async function trackEvent(event: StatEvent): Promise<void> {
         break;
     }
 
-    // `set(merge)` con notación de puntos crea los mapas anidados si faltan.
     await ref.set(patch, { merge: true });
   } catch (error) {
     log.warn('No se pudo actualizar el agregado diario', {
