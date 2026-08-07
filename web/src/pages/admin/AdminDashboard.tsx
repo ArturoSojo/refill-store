@@ -102,10 +102,16 @@ export function AdminDashboard() {
     label: shortDate(point.date),
   }));
 
-  const gameData = Object.entries(totals.byGame).map(([gameId, value]) => ({
-    name: gameId,
-    value: Math.round(value.revenueUsd * 100) / 100,
-  }));
+  // Reparte por GANANCIA, no por facturación: un juego puede mover mucho dinero
+  // y dejar poco. Se descartan los que no dejaron nada para que el gráfico no
+  // intente dibujar porciones de cero.
+  const gameData = Object.entries(totals.byGame)
+    .map(([gameId, value]) => ({
+      name: gameId,
+      value: Math.round((value.profitUsd ?? 0) * 100) / 100,
+    }))
+    .filter((entry) => entry.value > 0)
+    .sort((a, b) => b.value - a.value);
 
   const alerts = [
     counters.failedOrders > 0 && {
@@ -329,7 +335,10 @@ export function AdminDashboard() {
         </Card>
 
         <Card>
-          <CardHeader title="Ingresos por juego" description={`Últimos ${days} días`} />
+          <CardHeader
+            title="Ganancia por juego"
+            description={`Últimos ${days} días · ya descontado el proveedor`}
+          />
           {gameData.length === 0 ? (
             <EmptyState title="Sin ventas todavía" className="py-8" />
           ) : (
@@ -365,7 +374,7 @@ export function AdminDashboard() {
       <Card>
         <CardHeader
           title="Productos más vendidos"
-          description={`Top por ingresos en ${days} días`}
+          description={`Top por ganancia en ${days} días`}
           action={
             <Link
               to={ROUTES.adminProducts}
@@ -392,10 +401,18 @@ export function AdminDashboard() {
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-white">{product.name}</p>
-                  <p className="text-xs text-slate-500">{product.orders} órdenes</p>
+                  {/* Lo que entró y lo que costó, para que el número verde de la
+                      derecha no se confunda con la facturación. */}
+                  <p className="text-xs text-slate-500">
+                    {product.orders} órdenes · vendió {formatUsd(product.revenueUsd)} · costó{' '}
+                    {formatUsd(product.costUsd)}
+                  </p>
                 </div>
-                <span className="shrink-0 text-sm font-bold tabular text-emerald-400">
-                  {formatUsd(product.revenueUsd)}
+                <span className="shrink-0 text-right">
+                  <span className="block text-sm font-bold tabular text-emerald-400">
+                    {formatUsd(product.profitUsd)}
+                  </span>
+                  <span className="block text-[11px] text-slate-500">ganancia</span>
                 </span>
               </li>
             ))}

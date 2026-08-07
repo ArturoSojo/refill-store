@@ -593,8 +593,8 @@ export interface AdminOverview {
     newUsers: number;
     averageTicketUsd: number;
     conversionRate: number;
-    byGame: Record<string, { orders: number; revenueUsd: number }>;
-    byProduct: Record<string, { orders: number; revenueUsd: number }>;
+    byGame: Record<string, BreakdownEntry>;
+    byProduct: Record<string, BreakdownEntry>;
   };
   counters: {
     totalUsers: number;
@@ -624,13 +624,22 @@ export interface ProvidersStatus {
   };
 }
 
+/** Fila del desglose: lo vendido de un juego o de un producto. */
+export interface BreakdownEntry {
+  orders: number;
+  revenueUsd: number;
+  costUsd: number;
+  /** Ingreso menos el costo del proveedor: lo que realmente queda. */
+  profitUsd: number;
+}
+
 export interface TopProductsResponse {
-  products: Array<{
-    productId: string;
-    name: string;
-    gameId: string | null;
-    orders: number;
-    revenueUsd: number;
-  }>;
-  byGame: Record<string, { orders: number; revenueUsd: number }>;
+  products: Array<
+    BreakdownEntry & {
+      productId: string;
+      name: string;
+      gameId: string | null;
+    }
+  >;
+  byGame: Record<string, BreakdownEntry>;
 }

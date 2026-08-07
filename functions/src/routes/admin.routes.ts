@@ -152,8 +152,13 @@ adminRouter.get(
         gameId: byId.get(productId)?.gameId ?? null,
         orders: value.orders,
         revenueUsd: round(value.revenueUsd, 2),
+        costUsd: round(value.costUsd ?? 0, 2),
+        profitUsd: round(value.profitUsd ?? 0, 2),
       }))
-      .sort((a, b) => b.revenueUsd - a.revenueUsd)
+      // Se ordena por GANANCIA, no por facturación: lo que interesa saber es
+      // qué producto deja más, no cuál mueve más dinero. Un paquete grande
+      // factura mucho y deja poco.
+      .sort((a, b) => b.profitUsd - a.profitUsd)
       .slice(0, limit);
 
     ok(res, { products: top, byGame: totals.byGame });

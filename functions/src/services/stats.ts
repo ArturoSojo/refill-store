@@ -12,7 +12,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { dailyStats, now, users, orders } from '../config/firebase';
 import { log } from '../lib/logger';
 import { round } from '../lib/money';
-import type { DailyStats, Order } from '../types/models';
+import type { BreakdownEntry, DailyStats, Order } from '../types/models';
 
 export const STORE_TIMEZONE = 'America/Caracas';
 
@@ -77,18 +77,16 @@ export async function trackEvent(event: StatEvent): Promise<void> {
         // ingresos por juego y de productos más vendidos salieran sin datos.
         // Con `merge: true` los mapas se fusionan clave a clave, así que esto
         // no pisa lo acumulado por otros juegos ni productos del mismo día.
-        patch.byGame = {
-          [gameId]: {
-            orders: FieldValue.increment(1),
-            revenueUsd: FieldValue.increment(round(pricing.totalUsd, 2)),
-          },
+        // Con el costo dentro, el panel puede mostrar la ganancia real de cada
+        // juego y de cada producto, no sólo cuánto facturó.
+        const desglose = {
+          orders: FieldValue.increment(1),
+          revenueUsd: FieldValue.increment(round(pricing.totalUsd, 2)),
+          costUsd: FieldValue.increment(round(pricing.costUsd, 2)),
+          profitUsd: FieldValue.increment(round(pricing.profitUsd, 2)),
         };
-        patch.byProduct = {
-          [productId]: {
-            orders: FieldValue.increment(1),
-            revenueUsd: FieldValue.increment(round(pricing.totalUsd, 2)),
-          },
-        };
+        patch.byGame = { [gameId]: desglose };
+        patch.byProduct = { [productId]: desglose };
         break;
       }
 
@@ -107,18 +105,14 @@ export async function trackEvent(event: StatEvent): Promise<void> {
 
         // El desglose también tiene que descontar, o acaba sumando más que el
         // total del periodo y los porcentajes por juego salen inflados.
-        patch.byGame = {
-          [gameId]: {
-            orders: FieldValue.increment(-1),
-            revenueUsd: FieldValue.increment(-round(pricing.totalUsd, 2)),
-          },
+        const desglose = {
+          orders: FieldValue.increment(-1),
+          revenueUsd: FieldValue.increment(-round(pricing.totalUsd, 2)),
+          costUsd: FieldValue.increment(-round(pricing.costUsd, 2)),
+          profitUsd: FieldValue.increment(-round(pricing.profitUsd, 2)),
         };
-        patch.byProduct = {
-          [productId]: {
-            orders: FieldValue.increment(-1),
-            revenueUsd: FieldValue.increment(-round(pricing.totalUsd, 2)),
-          },
-        };
+        patch.byGame = { [gameId]: desglose };
+        patch.byProduct = { [productId]: desglose };
         break;
       }
 
@@ -177,8 +171,24 @@ export interface TotalsSummary {
   newUsers: number;
   averageTicketUsd: number;
   conversionRate: number;
-  byGame: Record<string, { orders: number; revenueUsd: number }>;
-  byProduct: Record<string, { orders: number; revenueUsd: number }>;
+  byGame: Record<string, BreakdownEntry>;
+  byProduct: Record<string, BreakdownEntry>;
+}
+
+/** Suma un desglose diario sobre el acumulado del periodo. */
+function acumular(
+  destino: Record<string, BreakdownEntry>,
+  origen: Record<string, Partial<BreakdownEntry>> | undefined
+): void {
+  for (const [id, value] of Object.entries(origen ?? {})) {
+    const actual = destino[id] ?? { orders: 0, revenueUsd: 0, costUsd: 0, profitUsd: 0 };
+    destino[id] = {
+      orders: actual.orders + (value?.orders ?? 0),
+      revenueUsd: actual.revenueUsd + (value?.revenueUsd ?? 0),
+      costUsd: actual.costUsd + (value?.costUsd ?? 0),
+      profitUsd: actual.profitUsd + (value?.profitUsd ?? 0),
+    };
+  }
 }
 
 function emptyTotals(): TotalsSummary {
@@ -218,26 +228,27 @@ export async function getTotals(days: number): Promise<TotalsSummary> {
     totals.profitUsd += data.profitUsd ?? 0;
     totals.newUsers += data.newUsers ?? 0;
 
-    for (const [gameId, value] of Object.entries(data.byGame ?? {})) {
-      const current = totals.byGame[gameId] ?? { orders: 0, revenueUsd: 0 };
-      totals.byGame[gameId] = {
-        orders: current.orders + (value?.orders ?? 0),
-        revenueUsd: current.revenueUsd + (value?.revenueUsd ?? 0),
-      };
-    }
-    for (const [productId, value] of Object.entries(data.byProduct ?? {})) {
-      const current = totals.byProduct[productId] ?? { orders: 0, revenueUsd: 0 };
-      totals.byProduct[productId] = {
-        orders: current.orders + (value?.orders ?? 0),
-        revenueUsd: current.revenueUsd + (value?.revenueUsd ?? 0),
-      };
-    }
+    acumular(totals.byGame, data.byGame);
+    acumular(totals.byProduct, data.byProduct);
   }
 
   totals.revenueUsd = round(totals.revenueUsd, 2);
   totals.revenueBs = round(totals.revenueBs, 2);
   totals.costUsd = round(totals.costUsd, 2);
   totals.profitUsd = round(totals.profitUsd, 2);
+
+  // Sumar decimales acarrea residuos (0.1 + 0.2 = 0.30000000000000004); sin
+  // esto el panel mostraría ganancias con doce decimales.
+  for (const mapa of [totals.byGame, totals.byProduct]) {
+    for (const [id, value] of Object.entries(mapa)) {
+      mapa[id] = {
+        orders: value.orders,
+        revenueUsd: round(value.revenueUsd, 2),
+        costUsd: round(value.costUsd, 2),
+        profitUsd: round(value.profitUsd, 2),
+      };
+    }
+  }
   totals.averageTicketUsd =
     totals.completedOrders > 0 ? round(totals.revenueUsd / totals.completedOrders, 2) : 0;
   totals.conversionRate =

@@ -683,6 +683,16 @@ export interface TicketMessage {
   createdAt: TimestampLike;
 }
 
+/** Una fila del desglose: lo vendido de un juego o de un producto. */
+export interface BreakdownEntry {
+  orders: number;
+  revenueUsd: number;
+  /** Lo que costó al proveedor. */
+  costUsd: number;
+  /** Ingreso menos costo: lo que realmente queda. */
+  profitUsd: number;
+}
+
 /** Agregado diario (`stats/daily/days/{yyyy-MM-dd}`). */
 export interface DailyStats {
   date: string;
@@ -695,7 +705,14 @@ export interface DailyStats {
   costUsd: number;
   profitUsd: number;
   newUsers: number;
-  byGame: Record<string, { orders: number; revenueUsd: number }>;
-  byProduct: Record<string, { orders: number; revenueUsd: number }>;
+  /**
+   * Desglose por juego y por producto.
+   *
+   * Lleva el costo del proveedor además del ingreso: sin él, el panel sólo
+   * podía mostrar cuánto entró, que no es lo mismo que cuánto se ganó. Un
+   * paquete grande factura mucho y deja poco; uno pequeño al revés.
+   */
+  byGame: Record<string, BreakdownEntry>;
+  byProduct: Record<string, BreakdownEntry>;
   updatedAt: TimestampLike;
 }
