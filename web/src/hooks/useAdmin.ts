@@ -561,6 +561,32 @@ export function useTestAlert() {
   });
 }
 
+// --- Correo al cliente -----------------------------------------------------
+
+export function useEmailStatus() {
+  return useQuery({
+    queryKey: QUERY_KEYS.adminEmail,
+    queryFn: () =>
+      api.get<{
+        enabled: boolean;
+        configured: boolean;
+        fromAddress: string;
+        reachable: boolean;
+        message: string | null;
+      }>('/admin/email/status'),
+    staleTime: 120_000,
+  });
+}
+
+export function useTestEmail() {
+  return useMutation({
+    mutationFn: (input: {
+      kind?: 'payment_verified' | 'delivered' | 'dispatch_failed';
+      orderId?: string;
+    }) => api.post<{ sent: boolean; to: string; orderCode: string }>('/admin/email/test', input),
+  });
+}
+
 // --- Cartera de un usuario -------------------------------------------------
 
 export function useAdminUserWallet(uid: string | undefined) {

@@ -40,6 +40,17 @@ export const DEFAULT_CONFIG: AppConfig = {
     maxOpenOrdersPerUser: 3,
     walletEnabled: true,
   },
+  email: {
+    enabled: true,
+    fromAddress: 'Soporterefillstore@gmail.com',
+    fromName: 'Refill Store',
+    replyTo: 'Soporterefillstore@gmail.com',
+    onPaymentVerified: true,
+    onDelivered: true,
+    // El cliente ya pagó y no recibió nada: sin un correo, se va directo a
+    // reclamar por WhatsApp sin saber que ya lo están atendiendo.
+    onDispatchFailed: true,
+  },
   alerts: {
     enabled: true,
     telegramChatId: '',

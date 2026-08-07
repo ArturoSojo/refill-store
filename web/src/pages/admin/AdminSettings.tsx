@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   BellRing,
   Landmark,
+  Mail,
   Megaphone,
   Percent,
   RefreshCw,
@@ -21,8 +22,10 @@ import {
   useRefreshRate,
   useRateHistory,
   useProvidersStatus,
+  useEmailStatus,
   useTelegramChats,
   useTestAlert,
+  useTestEmail,
 } from '@/hooks/useAdmin';
 import { useAuth } from '@/providers/AuthProvider';
 import { useDocumentTitle } from '@/hooks/useMisc';
@@ -46,6 +49,8 @@ export function AdminSettings() {
   const providers = useProvidersStatus();
   const testAlert = useTestAlert();
   const telegramChats = useTelegramChats();
+  const emailStatus = useEmailStatus();
+  const testEmail = useTestEmail();
 
   const [rateValue, setRateValue] = useState('');
   const [form, setForm] = useState<Record<string, unknown>>({});
@@ -454,6 +459,136 @@ export function AdminSettings() {
             disabled={!isAdmin}
           />
         </div>
+      </Card>
+
+      {/* --- Correos al cliente --- */}
+      <Card>
+        <CardHeader
+          title="Correos al cliente"
+          description="Comprobante de cada compra, enviado desde el Gmail de la tienda"
+          icon={<Mail className="h-4 w-4" aria-hidden />}
+          action={
+            <div className="flex items-center gap-2">
+              <Badge
+                variant={
+                  !emailStatus.data?.configured
+                    ? 'danger'
+                    : emailStatus.data.reachable
+                      ? 'success'
+                      : 'danger'
+                }
+              >
+                {!emailStatus.data?.configured
+                  ? 'Sin clave'
+                  : emailStatus.data.reachable
+                    ? 'Operativo'
+                    : 'Con problema'}
+              </Badge>
+              {isAdmin && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  loading={testEmail.isPending}
+                  leftIcon={<Send className="h-4 w-4" aria-hidden />}
+                  onClick={() =>
+                    testEmail.mutate(
+                      { kind: 'delivered' },
+                      {
+                        onSuccess: (data) =>
+                          toast.success(
+                            `Factura de prueba enviada a ${data.to} (orden ${data.orderCode}).`,
+                            { duration: 7000 }
+                          ),
+                        onError: (error) => toast.error(errorMessage(error), { duration: 8000 }),
+                      }
+                    )
+                  }
+                >
+                  Enviarme una prueba
+                </Button>
+              )}
+            </div>
+          }
+        />
+
+        {emailStatus.data?.message && (
+          <p className="mb-3 rounded-xl bg-red-500/10 px-3 py-2 text-xs text-red-300">
+            {emailStatus.data.message}
+          </p>
+        )}
+
+        <Switch
+          checked={sectionValue('email', 'enabled', config.email?.enabled !== false)}
+          onChange={(enabled) => patch('email', { enabled })}
+          label="Enviar comprobantes por correo"
+          description="Si lo apagas, el cliente sigue viendo todo en la web pero no recibe nada por correo."
+          disabled={!isAdmin}
+        />
+
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <Input
+            label="Cuenta que envía"
+            defaultValue={config.email?.fromAddress ?? ''}
+            onChange={(event) => patch('email', { fromAddress: event.target.value.trim() })}
+            placeholder="Soporterefillstore@gmail.com"
+            hint="Su contraseña de aplicación va en el secreto GMAIL_APP_PASSWORD."
+            disabled={!isAdmin}
+          />
+          <Input
+            label="Nombre del remitente"
+            defaultValue={config.email?.fromName ?? ''}
+            onChange={(event) => patch('email', { fromName: event.target.value })}
+            placeholder="Refill Store"
+            hint="Lo que ve el cliente en su bandeja."
+            disabled={!isAdmin}
+          />
+          <Input
+            label="Responder a"
+            defaultValue={config.email?.replyTo ?? ''}
+            onChange={(event) => patch('email', { replyTo: event.target.value.trim() })}
+            hint="A dónde llega si el cliente responde el correo."
+            disabled={!isAdmin}
+            containerClassName="sm:col-span-2"
+          />
+        </div>
+
+        <div className="mt-4 space-y-3 border-t border-base-600 pt-4">
+          <Switch
+            checked={sectionValue(
+              'email',
+              'onPaymentVerified',
+              config.email?.onPaymentVerified !== false
+            )}
+            onChange={(onPaymentVerified) => patch('email', { onPaymentVerified })}
+            label="Al verificarse el pago"
+            description="«Recibimos tu pago», con el detalle de la compra."
+            disabled={!isAdmin}
+          />
+          <Switch
+            checked={sectionValue('email', 'onDelivered', config.email?.onDelivered !== false)}
+            onChange={(onDelivered) => patch('email', { onDelivered })}
+            label="Al entregarse la recarga"
+            description="La factura con todo el detalle. También al completarla tú a mano."
+            disabled={!isAdmin}
+          />
+          <Switch
+            checked={sectionValue(
+              'email',
+              'onDispatchFailed',
+              config.email?.onDispatchFailed !== false
+            )}
+            onChange={(onDispatchFailed) => patch('email', { onDispatchFailed })}
+            label="Si la entrega falla"
+            description="Le avisa de que ya lo estás resolviendo. Sin esto, se va directo a reclamar por WhatsApp."
+            disabled={!isAdmin}
+          />
+        </div>
+
+        <p className="mt-4 text-xs text-slate-500">
+          Gmail permite 500 correos al día. Tu día más movido fueron 21 órdenes, así que sobra
+          margen. Si algún día se queda corto, hará falta un dominio propio y un servicio de
+          envío.
+        </p>
       </Card>
 
       {/* --- Avisos al equipo --- */}

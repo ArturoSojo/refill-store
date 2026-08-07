@@ -143,7 +143,12 @@ firebase functions:secrets:set PABILO_USER_BANK_ID
 firebase functions:secrets:set INEFABLE_API_KEY
 firebase functions:secrets:set SETUP_TOKEN         # inventa una cadena larga
 firebase functions:secrets:set TELEGRAM_BOT_TOKEN  # opcional: avisos al equipo
+firebase functions:secrets:set GMAIL_APP_PASSWORD  # correos al cliente
 ```
+
+`GMAIL_APP_PASSWORD` **no** es la contraseña de la cuenta: es una *contraseña de aplicación*
+de 16 caracteres que se genera en la seguridad de Google y exige tener activada la
+verificación en dos pasos. La cuenta remitente se elige en el panel.
 
 Los valores de los tres primeros están en el documento de especificaciones.
 `SETUP_TOKEN` es temporal: lo borras en cuanto tengas tu administrador.
@@ -652,6 +657,35 @@ Los campos marcados como **sensibles** (contraseñas) no se guardan como acceso 
 cliente y aparecen ocultos en el panel hasta que se pulsa el ojo. Aun así **se almacenan en
 claro** en la orden, porque es la única forma de que el equipo pueda completar la entrega:
 trata ese dato con el mismo cuidado que una credencial propia.
+
+### Correos al cliente
+
+Tres momentos: pago verificado, recarga entregada (la factura completa) y entrega fallida
+—este último es el que evita que quien pagó y no recibió nada se vaya directo a reclamar—.
+Se activan por separado en **Configuración → Correos al cliente**.
+
+Salen por el **SMTP de la propia cuenta de Gmail de la tienda**, con una contraseña de
+aplicación en `GMAIL_APP_PASSWORD` (exige verificación en dos pasos en esa cuenta).
+
+> **Por qué Gmail y no un servicio de envío.** Sin dominio propio no hay alternativa mejor.
+> Resend y similares exigen verificar un dominio; sin él sólo dejan enviar a tu propia
+> dirección. Brevo admite un remitente suelto, pero entonces sus servidores escriben «en
+> nombre de» una dirección `@gmail.com`, se rompe la alineación DMARC y el correo acaba en
+> Spam. Enviando por Gmail, el mensaje se origina de verdad en Google con su firma DKIM.
+>
+> **Límite: 500 correos al día.** Con el día más movido en 21 órdenes (~42 correos) sobra
+> margen. Cuando haya dominio propio conviene pasar a Brevo o Resend y enviar desde
+> `no-reply@tudominio.com`: todo el trato con SMTP está aislado en `services/email.ts`, así
+> que es cambiar ese archivo y nada más.
+
+Cada correo se marca en `order.emailsSent` **antes** de enviarse: ante dos ejecuciones
+simultáneas es preferible perder un correo que mandarle al cliente dos comprobantes de la
+misma compra. Si el envío falla, la marca se retira para poder reintentarlo. También se
+respeta el interruptor de avisos del perfil del cliente.
+
+El botón *Enviarme una prueba* renderiza una orden **real** —no datos inventados— y la manda
+a tu propio correo: lo que suele romperse en una factura son los casos raros, como un combo
+con cupón o un pago cubierto con saldo.
 
 ### Avisos al equipo
 

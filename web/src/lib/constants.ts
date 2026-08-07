@@ -60,6 +60,7 @@ export const QUERY_KEYS = {
   adminRateHistory: ['admin', 'rate-history'] as const,
   adminProviders: ['admin', 'providers'] as const,
   adminAlerts: (filters: string) => ['admin', 'alerts', filters] as const,
+  adminEmail: ['admin', 'email'] as const,
   adminUserWallet: (id: string) => ['admin', 'user-wallet', id] as const,
 } as const;
 

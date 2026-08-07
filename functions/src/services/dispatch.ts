@@ -24,6 +24,7 @@ import * as stats from './stats';
 import * as usersService from './users';
 import { addEvent } from './orderEvents';
 import { getConfig } from './settings';
+import { sendOrderEmail } from './orderEmails';
 import { resolvePlayerFields } from './catalog';
 import { buildManualOrderUrl } from './whatsapp';
 import type { DispatchCallResult, Game, Order, OrderStatus } from '../types/models';
@@ -357,6 +358,8 @@ export async function dispatchOrder(
   );
 
   if (allSucceeded) {
+    void sendOrderEmail('delivered', orderId);
+
     await addEvent({
       orderId,
       type: 'completed',
@@ -384,6 +387,8 @@ export async function dispatchOrder(
       }),
     ]);
   } else {
+    void sendOrderEmail('dispatch_failed', orderId);
+
     await addEvent({
       orderId,
       type: 'dispatch_failed',

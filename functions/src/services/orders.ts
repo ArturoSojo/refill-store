@@ -45,6 +45,7 @@ import * as dispatchService from './dispatch';
 import * as audit from './audit';
 import * as notifications from './notifications';
 import * as adminAlerts from './adminAlerts';
+import { sendOrderEmail } from './orderEmails';
 import * as stats from './stats';
 import * as usersService from './users';
 import { addEvent } from './orderEvents';
@@ -349,6 +350,7 @@ export async function createOrder(
       costUsd,
       profitUsd: round(totalUsd - costUsd, 4),
     },
+    emailsSent: [],
     payment: {
       method: paidWithWallet ? 'wallet' : 'pagomovil_bdv',
       reference: null,
@@ -729,6 +731,10 @@ export async function verifyPayment(
       : Promise.resolve(),
   ]);
 
+  // Sin `await`: el comprobante no debe retrasar la respuesta al cliente, que
+  // está esperando ver si su recarga salió.
+  void sendOrderEmail('payment_verified', orderId);
+
   // --- Entrega ---
   if (order.fulfillment === 'auto') {
     await dispatchService.dispatchOrder(orderId);
@@ -868,6 +874,10 @@ export async function markCompleted(
     },
     { merge: true }
   );
+
+  // El cliente recibe el mismo comprobante de entrega tanto si la despachó el
+  // proveedor como si la completó el equipo a mano.
+  void sendOrderEmail('delivered', orderId);
 
   await Promise.all([
     addEvent({

@@ -436,6 +436,15 @@ export interface AppConfig extends Omit<PublicConfig, 'rate' | 'whatsapp' | 'sup
     roundToUsd: number;
     roundToBs: number;
   };
+  email: {
+    enabled: boolean;
+    fromAddress: string;
+    fromName: string;
+    replyTo: string;
+    onPaymentVerified: boolean;
+    onDelivered: boolean;
+    onDispatchFailed: boolean;
+  };
   alerts: {
     enabled: boolean;
     telegramChatId: string;

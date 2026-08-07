@@ -38,6 +38,17 @@ export const SETUP_TOKEN = defineSecret('SETUP_TOKEN');
  */
 export const TELEGRAM_BOT_TOKEN = defineSecret('TELEGRAM_BOT_TOKEN');
 
+/**
+ * Contraseña de aplicación de Gmail para enviar los correos al cliente.
+ *
+ * No es la contraseña de la cuenta: se genera aparte en la seguridad de Google
+ * y exige verificación en dos pasos. La cuenta remitente se configura en el
+ * panel (`email.fromAddress`).
+ *
+ *   firebase functions:secrets:set GMAIL_APP_PASSWORD
+ */
+export const GMAIL_APP_PASSWORD = defineSecret('GMAIL_APP_PASSWORD');
+
 /** Todos los secretos que necesita la función `api`. */
 export const API_SECRETS = [
   PABILO_API_KEY,
@@ -45,6 +56,7 @@ export const API_SECRETS = [
   INEFABLE_API_KEY,
   SETUP_TOKEN,
   TELEGRAM_BOT_TOKEN,
+  GMAIL_APP_PASSWORD,
 ];
 
 // --- Configuración no secreta ----------------------------------------------

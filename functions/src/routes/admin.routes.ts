@@ -35,6 +35,8 @@ import { listEvents } from '../services/orderEvents';
 import { getConfig, updateConfig } from '../services/settings';
 import { seedCatalog } from '../seed/catalog.seed';
 import * as alertsService from '../services/adminAlerts';
+import * as emailService from '../services/email';
+import { renderOrderEmail } from '../services/emailTemplates';
 import { DEFAULT_PLAYER_FIELD } from '../types/models';
 import type { Coupon, Order, Ticket, UserProfile } from '../types/models';
 
@@ -1133,6 +1135,86 @@ adminRouter.post(
 );
 
 // ===========================================================================
+// Correo al cliente
+// ===========================================================================
+
+/**
+ * Envía una factura de prueba con una orden real.
+ *
+ * Con una orden de verdad, y no con datos inventados, porque lo que suele
+ * fallar en un correo son justamente los casos raros: un combo, un cupón, un
+ * pago cubierto con saldo. Se manda a quien lo pide, nunca al cliente.
+ */
+adminRouter.post(
+  '/email/test',
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const body = parseBody(
+      req,
+      z.object({
+        kind: z.enum(['payment_verified', 'delivered', 'dispatch_failed']).default('delivered'),
+        orderId: z.string().trim().optional(),
+      })
+    );
+
+    const actor = currentUser(req);
+    if (!actor.email) throw failedPrecondition('Tu usuario no tiene correo al que enviar.');
+
+    const conexion = await emailService.verifyConnection();
+    if (!conexion.ok) throw failedPrecondition(conexion.message ?? 'Gmail rechazó la conexión.');
+
+    const order = body.orderId
+      ? await ordersService.getOrder(body.orderId)
+      : (await ordersService.listOrders({ status: 'completed', limit: 1 }))[0];
+
+    if (!order) {
+      throw failedPrecondition(
+        'No hay ninguna orden completada todavía. Indica el ID de una orden para la prueba.'
+      );
+    }
+
+    const [config, game] = await Promise.all([
+      getConfig(),
+      catalog.getGame(order.gameId).catch(() => null),
+    ]);
+
+    const rendered = renderOrderEmail(
+      body.kind,
+      order,
+      config,
+      game ? catalog.resolvePlayerFields(game) : []
+    );
+
+    const result = await emailService.send({
+      to: actor.email,
+      subject: `[PRUEBA] ${rendered.subject}`,
+      html: rendered.html,
+      text: rendered.text,
+    });
+
+    if (!result.sent) throw failedPrecondition(result.reason ?? 'No se pudo enviar el correo.');
+
+    ok(res, { sent: true, to: actor.email, orderCode: order.code });
+  })
+);
+
+/** Estado del envío de correo, para el panel. */
+adminRouter.get(
+  '/email/status',
+  asyncHandler(async (_req, res) => {
+    const [config, conexion] = await Promise.all([getConfig(), emailService.verifyConnection()]);
+
+    ok(res, {
+      enabled: config.email?.enabled !== false,
+      configured: emailService.isEmailConfigured(),
+      fromAddress: config.email?.fromAddress ?? '',
+      reachable: conexion.ok,
+      message: conexion.message,
+    });
+  })
+);
+
+// ===========================================================================
 // Configuración
 // ===========================================================================
 
@@ -1172,6 +1254,18 @@ const configPatchSchema = z.object({
       maxVerifyAttempts: z.coerce.number().int().min(1).max(20),
       maxOpenOrdersPerUser: z.coerce.number().int().min(1).max(20),
       walletEnabled: z.boolean(),
+    })
+    .partial()
+    .optional(),
+  email: z
+    .object({
+      enabled: z.boolean(),
+      fromAddress: z.string().trim().email().max(120),
+      fromName: z.string().trim().max(60),
+      replyTo: z.string().trim().email().max(120),
+      onPaymentVerified: z.boolean(),
+      onDelivered: z.boolean(),
+      onDispatchFailed: z.boolean(),
     })
     .partial()
     .optional(),

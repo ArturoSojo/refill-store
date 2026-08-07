@@ -339,6 +339,13 @@ export interface Order {
   };
   /** Enlace precargado de WhatsApp para productos manuales. */
   whatsappUrl: string | null;
+  /**
+   * Correos ya enviados al cliente por esta orden.
+   *
+   * Evita que un reintento del panel le mande la factura por segunda vez: un
+   * comprobante duplicado confunde y parece un cobro repetido.
+   */
+  emailsSent: string[];
   status: OrderStatus;
   customerNote: string | null;
   adminNote: string | null;
@@ -511,6 +518,28 @@ export interface AppConfig {
     maxOpenOrdersPerUser: number;
     /** Permite pagar con el saldo a favor acumulado. */
     walletEnabled: boolean;
+  };
+  /**
+   * Correos al cliente.
+   *
+   * Se envían por el SMTP de la propia cuenta de Gmail de la tienda. Es la
+   * opción con mejor entrega mientras no haya dominio propio: el correo sale de
+   * verdad desde Google, con su firma DKIM, en lugar de que un tercero escriba
+   * «en nombre de» una dirección `@gmail.com` —que es lo que acaba en Spam—.
+   *
+   * Tope de Gmail: 500 correos al día en cuentas normales.
+   */
+  email: {
+    enabled: boolean;
+    /** Cuenta de Gmail que envía. Su contraseña va en `GMAIL_APP_PASSWORD`. */
+    fromAddress: string;
+    /** Nombre que ve el cliente como remitente. */
+    fromName: string;
+    /** Dirección a la que responde el cliente si contesta el correo. */
+    replyTo: string;
+    onPaymentVerified: boolean;
+    onDelivered: boolean;
+    onDispatchFailed: boolean;
   };
   /**
    * Avisos al equipo cuando algo necesita una persona.
