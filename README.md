@@ -422,6 +422,14 @@ hay botón de cancelar en *Mis órdenes* y en el detalle de cada orden.
 reconstruye la pantalla de pago de **esa** orden: mismo monto, misma tasa, mismos datos del
 jugador y el reloj original corriendo. No se crea una orden nueva ni se vuelve a pedir el ID.
 
+> **En cuanto se crea la orden, el checkout sustituye su entrada del historial por esa misma
+> URL `?orden=` y borra el `state`.** No es cosmético: `location.state` queda pegado a la
+> entrada del historial, así que al volver con el botón atrás del teléfono el checkout se
+> montaba de nuevo, veía ahí los datos del jugador y creaba **otra** orden, que se quedaba
+> esperando pago hasta caducar. Llegaron a acumularse 6, de 5 clientes distintos. Con la URL
+> ya apuntando a la orden creada, volver atrás la retoma —o lleva a su detalle si ya se
+> pagó— en lugar de crear nada.
+
 **Saldo a favor.** Los reembolsos y las recompensas por referido van a la cartera del
 cliente (`users/{uid}/wallet`), que ahora **se puede gastar**: al comprar, el saldo se
 descuenta del total y sólo se transfiere la diferencia. Si lo cubre entero, la orden se

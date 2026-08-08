@@ -86,11 +86,23 @@ export function CheckoutPage() {
     [playerValues]
   );
 
-  // La orden retomada se convierte en el estado de pago sin crear nada nuevo.
+  /**
+   * La orden retomada se resuelve una sola vez.
+   *
+   * El `ref` importa: tras verificar el pago, la caché de la orden se invalida y
+   * `resumed` vuelve a traerla, ya como `completed`. Sin esta guarda el efecto
+   * se dispararía otra vez y sacaría al cliente de la pantalla de «recarga
+   * entregada» justo cuando la está leyendo.
+   */
+  const resumeHandled = useRef(false);
+
   useEffect(() => {
+    if (resumeHandled.current) return;
     if (!resumeOrderId || !resumed.data?.payment) return;
 
+    resumeHandled.current = true;
     const order = resumed.data.order;
+
     if (!['awaiting_payment', 'payment_rejected'].includes(order.status)) {
       // Ya no se puede pagar (se completó, se canceló o caducó): mejor llevarlo
       // al detalle que dejarlo mirando un formulario inútil.
@@ -120,6 +132,25 @@ export function CheckoutPage() {
           setOrderData(data);
           setAttempts(0);
           setVerifyError(null);
+
+          /**
+           * Se sustituye la entrada del historial por la de «retomar esta
+           * orden», sin los datos del jugador.
+           *
+           * Sin esto se creaba una orden por cada vuelta atrás. `location.state`
+           * queda pegado a la entrada del historial, así que al volver con el
+           * botón del teléfono el checkout se montaba de nuevo, veía los datos
+           * ahí y creaba OTRA orden: quedaban esperando pago hasta caducar. Ya
+           * había 6 así, de 5 clientes distintos.
+           *
+           * Con `?orden=` en la URL, volver a esa entrada retoma la que ya
+           * existe —o lleva al detalle si ya se pagó— en vez de crear nada.
+           */
+          resumeHandled.current = true;
+          navigate(`${ROUTES.checkout(product.id)}?orden=${data.order.id}`, {
+            replace: true,
+            state: null,
+          });
 
           // Pagada íntegra con saldo: no hay nada que transferir, se salta el
           // paso de pago y se muestra el resultado.
@@ -167,7 +198,11 @@ export function CheckoutPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasPlayerData, user, product, game, step, orderData, resumeOrderId]);
 
-  if (isLoading || (resumeOrderId && resumed.isLoading)) {
+  // El cargador sólo cuando aún no hay nada que mostrar. Tras crear la orden la
+  // URL pasa a llevar `?orden=`, lo que dispara su consulta; sin el
+  // `!orderData` esa consulta taparía con un cargador la pantalla de pago que
+  // el cliente ya tiene delante.
+  if (isLoading || (resumeOrderId && resumed.isLoading && !orderData)) {
     return <FullPageLoader label="Cargando tu orden…" />;
   }
 
