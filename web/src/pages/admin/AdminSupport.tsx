@@ -67,7 +67,9 @@ export function AdminSupport() {
               key={ticket.id}
               className="flex flex-wrap items-center gap-3 border-b border-base-700 px-4 py-3 last:border-b-0"
             >
-              <Link to={ROUTES.ticket(ticket.id)} className="min-w-0 flex-1">
+              {/* Al panel, no a la tienda: `ROUTES.ticket` abre la pantalla del
+                  cliente y sacaba al administrador del panel. */}
+              <Link to={ROUTES.adminTicket(ticket.id)} className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="truncate text-sm font-semibold text-white">
                     {ticket.subject}

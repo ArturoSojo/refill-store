@@ -317,7 +317,8 @@ meRouter.post(
         '',
         body.message.slice(0, 300),
       ].join('\n'),
-      link: `/admin/soporte`,
+      // Directo a la conversación, no a la lista.
+      link: `/admin/soporte/${ref.id}`,
       data: { ticketId: ref.id, uid: user.uid, orderId: body.orderId ?? null },
     });
 
@@ -401,7 +402,7 @@ meRouter.post(
         severity: 'info',
         title: `Respuesta del cliente · ${ticket.subject}`,
         body: `${profile.displayName ?? profile.email ?? 'Un cliente'}: ${body.slice(0, 300)}`,
-        link: `/admin/soporte`,
+        link: `/admin/soporte/${ticketId}`,
         data: { ticketId, uid: user.uid },
       });
     }

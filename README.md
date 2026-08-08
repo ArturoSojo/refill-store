@@ -629,7 +629,7 @@ Ruta `/admin`, visible para roles `staff` y `admin`.
 | **Juegos**        | CRUD, `game_id`/`game_type`, **campos que pide el juego**, icono de moneda, colores  |
 | **Usuarios**      | Buscar, ficha e historial, rol, bloqueo, saldo con su libro de movimientos, notificar |
 | **Cupones**       | Porcentaje o monto fijo, mínimos, topes, límites por usuario, vigencia, por juego    |
-| **Soporte**       | Consultas de los clientes y cambio de estado                                        |
+| **Soporte**       | Consultas de los clientes: conversación, respuesta y cambio de estado               |
 | **Configuración** | Tasa (manual/automática), datos bancarios, WhatsApp, checkout, márgenes, avisos      |
 | **Bitácora**      | Registro de cada acción sensible con autor, fecha e IP (sólo `admin`)                |
 
@@ -641,6 +641,12 @@ Interruptores útiles en Configuración:
   esperando acción manual. Sirve si el proveedor está caído.
 - **Pago con saldo a favor** — permite gastar el saldo acumulado. Si lo apagas, el saldo se
   sigue acumulando pero no se puede usar.
+
+> **El panel no enlaza a rutas de la tienda.** La lista de soporte apuntaba a `/soporte/:id`,
+> que es la pantalla del cliente: al abrir una consulta, el administrador salía del panel y
+> aparecía en la tienda. La conversación vive ahora en `/admin/soporte/:id`, dentro del
+> `AdminLayout`. Al añadir pantallas al panel, usa siempre las rutas `admin*` de
+> `lib/constants.ts`.
 
 ### Campos por juego
 

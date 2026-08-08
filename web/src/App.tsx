@@ -26,6 +26,7 @@ import { AdminUsers, AdminUserDetail } from '@/pages/admin/AdminUsers';
 import { AdminCoupons } from '@/pages/admin/AdminCoupons';
 import { AdminSettings } from '@/pages/admin/AdminSettings';
 import { AdminSupport, AdminLogs } from '@/pages/admin/AdminSupport';
+import { AdminTicketDetail } from '@/pages/admin/AdminTicketDetail';
 import { AdminAlerts } from '@/pages/admin/AdminAlerts';
 
 export function App() {
@@ -131,6 +132,7 @@ export function App() {
           <Route path="usuarios/:uid" element={<AdminUserDetail />} />
           <Route path="cupones" element={<AdminCoupons />} />
           <Route path="soporte" element={<AdminSupport />} />
+          <Route path="soporte/:ticketId" element={<AdminTicketDetail />} />
           <Route path="avisos" element={<AdminAlerts />} />
           <Route path="configuracion" element={<AdminSettings />} />
           <Route path="bitacora" element={<AdminLogs />} />

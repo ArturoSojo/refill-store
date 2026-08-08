@@ -27,6 +27,7 @@ export const ROUTES = {
   adminUser: (id: string) => `/admin/usuarios/${id}`,
   adminCoupons: '/admin/cupones',
   adminTickets: '/admin/soporte',
+  adminTicket: (id: string) => `/admin/soporte/${id}`,
   adminAlerts: '/admin/avisos',
   adminSettings: '/admin/configuracion',
   adminLogs: '/admin/bitacora',
