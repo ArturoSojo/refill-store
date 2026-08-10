@@ -30,6 +30,7 @@ import {
 } from '../lib/errors';
 import { generateOrderCode, normalizeReference } from '../lib/ids';
 import { paginate, type Page } from '../lib/pagination';
+import { describeOrder } from '../lib/orderItem';
 import { checkAmount, round, usdToBs } from '../lib/money';
 import { log } from '../lib/logger';
 import * as catalog from './catalog';
@@ -346,6 +347,8 @@ export async function createOrder(
     productId: product.id,
     productName: product.name,
     productSku: product.sku,
+    productAmount: product.amount,
+    productBonus: product.bonus,
     fulfillment: product.fulfillment,
     playerId: playerData.playerId,
     playerId2: playerData.playerId2,
@@ -428,7 +431,7 @@ export async function createOrder(
       actorEmail: user.email,
       targetType: 'order',
       targetId: orderRef.id,
-      summary: `Orden ${order.code}: ${order.productName} para ${order.playerId}.`,
+      summary: `Orden ${order.code}: ${describeOrder({ ...order, id: orderRef.id })} para ${order.playerId}.`,
       data: { totalUsd, totalBs, rate, walletAppliedUsd },
       ip: input.ip,
     }),
@@ -673,7 +676,7 @@ export async function verifyPayment(
         kind: 'payment_rejected',
         severity: 'info',
         title: `Pago rechazado · ${order.code}`,
-        body: `${order.user.email ?? 'Un cliente'} intentó pagar ${order.productName}. ${reason}`,
+        body: `${order.user.email ?? 'Un cliente'} intentó pagar ${describeOrder(order)}. ${reason}`,
         link: `/admin/ordenes/${orderId}`,
         data: { code: order.code, reference: `***${reference.slice(-4)}` },
       }),
@@ -905,7 +908,7 @@ export async function markCompleted(
     notifications.notify({
       uid: order.uid,
       title: '¡Tu recarga fue entregada! 🎮',
-      body: `${order.productName} ya está acreditado en ${order.playerId}.`,
+      body: `${describeOrder(order)} ya está acreditado en ${order.playerId}.`,
       type: 'order',
       link: `/orden/${orderId}`,
     }),

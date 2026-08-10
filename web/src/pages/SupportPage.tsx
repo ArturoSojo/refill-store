@@ -19,6 +19,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Badge, EmptyState, FullPageLoader, Skeleton } from '@/components/ui/Feedback';
 import { ROUTES } from '@/lib/constants';
 import { formatDateTime, formatRelative } from '@/lib/format';
+import { shortOrderItem } from '@/lib/orderItem';
 import { cn, errorMessage } from '@/lib/utils';
 
 const STATUS_LABEL = {
@@ -187,7 +188,7 @@ export function SupportPage() {
             placeholder="Ninguna en particular"
             options={(orders.orders ?? []).slice(0, 20).map((order) => ({
               value: order.id,
-              label: `${order.code} — ${order.productName}`,
+              label: `${order.code} — ${shortOrderItem(order)}`,
             }))}
           />
 

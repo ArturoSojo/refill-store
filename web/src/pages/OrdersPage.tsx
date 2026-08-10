@@ -10,6 +10,7 @@ import { ConfirmDialog } from '@/components/ui/Modal';
 import { LoadMore } from '@/components/common/LoadMore';
 import { ROUTES } from '@/lib/constants';
 import { formatBs, formatRelative } from '@/lib/format';
+import { shortOrderItem } from '@/lib/orderItem';
 import { cn, errorMessage } from '@/lib/utils';
 import type { Order } from '@/types/models';
 
@@ -90,7 +91,7 @@ export function OrdersPage() {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <h2 className="truncate text-sm font-semibold text-white">
-                      {order.productName}
+                      {shortOrderItem(order)}
                     </h2>
                     <OrderStatusBadge status={order.status} />
                   </div>

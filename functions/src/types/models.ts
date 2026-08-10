@@ -317,6 +317,16 @@ export interface Order {
   productId: string;
   productName: string;
   productSku: string;
+  /**
+   * Cuánto entrega UNA unidad, congelado al comprar.
+   *
+   * Permite decirle al cliente el total cuando lleva varias («2× 100 + 10
+   * Diamantes (200 + 20 en total)»). Va en la orden y no se lee del catálogo
+   * porque el producto puede cambiar de cantidad más adelante, y esta compra
+   * tiene que seguir describiéndose como se vendió.
+   */
+  productAmount: number | null;
+  productBonus: number | null;
   fulfillment: FulfillmentType;
   /** Valor del campo principal; viaja como `player_id`. */
   playerId: string;

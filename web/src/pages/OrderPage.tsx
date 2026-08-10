@@ -20,6 +20,7 @@ import { OrderStatusBadge, FullPageLoader, ErrorState } from '@/components/ui/Fe
 import { CopyField } from '@/components/common/CopyField';
 import { ROUTES } from '@/lib/constants';
 import { formatBs, formatDateTime, formatUsd, statusMeta } from '@/lib/format';
+import { describeOrder } from '@/lib/orderItem';
 import { cn, errorMessage, openWhatsapp } from '@/lib/utils';
 import type { OrderEvent } from '@/types/models';
 
@@ -115,7 +116,7 @@ export function OrderPage() {
             <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
               Orden <span className="tabular text-slate-300">{order.code}</span>
             </p>
-            <h1 className="mt-1 text-xl font-bold text-white">{order.productName}</h1>
+            <h1 className="mt-1 text-xl font-bold text-white">{describeOrder(order)}</h1>
             <p className="mt-0.5 text-sm text-slate-400">{order.gameName}</p>
           </div>
           <OrderStatusBadge status={order.status} />

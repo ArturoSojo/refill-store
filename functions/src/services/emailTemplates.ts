@@ -10,6 +10,7 @@
  * peor que uno sobrio.
  */
 import { formatBs, formatUsd } from '../lib/money';
+import { describeOrder } from '../lib/orderItem';
 import type { AppConfig, Order, PlayerField } from '../types/models';
 
 /** Los tres momentos en que se le escribe al cliente. */
@@ -77,7 +78,7 @@ function contenidoPara(kind: EmailKind, order: Order): Contenido {
         cinta: 'ENTREGADO',
         cintaColor: '#0E7A4E',
         mensaje:
-          `Ya acreditamos ${escapeSafe(order.productName)} en la cuenta ${escapeSafe(order.playerId)}. ` +
+          `Ya acreditamos ${escapeSafe(describeOrder(order))} en la cuenta ${escapeSafe(order.playerId)}. ` +
           'Entra al juego y revisa; si no lo ves de inmediato, cierra sesión y vuelve a entrar.',
       };
     case 'dispatch_failed':
@@ -174,9 +175,8 @@ export function renderOrderEmail(
             ${row('Orden', order.code, { fuerte: true })}
             ${row('Fecha', formatDate(order))}
             ${row('Juego', order.gameName)}
-            ${row('Paquete', order.productName)}
+            ${row('Paquete', describeOrder(order))}
             ${camposJugador}
-            ${pricing.quantity > 1 ? row('Cantidad', String(pricing.quantity)) : ''}
           </table>
         </td></tr>
 
@@ -226,7 +226,7 @@ export function renderOrderEmail(
     `Orden: ${order.code}`,
     `Fecha: ${formatDate(order)}`,
     `Juego: ${order.gameName}`,
-    `Paquete: ${order.productName}`,
+    `Paquete: ${describeOrder(order)}`,
     `Cuenta recargada: ${order.playerId}`,
     order.payment.reference ? `Referencia: ${order.payment.reference}` : '',
     `Total: ${totalBs} (${formatUsd(pricing.totalUsd)})`,

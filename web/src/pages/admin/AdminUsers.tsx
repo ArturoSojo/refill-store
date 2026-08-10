@@ -36,6 +36,7 @@ import {
 import { LoadMore } from '@/components/common/LoadMore';
 import { ROUTES } from '@/lib/constants';
 import { TIER_META, formatBs, formatDateTime, formatRelative, formatUsd } from '@/lib/format';
+import { shortOrderItem } from '@/lib/orderItem';
 import { errorMessage, initials } from '@/lib/utils';
 
 export function AdminUsers() {
@@ -392,7 +393,7 @@ export function AdminUserDetail() {
                   className="flex items-center justify-between gap-3 rounded-xl bg-base-900/60 px-3 py-2.5 transition hover:bg-base-700/60"
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-sm text-white">{order.productName}</p>
+                    <p className="truncate text-sm text-white">{shortOrderItem(order)}</p>
                     <p className="text-xs text-slate-500">
                       <span className="font-mono">{order.code}</span> ·{' '}
                       {formatRelative(order.createdAt)}

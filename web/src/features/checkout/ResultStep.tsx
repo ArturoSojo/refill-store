@@ -8,6 +8,7 @@ import { OrderStatusBadge } from '@/components/ui/Feedback';
 import { useSavePlayerId } from '@/hooks/useAccount';
 import { ROUTES } from '@/lib/constants';
 import { statusMeta, formatBs } from '@/lib/format';
+import { describeOrder } from '@/lib/orderItem';
 import { openWhatsapp } from '@/lib/utils';
 import type { Game, Order } from '@/types/models';
 
@@ -87,7 +88,7 @@ export function ResultStep({ order, game, supportUrl }: ResultStepProps) {
         <dl className="mt-5 space-y-1.5 border-t border-base-600 pt-4 text-sm">
           <div className="flex justify-between">
             <dt className="text-slate-400">Producto</dt>
-            <dd className="text-right font-medium text-white">{order.productName}</dd>
+            <dd className="text-right font-medium text-white">{describeOrder(order)}</dd>
           </div>
           <div className="flex justify-between">
             <dt className="text-slate-400">{game.playerIdLabel}</dt>

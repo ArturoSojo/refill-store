@@ -20,6 +20,7 @@ import { HeroArt } from '@/components/common/Brand';
 import { Skeleton, ErrorState, EmptyState, OrderStatusBadge } from '@/components/ui/Feedback';
 import { ROUTES } from '@/lib/constants';
 import { formatBs, formatRelative } from '@/lib/format';
+import { shortOrderItem } from '@/lib/orderItem';
 import { hexToRgb } from '@/lib/utils';
 import type { Game } from '@/types/models';
 
@@ -254,7 +255,7 @@ function ActiveOrdersStrip() {
                 className="flex items-center justify-between gap-3 rounded-xl bg-base-900/60 px-3 py-2.5 transition hover:bg-base-700/60"
               >
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-white">{order.productName}</p>
+                  <p className="truncate text-sm font-medium text-white">{shortOrderItem(order)}</p>
                   <p className="text-xs text-slate-500">
                     {order.code} · {formatRelative(order.createdAt)}
                   </p>

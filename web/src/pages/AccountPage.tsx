@@ -23,6 +23,7 @@ import { Input, Switch } from '@/components/ui/Field';
 import { FullPageLoader, OrderStatusBadge } from '@/components/ui/Feedback';
 import { ROUTES } from '@/lib/constants';
 import { TIER_META, formatBs, formatRelative, formatUsd } from '@/lib/format';
+import { shortOrderItem } from '@/lib/orderItem';
 import { cn, errorMessage, initials } from '@/lib/utils';
 
 function TierCard() {
@@ -244,7 +245,7 @@ export function AccountPage() {
                   className="flex items-center justify-between gap-3 rounded-xl bg-base-900/60 px-3 py-2.5 transition hover:bg-base-700/60"
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-sm text-white">{order.productName}</p>
+                    <p className="truncate text-sm text-white">{shortOrderItem(order)}</p>
                     <p className="text-xs text-slate-500">{formatRelative(order.createdAt)}</p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">

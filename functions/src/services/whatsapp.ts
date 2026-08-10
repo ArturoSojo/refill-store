@@ -5,6 +5,7 @@
  *   https://wa.me/{NUMERO}?text={MENSAJE_ENCODEADO}
  */
 import { formatBs } from '../lib/money';
+import { describeOrder } from '../lib/orderItem';
 import type { Order, PlayerField } from '../types/models';
 
 /** Deja el número en el formato internacional sin símbolos que exige wa.me. */
@@ -67,7 +68,7 @@ export function buildManualOrderUrl(
 
   const message = buildManualMessage({
     gameName: order.gameName,
-    productName: order.productName,
+    productName: describeOrder(order),
     playerId: order.playerId,
     extraFields,
     amountBs: order.pricing.totalBs,

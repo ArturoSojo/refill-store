@@ -11,6 +11,7 @@ import { EmptyState, OrderStatusBadge, Skeleton } from '@/components/ui/Feedback
 import { LoadMore } from '@/components/common/LoadMore';
 import { ROUTES, ORDER_STATUS_OPTIONS } from '@/lib/constants';
 import { formatBs, formatDateTime, formatUsd } from '@/lib/format';
+import { shortOrderItem } from '@/lib/orderItem';
 import { downloadFile } from '@/lib/api';
 import { errorMessage } from '@/lib/utils';
 import type { Order } from '@/types/models';
@@ -33,7 +34,7 @@ function OrderRow({ order }: { order: Order }) {
             )}
           </div>
 
-          <p className="mt-1 truncate text-sm text-white">{order.productName}</p>
+          <p className="mt-1 truncate text-sm text-white">{shortOrderItem(order)}</p>
           <p className="mt-0.5 truncate text-xs text-slate-400">
             {order.user.email ?? 'Sin correo'} · ID <span className="tabular">{order.playerId}</span>
           </p>

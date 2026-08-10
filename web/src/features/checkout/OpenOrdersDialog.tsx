@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/Button';
 import { Skeleton, OrderStatusBadge } from '@/components/ui/Feedback';
 import { ROUTES } from '@/lib/constants';
 import { formatBs, formatRelative } from '@/lib/format';
+import { shortOrderItem } from '@/lib/orderItem';
 import { errorMessage } from '@/lib/utils';
 
 const OPEN_STATUSES = 'awaiting_payment,payment_rejected,verifying';
@@ -75,7 +76,7 @@ export function OpenOrdersDialog({ open, onClose, onAllClosed }: OpenOrdersDialo
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-white">
-                    {order.productName}
+                    {shortOrderItem(order)}
                   </p>
                   <p className="mt-0.5 text-xs text-slate-400">
                     {order.gameName} · <span className="tabular">{order.code}</span>

@@ -33,6 +33,7 @@ import { ConfirmDialog } from '@/components/ui/Modal';
 import { FullPageLoader, ErrorState, OrderStatusBadge, Badge } from '@/components/ui/Feedback';
 import { ROUTES } from '@/lib/constants';
 import { formatBs, formatDateTime, formatUsd } from '@/lib/format';
+import { describeOrder } from '@/lib/orderItem';
 import { cn, errorMessage, openWhatsapp } from '@/lib/utils';
 
 export function AdminOrderDetail() {
@@ -107,7 +108,7 @@ export function AdminOrderDetail() {
                 {order.fulfillment === 'auto' ? 'Automática' : 'Manual'}
               </Badge>
             </div>
-            <p className="mt-1 text-sm text-slate-300">{order.productName}</p>
+            <p className="mt-1 text-sm text-slate-300">{describeOrder(order)}</p>
             <p className="text-xs text-slate-500">
               {order.gameName} · creada el {formatDateTime(order.createdAt)}
             </p>

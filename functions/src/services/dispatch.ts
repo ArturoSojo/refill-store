@@ -26,6 +26,7 @@ import { addEvent } from './orderEvents';
 import { getConfig } from './settings';
 import { sendOrderEmail } from './orderEmails';
 import { resolvePlayerFields } from './catalog';
+import { describeOrder } from '../lib/orderItem';
 import { buildManualOrderUrl } from './whatsapp';
 import type { DispatchCallResult, Game, Order, OrderStatus } from '../types/models';
 
@@ -114,7 +115,7 @@ export async function prepareManualOrder(orderId: string): Promise<DispatchOutco
     notifications.notify({
       uid: order.uid,
       title: 'Pago confirmado ✅',
-      body: `Tu ${order.productName} se entrega por WhatsApp. Abre el chat para completarlo.`,
+      body: `Tu ${describeOrder(order)} se entrega por WhatsApp. Abre el chat para completarlo.`,
       type: 'order',
       link: `/orden/${orderId}`,
     }),
@@ -123,7 +124,7 @@ export async function prepareManualOrder(orderId: string): Promise<DispatchOutco
       severity: 'warning',
       title: `Producto manual pagado · ${order.code}`,
       body: [
-        `${order.productName} (${order.gameName}).`,
+        `${describeOrder(order)} (${order.gameName}).`,
         `Cuenta a recargar: ${order.playerId}.`,
         `Cobrado: ${order.pricing.totalBs.toFixed(2)} Bs. Espera gestión por WhatsApp.`,
       ].join('\n'),
@@ -371,7 +372,7 @@ export async function dispatchOrder(
       notifications.notify({
         uid: order.uid,
         title: '¡Recarga entregada! 🎮',
-        body: `${order.productName} ya está en tu cuenta (ID ${order.playerId}).`,
+        body: `${describeOrder(order)} ya está en tu cuenta (ID ${order.playerId}).`,
         type: 'order',
         link: `/orden/${orderId}`,
       }),
@@ -401,7 +402,7 @@ export async function dispatchOrder(
       notifications.notify({
         uid: order.uid,
         title: 'Estamos resolviendo tu recarga',
-        body: `Tu pago de ${order.productName} está confirmado. Hubo un problema al entregar y ya lo estamos atendiendo.`,
+        body: `Tu pago de ${describeOrder(order)} está confirmado. Hubo un problema al entregar y ya lo estamos atendiendo.`,
         type: 'order',
         link: `/orden/${orderId}`,
       }),
@@ -421,7 +422,7 @@ export async function dispatchOrder(
         severity: 'critical',
         title: `Recarga fallida · ${order.code}`,
         body: [
-          `${order.productName} (${order.gameName}) para el ID ${order.playerId}.`,
+          `${describeOrder(order)} (${order.gameName}) para el ID ${order.playerId}.`,
           `Cobrado: ${order.pricing.totalBs.toFixed(2)} Bs.`,
           `Motivo: ${failure ?? 'sin detalle del proveedor'}.`,
         ].join('\n'),
