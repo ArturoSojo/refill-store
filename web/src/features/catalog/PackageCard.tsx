@@ -10,7 +10,7 @@
  * transferir). El precio en dólares queda de apoyo.
  */
 import { motion } from 'framer-motion';
-import { Check, MessageCircle, Zap } from 'lucide-react';
+import { Check, MessageCircle, Star, Zap } from 'lucide-react';
 import { CurrencyIcon } from '@/components/common/CurrencyIcon';
 import { formatBs, formatUsd } from '@/lib/format';
 import { cn, hexToRgb } from '@/lib/utils';
@@ -52,12 +52,24 @@ export function PackageCard({ product, game, selected, onSelect, index = 0 }: Pa
         } as React.CSSProperties
       }
     >
-      {product.badge && (
-        <span
-          className="absolute right-0 top-2.5 z-10 rounded-l-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-white"
-          style={{ backgroundColor: accent }}
-        >
-          {product.badge}
+      {/* Los distintivos se apilan en la esquina: un paquete puede ser combo y
+          destacado a la vez, y ocultar uno de los dos pierde información. */}
+      {(product.badge || product.featured) && (
+        <span className="absolute right-0 top-2.5 z-10 flex flex-col items-end gap-1">
+          {product.badge && (
+            <span
+              className="rounded-l-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-white"
+              style={{ backgroundColor: accent }}
+            >
+              {product.badge}
+            </span>
+          )}
+          {product.featured && (
+            <span className="flex items-center gap-0.5 rounded-l-full bg-amber-400 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-base-900">
+              <Star className="h-2.5 w-2.5 fill-current" aria-hidden />
+              Destacado
+            </span>
+          )}
         </span>
       )}
 

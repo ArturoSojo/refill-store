@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Clock, MessageCircle, Zap } from 'lucide-react';
+import { Clock, MessageCircle, Star, Zap } from 'lucide-react';
 import { CurrencyIcon } from '@/components/common/CurrencyIcon';
 import { ROUTES } from '@/lib/constants';
 import { formatBs, formatUsd } from '@/lib/format';
@@ -42,12 +42,22 @@ export function ProductCard({ product, game, currencyIcon, className }: ProductC
         soldOut ? undefined : { boxShadow: `0 8px 32px -22px rgba(${hexToRgb(accent)}, 0.9)` }
       }
     >
-      {product.badge && (
-        <span
-          className="absolute right-0 top-3 rounded-l-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white"
-          style={{ backgroundColor: accent }}
-        >
-          {product.badge}
+      {(product.badge || product.featured) && (
+        <span className="absolute right-0 top-3 flex flex-col items-end gap-1">
+          {product.badge && (
+            <span
+              className="rounded-l-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white"
+              style={{ backgroundColor: accent }}
+            >
+              {product.badge}
+            </span>
+          )}
+          {product.featured && (
+            <span className="flex items-center gap-0.5 rounded-l-full bg-amber-400 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-base-900">
+              <Star className="h-2.5 w-2.5 fill-current" aria-hidden />
+              Destacado
+            </span>
+          )}
         </span>
       )}
 
