@@ -28,6 +28,7 @@ import { useDocumentTitle } from '@/hooks/useMisc';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge, EmptyState, Skeleton } from '@/components/ui/Feedback';
+import { LoadMore } from '@/components/common/LoadMore';
 import { ROUTES } from '@/lib/constants';
 import { formatDateTime } from '@/lib/format';
 import { cn, errorMessage } from '@/lib/utils';
@@ -75,8 +76,8 @@ export function AdminAlerts() {
   const markOne = useMarkAlertRead();
   const testAlert = useTestAlert();
 
-  const list = alerts.data?.alerts ?? [];
-  const unread = alerts.data?.unread ?? 0;
+  const list = alerts.items;
+  const unread = alerts.unread;
 
   return (
     <div className="space-y-4">
@@ -219,6 +220,15 @@ export function AdminAlerts() {
           })}
         </Card>
       )}
+
+      <LoadMore
+        loaded={list.length}
+        total={alerts.total}
+        hasMore={alerts.hasMore}
+        loading={alerts.isLoadingMore}
+        onLoadMore={alerts.loadMore}
+        label="avisos"
+      />
 
       <p className="text-center text-xs text-slate-500">
         ¿No te llegan por Telegram o correo? Configúralo en{' '}

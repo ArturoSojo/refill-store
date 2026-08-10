@@ -1,6 +1,6 @@
 /** Consultas y mutaciones de órdenes del cliente. */
 import { useEffect, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { api } from '@/lib/api';
@@ -24,18 +24,37 @@ export interface OrderDetailResponse {
   playerFieldLabels: PlayerFieldLabel[];
 }
 
+/**
+ * Historial de órdenes del cliente, por páginas.
+ *
+ * Antes traía 20 y se quedaba ahí: quien llevara más compras no podía llegar a
+ * las viejas desde la web.
+ */
 export function useMyOrders(status?: string) {
   const { user } = useAuth();
+  const path = `/orders${status ? `?status=${status}` : ''}`;
 
-  return useQuery({
+  const query = useInfiniteQuery({
     queryKey: QUERY_KEYS.orders(status),
-    queryFn: () =>
-      api.get<{ orders: Order[]; nextCursor: number | null }>(
-        `/orders${status ? `?status=${status}` : ''}`
-      ),
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) => {
+      const separator = path.includes('?') ? '&' : '?';
+      const url = pageParam ? `${path}${separator}cursor=${encodeURIComponent(pageParam)}` : path;
+      return api.get<{ orders: Order[]; nextCursor: string | null }>(url);
+    },
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: Boolean(user),
     staleTime: 20_000,
   });
+
+  return {
+    orders: query.data?.pages.flatMap((page) => page.orders) ?? [],
+    isLoading: query.isLoading,
+    error: query.error,
+    hasMore: Boolean(query.hasNextPage),
+    loadMore: () => void query.fetchNextPage(),
+    isLoadingMore: query.isFetchingNextPage,
+  };
 }
 
 export function useOrder(orderId: string | undefined) {

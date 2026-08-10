@@ -185,7 +185,7 @@ export function SupportPage() {
             value={orderId}
             onChange={(event) => setOrderId(event.target.value)}
             placeholder="Ninguna en particular"
-            options={(orders.data?.orders ?? []).slice(0, 20).map((order) => ({
+            options={(orders.orders ?? []).slice(0, 20).map((order) => ({
               value: order.id,
               label: `${order.code} — ${order.productName}`,
             }))}

@@ -58,6 +58,30 @@ export async function ensureProfile(authUser: AuthUser): Promise<UserProfile> {
     if (!profile.displayName && authUser.displayName) patch.displayName = authUser.displayName;
     if (profile.role !== authUser.role) patch.role = authUser.role;
 
+    // Completa lo que falte en perfiles a medio crear.
+    //
+    // `setRole` escribe el documento con sólo `role` y `updatedAt`, así que al
+    // nombrar un administrador desde el arranque el perfil nacía incompleto y
+    // esta rama nunca lo arreglaba. Sin `createdAt`, además, el usuario
+    // desaparecía del listado: `orderBy` omite los documentos que no tienen el
+    // campo por el que se ordena.
+    if (!profile.createdAt) patch.createdAt = timestamp;
+    if (profile.walletBalanceUsd === undefined) patch.walletBalanceUsd = 0;
+    if (profile.points === undefined) patch.points = 0;
+    if (!profile.tier) patch.tier = 'bronce';
+    if (!profile.referralCode) patch.referralCode = generateReferralCode();
+    if (profile.referredBy === undefined) patch.referredBy = null;
+    if (profile.referralCount === undefined) patch.referralCount = 0;
+    if (profile.banned === undefined) patch.banned = false;
+    if (profile.bannedReason === undefined) patch.bannedReason = null;
+    if (profile.phone === undefined) patch.phone = null;
+    if (!profile.stats) {
+      patch.stats = { totalOrders: 0, completedOrders: 0, totalSpentUsd: 0, lastOrderAt: null };
+    }
+    if (!profile.preferences) {
+      patch.preferences = { notifyEmail: true, notifyOrderUpdates: true };
+    }
+
     await ref.set(patch, { merge: true });
     return { ...profile, ...(patch as Partial<UserProfile>) };
   }

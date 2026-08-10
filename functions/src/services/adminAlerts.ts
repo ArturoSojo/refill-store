@@ -22,6 +22,7 @@
 import { adminAlerts, now } from '../config/firebase';
 import { TELEGRAM_BOT_TOKEN } from '../config/env';
 import { fetchJson } from '../lib/fetchJson';
+import { paginate, type Page } from '../lib/pagination';
 import { log } from '../lib/logger';
 import { getConfig } from './settings';
 import type { AdminAlert, AppConfig } from '../types/models';
@@ -314,13 +315,21 @@ export async function detectTelegramChats(): Promise<{
   };
 }
 
-export async function listAlerts(options: { limit?: number; onlyUnread?: boolean } = {}) {
-  const limit = options.limit ?? 50;
-  const snap = options.onlyUnread
-    ? await adminAlerts().where('read', '==', false).orderBy('createdAt', 'desc').limit(limit).get()
-    : await adminAlerts().orderBy('createdAt', 'desc').limit(limit).get();
+export async function listAlerts(
+  options: { limit?: number; cursor?: string; onlyUnread?: boolean } = {}
+): Promise<Page<AdminAlert>> {
+  const base = options.onlyUnread ? adminAlerts().where('read', '==', false) : adminAlerts();
 
-  return snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }) as AdminAlert);
+  return paginate(
+    base,
+    {
+      orderBy: 'createdAt',
+      limit: options.limit ?? 30,
+      cursor: options.cursor,
+      withTotal: true,
+    },
+    (id, data) => ({ id, ...data }) as AdminAlert
+  );
 }
 
 export async function countUnread(): Promise<number> {

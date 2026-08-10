@@ -714,6 +714,33 @@ Se avisa de: recarga fallida (el cliente ya pagó), producto manual pagado, tick
 respuestas, saldo bajo del proveedor y, si lo activas, pagos rechazados. El botón *Probar
 envío* manda un aviso real y dice por qué canales salió.
 
+### Paginación de las listas
+
+Por **cursor**, no por número de página. Firestore cobra por documento leído y `offset(n)` lee
+—y cobra— los n que se salta: con 931 registros de bitácora, ir a la «página 10» costaría 500
+lecturas para mostrar 50. Con `startAfter` se leen sólo las de la página, más una para saber
+si queda alguna siguiente.
+
+Aplicado a **órdenes, usuarios, tickets, bitácora y avisos**, y también al historial de
+órdenes del cliente. El cursor es opaco: el navegador lo reenvía tal cual sin interpretarlo.
+
+> **El ID del documento va como último criterio de orden.** Sin ese desempate, dos documentos
+> con la misma fecha —normal cuando se crean en el mismo segundo— pueden repetirse o
+> desaparecer entre páginas, porque `startAfter` no sabría cuál de los dos fue el último.
+
+El total sólo viaja en la primera página: no cambia al avanzar y contarlo en cada petición
+sería gasto de más. Es lo que permite que el pie diga «Mostrando 30 de 79».
+
+> **`orderBy` omite los documentos que no tienen el campo por el que se ordena.** Un usuario
+> sin `createdAt` simplemente no aparecía en el listado, aunque el contador sí lo sumaba. Le
+> pasaba al administrador creado desde el arranque: `setRole` escribe el documento con sólo
+> `role` y `updatedAt`, y `ensureProfile` lo veía ya existente y no completaba el resto. Ahora
+> `ensureProfile` rellena lo que falte en cualquier perfil a medio crear.
+
+**El catálogo de productos no se pagina** a propósito: son 63 documentos y una docena por
+juego, que la pantalla ordena y filtra en el navegador. Partirlo rompería ese filtrado sin
+ahorrar nada apreciable; sólo lleva un tope alto como red de seguridad.
+
 ## Seguridad
 
 - Credenciales de proveedores en Secret Manager, nunca en el bundle ni en el repositorio.

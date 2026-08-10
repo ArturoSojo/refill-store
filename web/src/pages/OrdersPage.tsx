@@ -7,6 +7,7 @@ import { useDocumentTitle } from '@/hooks/useMisc';
 import { EmptyState, ErrorState, OrderStatusBadge, Skeleton } from '@/components/ui/Feedback';
 import { Button, ButtonLink } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/Modal';
+import { LoadMore } from '@/components/common/LoadMore';
 import { ROUTES } from '@/lib/constants';
 import { formatBs, formatRelative } from '@/lib/format';
 import { cn, errorMessage } from '@/lib/utils';
@@ -28,10 +29,10 @@ export function OrdersPage() {
   const [toCancel, setToCancel] = useState<Order | null>(null);
 
   const selected = FILTERS.find((item) => item.id === filter);
-  const { data, isLoading, error } = useMyOrders(selected?.value);
+  const myOrders = useMyOrders(selected?.value);
   const cancelOrder = useCancelOrder();
 
-  const orders = data?.orders ?? [];
+  const { orders, isLoading, error } = myOrders;
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6">
@@ -139,6 +140,15 @@ export function OrdersPage() {
           ))}
         </ul>
       )}
+
+      <LoadMore
+        loaded={orders.length}
+        total={null}
+        hasMore={myOrders.hasMore}
+        loading={myOrders.isLoadingMore}
+        onLoadMore={myOrders.loadMore}
+        label="órdenes"
+      />
 
       <ConfirmDialog
         open={Boolean(toCancel)}

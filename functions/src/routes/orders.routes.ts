@@ -131,7 +131,7 @@ ordersRouter.post(
 const listQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(20),
   status: z.string().optional(),
-  before: z.coerce.number().int().optional(),
+  cursor: z.string().max(400).optional(),
 });
 
 ordersRouter.get(
@@ -140,19 +140,18 @@ ordersRouter.get(
     const user = currentUser(req);
     const query = parseQuery(req, listQuerySchema);
 
-    const list = await ordersService.listOrders({
+    const page = await ordersService.listOrdersPage({
       uid: user.uid,
       limit: query.limit,
       status: query.status
         ? (query.status.split(',') as Parameters<typeof ordersService.listOrders>[0]['status'])
         : undefined,
-      beforeMillis: query.before,
+      cursor: query.cursor,
     });
 
     ok(res, {
-      orders: list.map(ordersService.toCustomerOrder),
-      nextCursor:
-        list.length === query.limit ? list[list.length - 1].createdAt.toMillis() : null,
+      orders: page.items.map(ordersService.toCustomerOrder),
+      nextCursor: page.nextCursor,
     });
   })
 );

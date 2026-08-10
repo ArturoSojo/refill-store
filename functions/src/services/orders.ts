@@ -19,14 +19,7 @@
  */
 import { FieldValue } from 'firebase-admin/firestore';
 import type { Query } from 'firebase-admin/firestore';
-import {
-  db,
-  orders,
-  paymentRefs,
-  now,
-  minutesFromNow,
-  Timestamp,
-} from '../config/firebase';
+import { db, orders, paymentRefs, now, minutesFromNow } from '../config/firebase';
 import {
   failedPrecondition,
   forbidden,
@@ -36,6 +29,7 @@ import {
   paymentRejected,
 } from '../lib/errors';
 import { generateOrderCode, normalizeReference } from '../lib/ids';
+import { paginate, type Page } from '../lib/pagination';
 import { checkAmount, round, usdToBs } from '../lib/money';
 import { log } from '../lib/logger';
 import * as catalog from './catalog';
@@ -80,11 +74,12 @@ export interface ListOrdersOptions {
   fulfillment?: 'auto' | 'manual';
   playerId?: string;
   limit: number;
-  /** Cursor de paginación: milisegundos de `createdAt` del último resultado. */
-  beforeMillis?: number;
+  /** Cursor opaco devuelto por la página anterior. */
+  cursor?: string;
 }
 
-export async function listOrders(options: ListOrdersOptions): Promise<Order[]> {
+/** Aplica los filtros comunes, sin ordenar ni limitar. */
+function ordersQuery(options: Omit<ListOrdersOptions, 'limit' | 'cursor'>): Query {
   let query: Query = orders();
 
   if (options.uid) query = query.where('uid', '==', options.uid);
@@ -98,13 +93,32 @@ export async function listOrders(options: ListOrdersOptions): Promise<Order[]> {
     query = query.where('status', '==', options.status);
   }
 
-  query = query.orderBy('createdAt', 'desc');
+  return query;
+}
 
-  if (options.beforeMillis) {
-    query = query.startAfter(Timestamp.fromMillis(options.beforeMillis));
-  }
+/** Una página de órdenes, con el cursor para pedir la siguiente. */
+export async function listOrdersPage(
+  options: ListOrdersOptions & { withTotal?: boolean }
+): Promise<Page<Order>> {
+  return paginate(
+    ordersQuery(options),
+    {
+      orderBy: 'createdAt',
+      limit: options.limit,
+      cursor: options.cursor,
+      withTotal: options.withTotal,
+    },
+    (id, data) => ({ id, ...data }) as Order
+  );
+}
 
-  const snap = await query.limit(options.limit).get();
+/** Lista simple, para usos internos que no pintan una tabla (CSV, fichas). */
+export async function listOrders(options: ListOrdersOptions): Promise<Order[]> {
+  const snap = await ordersQuery(options)
+    .orderBy('createdAt', 'desc')
+    .limit(options.limit)
+    .get();
+
   return snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }) as Order);
 }
 

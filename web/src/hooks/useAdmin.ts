@@ -1,5 +1,5 @@
 /** Consultas y mutaciones del panel de administración. */
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { QUERY_KEYS } from '@/lib/constants';
 import type {
@@ -71,16 +71,74 @@ function toQueryString(filters: Record<string, unknown>): string {
   return query ? `?${query}` : '';
 }
 
+/** Forma de una respuesta paginada del backend. */
+type PagedResponse<K extends string, T> = {
+  [P in K]: T[];
+} & { nextCursor: string | null; total?: number };
+
+export interface PagedList<T> {
+  /** Todas las páginas ya cargadas, en un solo arreglo. */
+  items: T[];
+  /** Total en el servidor con los filtros aplicados. */
+  total: number | null;
+  isLoading: boolean;
+  error: unknown;
+  hasMore: boolean;
+  loadMore: () => void;
+  isLoadingMore: boolean;
+}
+
+/**
+ * Lista paginada por cursor.
+ *
+ * Concentra aquí la mecánica —acumular páginas, saber si queda más, pedir la
+ * siguiente— para que cada pantalla del panel sólo tenga que pintar `items` y
+ * poner el botón de cargar más.
+ *
+ * El backend devuelve un cursor opaco; el cliente lo reenvía sin interpretarlo.
+ */
+function usePagedQuery<K extends string, T>(
+  key: readonly unknown[],
+  path: string,
+  field: K,
+  options: { staleTime?: number; refetchInterval?: number; enabled?: boolean } = {}
+): PagedList<T> {
+  const query = useInfiniteQuery({
+    queryKey: key,
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) => {
+      const separator = path.includes('?') ? '&' : '?';
+      const url = pageParam ? `${path}${separator}cursor=${encodeURIComponent(pageParam)}` : path;
+      return api.get<PagedResponse<K, T>>(url);
+    },
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    staleTime: options.staleTime ?? 15_000,
+    refetchInterval: options.refetchInterval,
+    enabled: options.enabled,
+  });
+
+  return {
+    items: query.data?.pages.flatMap((page) => page[field] as T[]) ?? [],
+    // El total sólo viaja en la primera página: no cambia al avanzar y contar
+    // en cada petición sería gasto de más.
+    total: query.data?.pages[0]?.total ?? null,
+    isLoading: query.isLoading,
+    error: query.error,
+    hasMore: Boolean(query.hasNextPage),
+    loadMore: () => void query.fetchNextPage(),
+    isLoadingMore: query.isFetchingNextPage,
+  };
+}
+
 export function useAdminOrders(filters: AdminOrderFilters) {
   const query = toQueryString({ ...filters });
 
-  return useQuery({
-    queryKey: QUERY_KEYS.adminOrders(query),
-    queryFn: () =>
-      api.get<{ orders: Order[]; nextCursor: number | null }>(`/admin/orders${query}`),
-    staleTime: 15_000,
-    refetchInterval: 60_000,
-  });
+  return usePagedQuery<'orders', Order>(
+    QUERY_KEYS.adminOrders(query),
+    `/admin/orders${query}`,
+    'orders',
+    { refetchInterval: 60_000 }
+  );
 }
 
 export function useAdminOrderSearch(term: string) {
@@ -278,11 +336,12 @@ export function useSeedCatalog() {
 export function useAdminUsers(filters: { role?: string; search?: string; limit?: number }) {
   const query = toQueryString(filters);
 
-  return useQuery({
-    queryKey: QUERY_KEYS.adminUsers(query),
-    queryFn: () => api.get<{ users: UserProfile[] }>(`/admin/users${query}`),
-    staleTime: 30_000,
-  });
+  return usePagedQuery<'users', UserProfile>(
+    QUERY_KEYS.adminUsers(query),
+    `/admin/users${query}`,
+    'users',
+    { staleTime: 30_000 }
+  );
 }
 
 export function useAdminUser(uid: string | undefined) {
@@ -469,13 +528,12 @@ export function useDeleteCoupon() {
 // --- Soporte y bitácora ----------------------------------------------------
 
 export function useAdminTickets(status?: string) {
-  return useQuery({
-    queryKey: QUERY_KEYS.adminTickets(status),
-    queryFn: () =>
-      api.get<{ tickets: Ticket[] }>(`/admin/tickets${status ? `?status=${status}` : ''}`),
-    staleTime: 30_000,
-    refetchInterval: 60_000,
-  });
+  return usePagedQuery<'tickets', Ticket>(
+    QUERY_KEYS.adminTickets(status),
+    `/admin/tickets${status ? `?status=${status}` : ''}`,
+    'tickets',
+    { staleTime: 30_000, refetchInterval: 60_000 }
+  );
 }
 
 export function useSetTicketStatus() {
@@ -493,11 +551,12 @@ export function useSetTicketStatus() {
 export function useAuditLogs(filters: { action?: string; actorUid?: string; limit?: number }) {
   const query = toQueryString(filters);
 
-  return useQuery({
-    queryKey: QUERY_KEYS.adminLogs(query),
-    queryFn: () => api.get<{ logs: AuditLog[] }>(`/admin/logs${query}`),
-    staleTime: 30_000,
-  });
+  return usePagedQuery<'logs', AuditLog>(
+    QUERY_KEYS.adminLogs(query),
+    `/admin/logs${query}`,
+    'logs',
+    { staleTime: 30_000 }
+  );
 }
 
 // --- Avisos al equipo ------------------------------------------------------
@@ -505,14 +564,28 @@ export function useAuditLogs(filters: { action?: string; actorUid?: string; limi
 export function useAdminAlerts(options: { onlyUnread?: boolean; limit?: number } = {}) {
   const query = toQueryString(options);
 
-  return useQuery({
-    queryKey: QUERY_KEYS.adminAlerts(query),
-    queryFn: () => api.get<{ alerts: AdminAlert[]; unread: number }>(`/admin/alerts${query}`),
+  const page = usePagedQuery<'alerts', AdminAlert>(
+    QUERY_KEYS.adminAlerts(query),
+    `/admin/alerts${query}`,
+    'alerts',
+    {
+      staleTime: 20_000,
+      // El objetivo de un aviso es llegar pronto: en el panel abierto se
+      // refresca cada minuto, aparte del empuje por Telegram o webhook.
+      refetchInterval: 60_000,
+    }
+  );
+
+  // El contador de no leídos alimenta la insignia del menú, así que se expone
+  // aparte de la lista.
+  const unread = useQuery({
+    queryKey: [...QUERY_KEYS.adminAlerts(query), 'unread'],
+    queryFn: () => api.get<{ unread: number }>('/admin/alerts?limit=1'),
     staleTime: 20_000,
-    // El objetivo de un aviso es llegar pronto: en el panel abierto se refresca
-    // cada minuto, aparte del empuje por Telegram o webhook.
     refetchInterval: 60_000,
   });
+
+  return { ...page, unread: unread.data?.unread ?? 0 };
 }
 
 function useAlertsInvalidator() {

@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input, Select } from '@/components/ui/Field';
 import { EmptyState, OrderStatusBadge, Skeleton } from '@/components/ui/Feedback';
+import { LoadMore } from '@/components/common/LoadMore';
 import { ROUTES, ORDER_STATUS_OPTIONS } from '@/lib/constants';
 import { formatBs, formatDateTime, formatUsd } from '@/lib/format';
 import { downloadFile } from '@/lib/api';
@@ -75,7 +76,7 @@ export function AdminOrders() {
   const search = useAdminOrderSearch(debouncedTerm);
 
   const searching = debouncedTerm.trim().length >= 3;
-  const list = searching ? (search.data?.orders ?? []) : (orders.data?.orders ?? []);
+  const list = searching ? (search.data?.orders ?? []) : orders.items;
   const loading = searching ? search.isLoading : orders.isLoading;
 
   const setFilter = (key: string, value: string) => {
@@ -190,6 +191,19 @@ export function AdminOrders() {
             <OrderRow key={order.id} order={order} />
           ))}
         </Card>
+      )}
+
+      {/* La búsqueda devuelve coincidencias sueltas, no una página: ahí no hay
+          nada que seguir cargando. */}
+      {!searching && (
+        <LoadMore
+          loaded={list.length}
+          total={orders.total}
+          hasMore={orders.hasMore}
+          loading={orders.isLoadingMore}
+          onLoadMore={orders.loadMore}
+          label="órdenes"
+        />
       )}
     </div>
   );

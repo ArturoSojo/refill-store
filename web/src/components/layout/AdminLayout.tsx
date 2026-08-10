@@ -40,7 +40,7 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
   // El contador va en el menú porque un despacho fallido no puede esperar a que
   // a alguien se le ocurra abrir la sección.
   const alerts = useAdminAlerts({ onlyUnread: true, limit: 1 });
-  const unread = alerts.data?.unread ?? 0;
+  const unread = alerts.unread;
 
   return (
     <ul className="space-y-1">

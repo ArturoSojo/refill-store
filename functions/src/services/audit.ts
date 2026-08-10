@@ -1,6 +1,7 @@
 /** Bitácora de acciones sensibles: quién hizo qué, cuándo y sobre qué. */
 import type { Query } from 'firebase-admin/firestore';
 import { auditLogs, now } from '../config/firebase';
+import { paginate, type Page } from '../lib/pagination';
 import { log } from '../lib/logger';
 import type { AuditLog } from '../types/models';
 
@@ -42,16 +43,20 @@ export async function record(input: AuditInput): Promise<void> {
 
 export async function list(options: {
   limit: number;
+  cursor?: string;
   action?: string;
   actorUid?: string;
-}): Promise<AuditLog[]> {
+}): Promise<Page<AuditLog>> {
   let query: Query = auditLogs();
 
   if (options.action) query = query.where('action', '==', options.action);
   if (options.actorUid) query = query.where('actorUid', '==', options.actorUid);
 
-  const snap = await query.orderBy('createdAt', 'desc').limit(options.limit).get();
-  return snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }) as AuditLog);
+  return paginate(
+    query,
+    { orderBy: 'createdAt', limit: options.limit, cursor: options.cursor, withTotal: true },
+    (id, data) => ({ id, ...data }) as AuditLog
+  );
 }
 
 /** Nombres estables de acciones, para poder filtrar la bitácora. */

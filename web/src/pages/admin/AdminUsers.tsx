@@ -33,6 +33,7 @@ import {
   OrderStatusBadge,
   Skeleton,
 } from '@/components/ui/Feedback';
+import { LoadMore } from '@/components/common/LoadMore';
 import { ROUTES } from '@/lib/constants';
 import { TIER_META, formatBs, formatDateTime, formatRelative, formatUsd } from '@/lib/format';
 import { errorMessage, initials } from '@/lib/utils';
@@ -49,13 +50,15 @@ export function AdminUsers() {
     limit: 50,
   });
 
-  const list = users.data?.users ?? [];
+  const list = users.items;
 
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-bold">Usuarios</h1>
-        <p className="text-sm text-slate-400">{list.length} usuario(s)</p>
+        <p className="text-sm text-slate-400">
+          {users.total !== null ? `${users.total} usuario(s)` : `${list.length} usuario(s)`}
+        </p>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-[1fr,200px]">
@@ -137,6 +140,15 @@ export function AdminUsers() {
           ))}
         </Card>
       )}
+
+      <LoadMore
+        loaded={list.length}
+        total={users.total}
+        hasMore={users.hasMore}
+        loading={users.isLoadingMore}
+        onLoadMore={users.loadMore}
+        label="usuarios"
+      />
     </div>
   );
 }

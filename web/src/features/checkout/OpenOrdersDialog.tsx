@@ -31,7 +31,7 @@ export function OpenOrdersDialog({ open, onClose, onAllClosed }: OpenOrdersDialo
   const orders = useMyOrders(open ? OPEN_STATUSES : undefined);
   const cancelOrder = useCancelOrder();
 
-  const list = orders.data?.orders ?? [];
+  const list = orders.orders;
 
   const cancel = (orderId: string) => {
     cancelOrder.mutate(orderId, {

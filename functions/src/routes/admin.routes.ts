@@ -17,6 +17,7 @@ import {
   Timestamp,
 } from '../config/firebase';
 import { asyncHandler, clientIp, ok, parseBody, parseParams, parseQuery } from '../lib/http';
+import { PAGE_LIMIT, paginate } from '../lib/pagination';
 import { failedPrecondition, invalidArgument, notFound } from '../lib/errors';
 import { applyMargin, round } from '../lib/money';
 import { slugify } from '../lib/ids';
@@ -170,13 +171,13 @@ adminRouter.get(
 // ===========================================================================
 
 const adminOrdersQuery = z.object({
-  limit: z.coerce.number().int().min(1).max(100).default(30),
+  limit: z.coerce.number().int().min(PAGE_LIMIT.min).max(PAGE_LIMIT.max).default(PAGE_LIMIT.default),
+  cursor: z.string().max(400).optional(),
   status: z.string().optional(),
   gameId: z.string().optional(),
   fulfillment: z.enum(['auto', 'manual']).optional(),
   playerId: z.string().optional(),
   uid: z.string().optional(),
-  before: z.coerce.number().int().optional(),
 });
 
 adminRouter.get(
@@ -184,7 +185,7 @@ adminRouter.get(
   asyncHandler(async (req, res) => {
     const query = parseQuery(req, adminOrdersQuery);
 
-    const list = await ordersService.listOrders({
+    const page = await ordersService.listOrdersPage({
       uid: query.uid,
       gameId: query.gameId,
       fulfillment: query.fulfillment,
@@ -193,14 +194,11 @@ adminRouter.get(
         ? (query.status.split(',') as Parameters<typeof ordersService.listOrders>[0]['status'])
         : undefined,
       limit: query.limit,
-      beforeMillis: query.before,
+      cursor: query.cursor,
+      withTotal: true,
     });
 
-    ok(res, {
-      orders: list,
-      nextCursor:
-        list.length === query.limit ? list[list.length - 1].createdAt.toMillis() : null,
-    });
+    ok(res, { orders: page.items, nextCursor: page.nextCursor, total: page.total });
   })
 );
 
@@ -620,11 +618,31 @@ adminRouter.delete(
 // Catálogo — productos
 // ===========================================================================
 
+/**
+ * Catálogo del panel.
+ *
+ * No lleva cursor a propósito: es un catálogo acotado —hoy 63 productos, y cada
+ * juego ronda la docena— que la pantalla ordena y filtra en el navegador. Partirlo
+ * en páginas rompería ese filtrado sin ahorrar nada apreciable. El tope existe
+ * como red de seguridad por si algún día crece de verdad.
+ */
 adminRouter.get(
   '/products',
   asyncHandler(async (req, res) => {
-    const { gameId } = parseQuery(req, z.object({ gameId: z.string().optional() }));
-    ok(res, { products: await catalog.listProducts({ gameId }) });
+    const { gameId, limit } = parseQuery(
+      req,
+      z.object({
+        gameId: z.string().optional(),
+        limit: z.coerce.number().int().min(1).max(500).default(300),
+      })
+    );
+
+    const products = await catalog.listProducts({ gameId });
+    ok(res, {
+      products: products.slice(0, limit),
+      total: products.length,
+      truncated: products.length > limit,
+    });
   })
 );
 
@@ -869,7 +887,8 @@ adminRouter.get(
     const query = parseQuery(
       req,
       z.object({
-        limit: z.coerce.number().int().min(1).max(100).default(30),
+        limit: z.coerce.number().int().min(PAGE_LIMIT.min).max(PAGE_LIMIT.max).default(PAGE_LIMIT.default),
+        cursor: z.string().max(400).optional(),
         role: z.enum(['user', 'staff', 'admin']).optional(),
         search: z.string().trim().max(80).optional(),
       })
@@ -877,12 +896,14 @@ adminRouter.get(
 
     if (query.search) {
       const term = query.search.toLowerCase();
-      // Firestore no hace búsqueda parcial: se busca por igualdad de email y,
-      // si no hay resultado, se filtra un lote reciente en memoria.
+      // Firestore no hace búsqueda parcial: se busca por igualdad de correo y,
+      // si no hay resultado, se filtra un lote reciente en memoria. La búsqueda
+      // no se pagina: devuelve las coincidencias más recientes y ya.
       const byEmail = await users().where('email', '==', term).limit(5).get();
       if (!byEmail.empty) {
         ok(res, {
           users: byEmail.docs.map((doc) => ({ uid: doc.id, ...doc.data() }) as UserProfile),
+          nextCursor: null,
         });
         return;
       }
@@ -898,22 +919,18 @@ adminRouter.get(
         )
         .slice(0, query.limit);
 
-      ok(res, { users: filtered });
+      ok(res, { users: filtered, nextCursor: null });
       return;
     }
 
-    let ref = users().orderBy('createdAt', 'desc').limit(query.limit);
-    if (query.role) {
-      ref = users()
-        .where('role', '==', query.role)
-        .orderBy('createdAt', 'desc')
-        .limit(query.limit);
-    }
+    const base = query.role ? users().where('role', '==', query.role) : users();
+    const page = await paginate(
+      base,
+      { orderBy: 'createdAt', limit: query.limit, cursor: query.cursor, withTotal: true },
+      (id, data) => ({ uid: id, ...data }) as UserProfile
+    );
 
-    const snap = await ref.get();
-    ok(res, {
-      users: snap.docs.map((doc) => ({ uid: doc.id, ...doc.data() }) as UserProfile),
-    });
+    ok(res, { users: page.items, nextCursor: page.nextCursor, total: page.total });
   })
 );
 
@@ -1074,17 +1091,27 @@ adminRouter.get(
     const query = parseQuery(
       req,
       z.object({
-        limit: z.coerce.number().int().min(1).max(100).default(40),
+        limit: z.coerce.number().int().min(PAGE_LIMIT.min).max(PAGE_LIMIT.max).default(PAGE_LIMIT.default),
+        cursor: z.string().max(400).optional(),
         onlyUnread: z.coerce.boolean().default(false),
       })
     );
 
-    const [alerts, unread] = await Promise.all([
-      alertsService.listAlerts({ limit: query.limit, onlyUnread: query.onlyUnread }),
+    const [page, unread] = await Promise.all([
+      alertsService.listAlerts({
+        limit: query.limit,
+        cursor: query.cursor,
+        onlyUnread: query.onlyUnread,
+      }),
       alertsService.countUnread(),
     ]);
 
-    ok(res, { alerts, unread });
+    ok(res, {
+      alerts: page.items,
+      nextCursor: page.nextCursor,
+      total: page.total,
+      unread,
+    });
   })
 );
 
@@ -1134,8 +1161,8 @@ adminRouter.post(
     });
 
     // Se relee para poder decirle al panel por qué canales salió de verdad.
-    const [latest] = await alertsService.listAlerts({ limit: 1 });
-    ok(res, { sent: true, delivery: latest?.delivery ?? null });
+    const { items } = await alertsService.listAlerts({ limit: 1 });
+    ok(res, { sent: true, delivery: items[0]?.delivery ?? null });
   })
 );
 
@@ -1578,20 +1605,23 @@ adminRouter.delete(
 adminRouter.get(
   '/tickets',
   asyncHandler(async (req, res) => {
-    const { status } = parseQuery(
+    const query = parseQuery(
       req,
-      z.object({ status: z.enum(['open', 'pending', 'closed']).optional() })
+      z.object({
+        status: z.enum(['open', 'pending', 'closed']).optional(),
+        limit: z.coerce.number().int().min(PAGE_LIMIT.min).max(PAGE_LIMIT.max).default(PAGE_LIMIT.default),
+        cursor: z.string().max(400).optional(),
+      })
     );
 
-    const snap = status
-      ? await tickets()
-          .where('status', '==', status)
-          .orderBy('updatedAt', 'desc')
-          .limit(50)
-          .get()
-      : await tickets().orderBy('updatedAt', 'desc').limit(50).get();
+    const base = query.status ? tickets().where('status', '==', query.status) : tickets();
+    const page = await paginate(
+      base,
+      { orderBy: 'updatedAt', limit: query.limit, cursor: query.cursor, withTotal: true },
+      (id, data) => ({ id, ...data }) as Ticket
+    );
 
-    ok(res, { tickets: snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }) as Ticket) });
+    ok(res, { tickets: page.items, nextCursor: page.nextCursor, total: page.total });
   })
 );
 
@@ -1616,12 +1646,14 @@ adminRouter.get(
     const query = parseQuery(
       req,
       z.object({
-        limit: z.coerce.number().int().min(1).max(200).default(50),
+        limit: z.coerce.number().int().min(PAGE_LIMIT.min).max(PAGE_LIMIT.max).default(PAGE_LIMIT.default),
+        cursor: z.string().max(400).optional(),
         action: z.string().optional(),
         actorUid: z.string().optional(),
       })
     );
 
-    ok(res, { logs: await audit.list(query) });
+    const page = await audit.list(query);
+    ok(res, { logs: page.items, nextCursor: page.nextCursor, total: page.total });
   })
 );

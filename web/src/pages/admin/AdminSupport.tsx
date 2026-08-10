@@ -8,6 +8,7 @@ import { useDocumentTitle } from '@/hooks/useMisc';
 import { Card } from '@/components/ui/Card';
 import { Select } from '@/components/ui/Field';
 import { Badge, EmptyState, Skeleton } from '@/components/ui/Feedback';
+import { LoadMore } from '@/components/common/LoadMore';
 import { ROUTES } from '@/lib/constants';
 import { auditActionLabel, formatDateTime, formatRelative } from '@/lib/format';
 import { errorMessage } from '@/lib/utils';
@@ -25,7 +26,7 @@ export function AdminSupport() {
   const tickets = useAdminTickets(status || undefined);
   const setTicketStatus = useSetTicketStatus();
 
-  const list = tickets.data?.tickets ?? [];
+  const list = tickets.items;
 
   return (
     <div className="space-y-4">
@@ -114,6 +115,15 @@ export function AdminSupport() {
         </Card>
       )}
 
+      <LoadMore
+        loaded={list.length}
+        total={tickets.total}
+        hasMore={tickets.hasMore}
+        loading={tickets.isLoadingMore}
+        onLoadMore={tickets.loadMore}
+        label="consultas"
+      />
+
       <p className="text-xs text-slate-500">
         Para responder, abre la consulta: los mensajes del staff llegan como notificación al
         cliente.
@@ -127,7 +137,7 @@ export function AdminLogs() {
   const [action, setAction] = useState('');
   const logs = useAuditLogs({ action: action || undefined, limit: 100 });
 
-  const list = logs.data?.logs ?? [];
+  const list = logs.items;
 
   return (
     <div className="space-y-4">
@@ -187,6 +197,15 @@ export function AdminLogs() {
           ))}
         </Card>
       )}
+
+      <LoadMore
+        loaded={list.length}
+        total={logs.total}
+        hasMore={logs.hasMore}
+        loading={logs.isLoadingMore}
+        onLoadMore={logs.loadMore}
+        label="registros"
+      />
     </div>
   );
 }
