@@ -12,33 +12,15 @@ import { failedPrecondition, notFound } from '../lib/errors';
 import { log } from '../lib/logger';
 import { round } from '../lib/money';
 import * as stats from './stats';
+import * as tiers from '../lib/tiers';
 import type { AuthUser } from '../middleware/auth';
-import type { UserProfile, UserRole, UserTier, WalletTransaction } from '../types/models';
+import type { UserProfile, UserRole, WalletTransaction } from '../types/models';
 
-const TIER_THRESHOLDS: Array<{ tier: UserTier; minSpentUsd: number }> = [
-  { tier: 'diamante', minSpentUsd: 300 },
-  { tier: 'oro', minSpentUsd: 120 },
-  { tier: 'plata', minSpentUsd: 40 },
-  { tier: 'bronce', minSpentUsd: 0 },
-];
-
-export function tierForSpend(totalSpentUsd: number): UserTier {
-  return TIER_THRESHOLDS.find((t) => totalSpentUsd >= t.minSpentUsd)?.tier ?? 'bronce';
-}
-
-/** Descuento permanente por nivel de fidelidad, en porcentaje. */
-export function tierDiscountPercent(tier: UserTier): number {
-  switch (tier) {
-    case 'diamante':
-      return 4;
-    case 'oro':
-      return 3;
-    case 'plata':
-      return 1.5;
-    default:
-      return 0;
-  }
-}
+/**
+ * La escalera vive en `lib/tiers`; aquí sólo se reexporta para no romper a los
+ * llamadores que ya la pedían por este módulo.
+ */
+export { tierForSpend, tierDiscountPercent } from '../lib/tiers';
 
 /** Devuelve el perfil, creándolo si es la primera vez que entra el usuario. */
 export async function ensureProfile(authUser: AuthUser): Promise<UserProfile> {
@@ -68,7 +50,7 @@ export async function ensureProfile(authUser: AuthUser): Promise<UserProfile> {
     if (!profile.createdAt) patch.createdAt = timestamp;
     if (profile.walletBalanceUsd === undefined) patch.walletBalanceUsd = 0;
     if (profile.points === undefined) patch.points = 0;
-    if (!profile.tier) patch.tier = 'bronce';
+    if (!profile.tier) patch.tier = tiers.BASE_TIER;
     if (!profile.referralCode) patch.referralCode = generateReferralCode();
     if (profile.referredBy === undefined) patch.referredBy = null;
     if (profile.referralCount === undefined) patch.referralCount = 0;
@@ -96,7 +78,7 @@ export async function ensureProfile(authUser: AuthUser): Promise<UserProfile> {
     bannedReason: null,
     walletBalanceUsd: 0,
     points: 0,
-    tier: 'bronce',
+    tier: tiers.BASE_TIER,
     referralCode: generateReferralCode(),
     referredBy: null,
     referralCount: 0,
@@ -169,7 +151,7 @@ export async function registerCompletedPurchase(
       },
       // 1 punto por cada 0,10 USD gastados.
       points: FieldValue.increment(Math.round(amountUsd * 10)),
-      tier: tierForSpend(newTotal),
+      tier: tiers.tierForSpend(newTotal),
       updatedAt: now(),
     },
     { merge: true }

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Bell,
+  ChevronDown,
   ChevronRight,
   Gamepad2,
   LogOut,
@@ -15,6 +16,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '@/providers/AuthProvider';
+import { useConfig } from '@/providers/ConfigProvider';
 import { useUpdateProfile } from '@/hooks/useAccount';
 import { useDocumentTitle } from '@/hooks/useMisc';
 import { Card } from '@/components/ui/Card';
@@ -28,15 +30,24 @@ import { cn, errorMessage, initials } from '@/lib/utils';
 
 function TierCard() {
   const { me } = useAuth();
+  const { config } = useConfig();
+  const [showLadder, setShowLadder] = useState(false);
   if (!me) return null;
 
   const tier = TIER_META[me.profile.tier];
   const spent = me.profile.stats.totalSpentUsd;
 
-  // Umbrales espejo de `tierForSpend` en el backend.
-  const nextThreshold =
-    spent < 40 ? 40 : spent < 120 ? 120 : spent < 300 ? 300 : null;
-  const progress = nextThreshold ? Math.min(100, (spent / nextThreshold) * 100) : 100;
+  // La escalera viene del backend: aquí no se repite ningún umbral.
+  const ladder = config?.tiers ?? [];
+  const currentIndex = ladder.findIndex((entry) => entry.tier === me.profile.tier);
+  const next = currentIndex >= 0 ? ladder[currentIndex + 1] : undefined;
+
+  // El progreso se mide dentro del tramo actual, no desde cero: si no, alguien
+  // que ya gastó $900 vería la barra casi llena en cada nivel que sube.
+  const floor = currentIndex >= 0 ? ladder[currentIndex].minSpentUsd : 0;
+  const progress = next
+    ? Math.min(100, Math.max(0, ((spent - floor) / (next.minSpentUsd - floor)) * 100))
+    : 100;
 
   return (
     <Card className="relative overflow-hidden">
@@ -67,11 +78,77 @@ function TierCard() {
             />
           </div>
           <p className="mt-2 text-xs text-slate-400">
-            {nextThreshold
-              ? `Llevas ${formatUsd(spent)} de ${formatUsd(nextThreshold)} para el siguiente nivel.`
+            {next
+              ? `Llevas ${formatUsd(spent)} comprados. Con ${formatUsd(
+                  next.minSpentUsd - spent
+                )} más llegas a ${next.label} y tu descuento sube a −${next.discountPercent}%.`
               : '¡Estás en el nivel máximo! Gracias por comprar con nosotros.'}
           </p>
         </div>
+
+        {ladder.length > 0 && (
+          <>
+            <button
+              type="button"
+              onClick={() => setShowLadder((current) => !current)}
+              className="mt-3 flex items-center gap-1 text-xs font-semibold text-neon-crimson hover:underline"
+            >
+              {showLadder ? 'Ocultar los niveles' : 'Ver todos los niveles'}
+              <ChevronDown
+                className={cn('h-3.5 w-3.5 transition-transform', showLadder && 'rotate-180')}
+                aria-hidden
+              />
+            </button>
+
+            {showLadder && (
+              <ul className="mt-3 space-y-1.5 border-t border-base-600 pt-3">
+                {ladder.map((entry) => {
+                  const meta = TIER_META[entry.tier];
+                  const reached = spent >= entry.minSpentUsd;
+                  const isCurrent = entry.tier === me.profile.tier;
+
+                  return (
+                    <li
+                      key={entry.tier}
+                      className={cn(
+                        'flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-xs',
+                        isCurrent ? 'bg-base-700/70' : 'opacity-70'
+                      )}
+                    >
+                      <span className="shrink-0 text-base" aria-hidden>
+                        {meta.icon}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-semibold text-white">
+                          {meta.label}
+                          {isCurrent && (
+                            <span className="ml-1.5 text-[10px] font-bold uppercase tracking-wide text-neon-crimson">
+                              Tu nivel
+                            </span>
+                          )}
+                        </span>
+                        <span className="block text-slate-400">{entry.profile}</span>
+                      </span>
+                      <span className="shrink-0 text-right">
+                        <span
+                          className={cn(
+                            'block font-bold tabular',
+                            entry.discountPercent > 0 ? 'text-emerald-400' : 'text-slate-500'
+                          )}
+                        >
+                          {entry.discountPercent > 0 ? `−${entry.discountPercent}%` : 'Sin descuento'}
+                        </span>
+                        <span className="block tabular text-slate-500">
+                          {reached ? 'Alcanzado' : `Desde ${formatUsd(entry.minSpentUsd)}`}
+                        </span>
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </>
+        )}
       </div>
     </Card>
   );

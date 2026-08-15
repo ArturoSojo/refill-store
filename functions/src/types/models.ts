@@ -387,7 +387,15 @@ export interface OrderEvent {
 // ---------------------------------------------------------------------------
 
 export type UserRole = 'user' | 'staff' | 'admin';
-export type UserTier = 'bronce' | 'plata' | 'oro' | 'diamante';
+export type UserTier =
+  | 'hierro'
+  | 'bronce'
+  | 'plata'
+  | 'oro'
+  | 'platino'
+  | 'esmeralda'
+  | 'rubi'
+  | 'diamante';
 
 export interface UserProfile {
   uid: string;

@@ -258,7 +258,15 @@ export interface OrderEvent {
 // ---------------------------------------------------------------------------
 
 export type UserRole = 'user' | 'staff' | 'admin';
-export type UserTier = 'bronce' | 'plata' | 'oro' | 'diamante';
+export type UserTier =
+  | 'hierro'
+  | 'bronce'
+  | 'plata'
+  | 'oro'
+  | 'platino'
+  | 'esmeralda'
+  | 'rubi'
+  | 'diamante';
 
 export interface UserProfile {
   uid: string;
@@ -414,6 +422,17 @@ export interface PublicConfig {
     telegram: string;
   };
   supportUrl: string;
+  /** Escalera de niveles, servida por el backend (ver `functions/src/lib/tiers.ts`). */
+  tiers: TierDefinition[];
+}
+
+/** Un escalón de la escalera de fidelidad, tal como lo publica el backend. */
+export interface TierDefinition {
+  tier: UserTier;
+  label: string;
+  minSpentUsd: number;
+  discountPercent: number;
+  profile: string;
 }
 
 /** Configuración completa, sólo accesible desde el panel. */

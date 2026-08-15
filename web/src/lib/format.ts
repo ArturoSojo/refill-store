@@ -224,6 +224,12 @@ export function statusMeta(status: OrderStatus): StatusMeta {
 }
 
 export const TIER_META: Record<UserTier, { label: string; className: string; icon: string }> = {
+  // Los niveles son medallas: llevan color de metal o gema, no el de la marca.
+  hierro: {
+    label: 'Hierro',
+    className: 'from-slate-600 to-slate-400',
+    icon: '⚙️',
+  },
   bronce: {
     label: 'Bronce',
     className: 'from-amber-700 to-amber-500',
@@ -239,8 +245,22 @@ export const TIER_META: Record<UserTier, { label: string; className: string; ico
     className: 'from-yellow-500 to-amber-300',
     icon: '🥇',
   },
+  platino: {
+    label: 'Platino',
+    className: 'from-cyan-200 to-slate-100',
+    icon: '🏅',
+  },
+  esmeralda: {
+    label: 'Esmeralda',
+    className: 'from-emerald-500 to-green-300',
+    icon: '🟩',
+  },
+  rubi: {
+    label: 'Rubí',
+    className: 'from-rose-600 to-red-400',
+    icon: '🟥',
+  },
   diamante: {
-    // Los niveles son medallas: llevan color de metal o gema, no el de la marca.
     label: 'Diamante',
     className: 'from-sky-300 to-indigo-400',
     icon: '💎',

@@ -5,6 +5,7 @@ import { orders } from '../config/firebase';
 import { asyncHandler, ok, parseParams, parseQuery } from '../lib/http';
 import type { Order } from '../types/models';
 import { usdToBs } from '../lib/money';
+import { TIERS } from '../lib/tiers';
 import * as catalog from '../services/catalog';
 import { getConfig, toPublicConfig } from '../services/settings';
 import { buildSupportUrl } from '../services/whatsapp';
@@ -27,6 +28,9 @@ publicRouter.get(
     ok(res, {
       ...toPublicConfig(config),
       supportUrl: buildSupportUrl(config.whatsapp.supportNumber),
+      // La escalera se sirve entera para que la tienda la pinte tal cual y no
+      // tenga que repetir umbrales que luego se desincronizan.
+      tiers: TIERS,
     });
   })
 );
