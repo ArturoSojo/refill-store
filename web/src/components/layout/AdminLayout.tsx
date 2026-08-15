@@ -4,6 +4,7 @@ import { Link, NavLink, Outlet } from 'react-router-dom';
 import {
   BellRing,
   Gamepad2,
+  Gem,
   LayoutDashboard,
   LifeBuoy,
   Menu,
@@ -31,6 +32,7 @@ const NAV = [
   { to: ROUTES.adminUsers, label: 'Usuarios', icon: Users, end: false },
   { to: ROUTES.adminCoupons, label: 'Cupones', icon: Tag, end: false },
   { to: ROUTES.adminTickets, label: 'Soporte', icon: LifeBuoy, end: false },
+  { to: ROUTES.adminTiers, label: 'Niveles', icon: Gem, end: false },
   { to: ROUTES.adminSettings, label: 'Configuración', icon: Settings, end: false },
   { to: ROUTES.adminLogs, label: 'Bitácora', icon: ScrollText, end: false },
 ];

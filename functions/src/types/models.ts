@@ -387,6 +387,18 @@ export interface OrderEvent {
 // ---------------------------------------------------------------------------
 
 export type UserRole = 'user' | 'staff' | 'admin';
+/** Un escalón de la escalera de fidelidad. Los umbrales viven en `config/app.tiers`. */
+export interface TierDefinition {
+  tier: UserTier;
+  label: string;
+  /** Gasto acumulado (en USD) a partir del cual se entra al nivel. */
+  minSpentUsd: number;
+  /** Descuento permanente, en porcentaje. */
+  discountPercent: number;
+  /** Cómo se describe al cliente en ese escalón. */
+  profile: string;
+}
+
 export type UserTier =
   | 'hierro'
   | 'bronce'
@@ -605,6 +617,8 @@ export interface AppConfig {
     instagram: string;
     telegram: string;
   };
+  /** Escalera de fidelidad, editable desde el panel. Ver `lib/tiers.ts`. */
+  tiers: TierDefinition[];
   updatedAt: TimestampLike | null;
   updatedBy: string | null;
 }

@@ -21,6 +21,7 @@ import { PAGE_LIMIT, paginate } from '../lib/pagination';
 import { failedPrecondition, invalidArgument, notFound } from '../lib/errors';
 import { applyMargin, round } from '../lib/money';
 import { slugify } from '../lib/ids';
+import { MAX_DISCOUNT_PERCENT, TIER_ORDER, normalizeLadder } from '../lib/tiers';
 import { requireAuth, requireStaff, requireAdmin, currentUser } from '../middleware/auth';
 import * as ordersService from '../services/orders';
 import * as usersService from '../services/users';
@@ -34,6 +35,7 @@ import * as pabilo from '../services/pabilo';
 import * as inefable from '../services/inefable';
 import { listEvents } from '../services/orderEvents';
 import { getConfig, updateConfig } from '../services/settings';
+import * as settings from '../services/settings';
 import { seedCatalog } from '../seed/catalog.seed';
 import * as alertsService from '../services/adminAlerts';
 import * as emailService from '../services/email';
@@ -1655,5 +1657,125 @@ adminRouter.get(
 
     const page = await audit.list(query);
     ok(res, { logs: page.items, nextCursor: page.nextCursor, total: page.total });
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Niveles de fidelidad
+// ---------------------------------------------------------------------------
+
+/**
+ * La escalera se guarda completa, nunca por partes: los umbrales sólo tienen
+ * sentido unos en relación con otros, y un PATCH de un escalón suelto dejaría
+ * pasar tramos solapados.
+ */
+const tiersSchema = z.object({
+  tiers: z
+    .array(
+      z.object({
+        tier: z.enum(TIER_ORDER as unknown as [string, ...string[]]),
+        label: z.string().trim().min(1).max(24),
+        minSpentUsd: z.coerce.number().min(0).max(1_000_000),
+        discountPercent: z.coerce.number().min(0).max(MAX_DISCOUNT_PERCENT),
+        profile: z.string().trim().max(80),
+      })
+    )
+    .length(TIER_ORDER.length),
+});
+
+adminRouter.get(
+  '/tiers',
+  requireAdmin,
+  asyncHandler(async (_req, res) => {
+    const config = await getConfig();
+    ok(res, { tiers: normalizeLadder(config.tiers) });
+  })
+);
+
+adminRouter.put(
+  '/tiers',
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const body = parseBody(req, tiersSchema);
+
+    // Se reordena al orden canónico antes de validar: el panel podría mandar
+    // los escalones en cualquier orden y eso no debería cambiar el resultado.
+    const ladder = TIER_ORDER.map((tier) => body.tiers.find((entry) => entry.tier === tier));
+    if (ladder.some((entry) => !entry)) {
+      throw invalidArgument('Falta al menos un nivel: la escalera se guarda completa.');
+    }
+    const sorted = ladder as Array<(typeof body.tiers)[number]>;
+
+    if (sorted[0].minSpentUsd !== 0) {
+      throw invalidArgument(`El primer nivel (${sorted[0].label}) tiene que empezar en $0.`);
+    }
+
+    // Cada escalón debe exigir más gasto que el anterior; si no, habría tramos
+    // inalcanzables y gente con un nivel que nunca podría subir.
+    for (let index = 1; index < sorted.length; index += 1) {
+      if (sorted[index].minSpentUsd <= sorted[index - 1].minSpentUsd) {
+        throw invalidArgument(
+          `${sorted[index].label} tiene que exigir más gasto que ${sorted[index - 1].label} ` +
+            `(ahora: $${sorted[index].minSpentUsd} contra $${sorted[index - 1].minSpentUsd}).`
+        );
+      }
+    }
+
+    // El descuento no puede bajar al subir de nivel: sería un castigo por
+    // comprar más, y nadie lo entendería al verlo en la tienda.
+    for (let index = 1; index < sorted.length; index += 1) {
+      if (sorted[index].discountPercent < sorted[index - 1].discountPercent) {
+        throw invalidArgument(
+          `${sorted[index].label} no puede dar menos descuento que ${sorted[index - 1].label} ` +
+            `(${sorted[index].discountPercent}% contra ${sorted[index - 1].discountPercent}%).`
+        );
+      }
+    }
+
+    await settings.updateConfig({ tiers: sorted }, currentUser(req).uid);
+
+    await audit.record({
+      action: audit.ACTIONS.TIERS_UPDATED,
+      actorUid: currentUser(req).uid,
+      actorEmail: currentUser(req).email,
+      targetType: 'config',
+      targetId: 'tiers',
+      summary: `Escalera de niveles actualizada: ${sorted
+        .map((entry) => `${entry.label} $${entry.minSpentUsd}/−${entry.discountPercent}%`)
+        .join(', ')}.`,
+      ip: clientIp(req),
+    });
+
+    ok(res, { tiers: normalizeLadder(sorted) });
+  })
+);
+
+/**
+ * Recalcula el nivel de todos los perfiles con la escalera vigente.
+ *
+ * Hace falta porque el nivel guardado sólo se refresca al comprar: sin esto,
+ * cambiar un umbral no afecta a nadie hasta su próxima orden. Devuelve el
+ * detalle de los cambios para poder revisarlos antes de aplicarlos (`dryRun`).
+ */
+adminRouter.post(
+  '/tiers/recalculate',
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const body = parseBody(req, z.object({ dryRun: z.boolean().default(true) }));
+    const result = await usersService.recalculateAllTiers({ dryRun: body.dryRun });
+
+    if (!body.dryRun) {
+      await audit.record({
+        action: audit.ACTIONS.TIERS_UPDATED,
+        actorUid: currentUser(req).uid,
+        actorEmail: currentUser(req).email,
+        targetType: 'config',
+        targetId: 'tiers.recalculate',
+        summary: `Niveles recalculados: ${result.changed.length} de ${result.total} perfiles.`,
+        ip: clientIp(req),
+      });
+    }
+
+    ok(res, result);
   })
 );

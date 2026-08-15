@@ -287,6 +287,7 @@ export function auditActionLabel(action: string): string {
     'game.created': 'Juego creado',
     'game.updated': 'Juego actualizado',
     'game.deleted': 'Juego eliminado',
+    'tiers.updated': 'Niveles actualizados',
     'config.updated': 'Configuración',
     'rate.updated': 'Tasa actualizada',
     'user.role.changed': 'Cambio de rol',

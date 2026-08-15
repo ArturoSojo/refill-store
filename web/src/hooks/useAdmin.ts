@@ -3,6 +3,8 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { api } from '@/lib/api';
 import { QUERY_KEYS } from '@/lib/constants';
 import type {
+  TierDefinition,
+  UserTier,
   AdminAlert,
   AdminOverview,
   AppConfig,
@@ -671,5 +673,58 @@ export function useAdminUserWallet(uid: string | undefined) {
       ),
     enabled: Boolean(uid),
     staleTime: 30_000,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Niveles de fidelidad
+// ---------------------------------------------------------------------------
+
+export function useAdminTiers() {
+  return useQuery({
+    queryKey: QUERY_KEYS.adminTiers,
+    queryFn: () => api.get<{ tiers: TierDefinition[] }>('/admin/tiers'),
+    staleTime: 60_000,
+  });
+}
+
+export function useSaveTiers() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (tiers: TierDefinition[]) =>
+      api.put<{ tiers: TierDefinition[] }>('/admin/tiers', { tiers }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminTiers });
+      // La tienda lee la escalera de `/config`: sin esto, el cliente seguiría
+      // viendo los umbrales viejos hasta que caduque su caché.
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.config });
+    },
+  });
+}
+
+export interface TierRecalculation {
+  total: number;
+  changed: Array<{
+    uid: string;
+    email: string | null;
+    totalSpentUsd: number;
+    from: UserTier | null;
+    to: UserTier;
+    discountFrom: number;
+    discountTo: number;
+  }>;
+}
+
+/** Recalcula el nivel de todos los perfiles. Con `dryRun` sólo simula. */
+export function useRecalculateTiers() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (dryRun: boolean) =>
+      api.post<TierRecalculation>('/admin/tiers/recalculate', { dryRun }),
+    onSuccess: (_data, dryRun) => {
+      if (!dryRun) void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+    },
   });
 }

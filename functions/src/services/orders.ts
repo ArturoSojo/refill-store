@@ -275,7 +275,7 @@ export async function createOrder(
   let couponCode: string | null = null;
 
   // Descuento por nivel de fidelidad (siempre aplica, no requiere cupón).
-  const tierPercent = usersService.tierDiscountPercent(profile.tier);
+  const tierPercent = await usersService.tierDiscountPercent(profile.tier);
   if (tierPercent > 0) {
     discountUsd = round((subtotalUsd * tierPercent) / 100, 2);
   }

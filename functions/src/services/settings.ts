@@ -6,6 +6,7 @@
  * segundos en memoria porque casi todos los endpoints lo consultan.
  */
 import { configDoc, now } from '../config/firebase';
+import { DEFAULT_TIERS } from '../lib/tiers';
 import type { AppConfig, PublicConfig } from '../types/models';
 
 /** Valores iniciales tomados del documento de especificaciones. */
@@ -86,6 +87,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     instagram: '',
     telegram: '',
   },
+  tiers: [...DEFAULT_TIERS],
   updatedAt: null,
   updatedBy: null,
 };

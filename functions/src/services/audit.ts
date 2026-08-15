@@ -80,6 +80,7 @@ export const ACTIONS = {
   GAME_DELETED: 'game.deleted',
   CONFIG_UPDATED: 'config.updated',
   RATE_UPDATED: 'rate.updated',
+  TIERS_UPDATED: 'tiers.updated',
   USER_ROLE_CHANGED: 'user.role.changed',
   USER_BANNED: 'user.banned',
   USER_UNBANNED: 'user.unbanned',

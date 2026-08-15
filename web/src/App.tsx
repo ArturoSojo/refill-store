@@ -27,6 +27,7 @@ import { AdminCoupons } from '@/pages/admin/AdminCoupons';
 import { AdminSettings } from '@/pages/admin/AdminSettings';
 import { AdminSupport, AdminLogs } from '@/pages/admin/AdminSupport';
 import { AdminTicketDetail } from '@/pages/admin/AdminTicketDetail';
+import { AdminTiers } from '@/pages/admin/AdminTiers';
 import { AdminAlerts } from '@/pages/admin/AdminAlerts';
 
 export function App() {
@@ -134,6 +135,7 @@ export function App() {
           <Route path="soporte" element={<AdminSupport />} />
           <Route path="soporte/:ticketId" element={<AdminTicketDetail />} />
           <Route path="avisos" element={<AdminAlerts />} />
+          <Route path="niveles" element={<AdminTiers />} />
           <Route path="configuracion" element={<AdminSettings />} />
           <Route path="bitacora" element={<AdminLogs />} />
           <Route path="*" element={<Navigate to="/admin" replace />} />

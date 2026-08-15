@@ -29,6 +29,7 @@ export const ROUTES = {
   adminTickets: '/admin/soporte',
   adminTicket: (id: string) => `/admin/soporte/${id}`,
   adminAlerts: '/admin/avisos',
+  adminTiers: '/admin/niveles',
   adminSettings: '/admin/configuracion',
   adminLogs: '/admin/bitacora',
 } as const;
@@ -55,6 +56,7 @@ export const QUERY_KEYS = {
   adminUsers: (filters: string) => ['admin', 'users', filters] as const,
   adminUser: (id: string) => ['admin', 'user', id] as const,
   adminCoupons: ['admin', 'coupons'] as const,
+  adminTiers: ['admin', 'tiers'] as const,
   adminConfig: ['admin', 'config'] as const,
   adminLogs: (filters: string) => ['admin', 'logs', filters] as const,
   adminTickets: (status?: string) => ['admin', 'tickets', status ?? 'all'] as const,

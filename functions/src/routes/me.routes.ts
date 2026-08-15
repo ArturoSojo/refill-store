@@ -41,7 +41,7 @@ meRouter.get(
       isStaff: user.isStaff,
       unreadNotifications: unread.data().count,
       recentOrders: recentOrders.map(ordersService.toCustomerOrder),
-      tierDiscountPercent: usersService.tierDiscountPercent(profile.tier),
+      tierDiscountPercent: await usersService.tierDiscountPercent(profile.tier),
     });
   })
 );

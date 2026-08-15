@@ -13,14 +13,30 @@ import { log } from '../lib/logger';
 import { round } from '../lib/money';
 import * as stats from './stats';
 import * as tiers from '../lib/tiers';
+import { getConfig } from './settings';
 import type { AuthUser } from '../middleware/auth';
-import type { UserProfile, UserRole, WalletTransaction } from '../types/models';
+import type { TierDefinition, UserProfile, UserRole, UserTier, WalletTransaction } from '../types/models';
 
 /**
- * La escalera vive en `lib/tiers`; aquí sólo se reexporta para no romper a los
- * llamadores que ya la pedían por este módulo.
+ * Escalera vigente: la que el administrador dejó guardada, ya saneada.
+ *
+ * `getConfig` cachea en memoria unos segundos, así que llamar a esto en cada
+ * compra no agrega una lectura de Firestore por orden.
  */
-export { tierForSpend, tierDiscountPercent } from '../lib/tiers';
+export async function activeLadder(): Promise<TierDefinition[]> {
+  const config = await getConfig();
+  return tiers.normalizeLadder(config.tiers);
+}
+
+/** Nivel que le toca a un gasto acumulado, con la escalera vigente. */
+export async function tierForSpend(totalSpentUsd: number): Promise<UserTier> {
+  return tiers.tierForSpend(totalSpentUsd, await activeLadder());
+}
+
+/** Descuento permanente del nivel, con la escalera vigente. */
+export async function tierDiscountPercent(tier: UserTier): Promise<number> {
+  return tiers.tierDiscountPercent(tier, await activeLadder());
+}
 
 /** Devuelve el perfil, creándolo si es la primera vez que entra el usuario. */
 export async function ensureProfile(authUser: AuthUser): Promise<UserProfile> {
@@ -141,6 +157,7 @@ export async function registerCompletedPurchase(
   const completedBefore = (data.stats?.completedOrders as number | undefined) ?? 0;
   const referredBy = (data.referredBy as string | null | undefined) ?? null;
   const newTotal = round(current + amountUsd, 2);
+  const ladder = await activeLadder();
 
   await ref.set(
     {
@@ -151,7 +168,7 @@ export async function registerCompletedPurchase(
       },
       // 1 punto por cada 0,10 USD gastados.
       points: FieldValue.increment(Math.round(amountUsd * 10)),
-      tier: tiers.tierForSpend(newTotal),
+      tier: tiers.tierForSpend(newTotal, ladder),
       updatedAt: now(),
     },
     { merge: true }
@@ -323,4 +340,67 @@ export async function applyReferral(uid: string, code: string): Promise<void> {
     { referralCount: FieldValue.increment(1), updatedAt: now() },
     { merge: true }
   );
+}
+
+export interface TierRecalculation {
+  total: number;
+  changed: Array<{
+    uid: string;
+    email: string | null;
+    totalSpentUsd: number;
+    from: UserTier | null;
+    to: UserTier;
+    discountFrom: number;
+    discountTo: number;
+  }>;
+}
+
+/**
+ * Recalcula el nivel de todos los perfiles con la escalera vigente.
+ *
+ * El nivel guardado sólo se refresca al comprar, así que después de mover un
+ * umbral hay que pasar por todos: si no, un cliente conserva un descuento que
+ * la tabla nueva ya no le da (o deja de recibir uno que sí le tocaría) hasta su
+ * próxima orden.
+ *
+ * Con `dryRun` no escribe nada y devuelve igual el detalle, para poder revisar
+ * el impacto antes de aplicarlo.
+ */
+export async function recalculateAllTiers(
+  options: { dryRun?: boolean } = {}
+): Promise<TierRecalculation> {
+  const ladder = await activeLadder();
+  const snap = await users().get();
+  const changed: TierRecalculation['changed'] = [];
+
+  for (const doc of snap.docs) {
+    const data = doc.data();
+    const spent = (data.stats?.totalSpentUsd as number | undefined) ?? 0;
+    const from = (data.tier as UserTier | undefined) ?? null;
+    const to = tiers.tierForSpend(spent, ladder);
+    if (from === to) continue;
+
+    changed.push({
+      uid: doc.id,
+      email: (data.email as string | undefined) ?? null,
+      totalSpentUsd: spent,
+      from,
+      to,
+      discountFrom: from ? tiers.tierDiscountPercent(from, ladder) : 0,
+      discountTo: tiers.tierDiscountPercent(to, ladder),
+    });
+  }
+
+  if (!options.dryRun && changed.length > 0) {
+    // Firestore topea los lotes en 500 escrituras; 400 deja margen de sobra.
+    for (let index = 0; index < changed.length; index += 400) {
+      const batch = db.batch();
+      for (const entry of changed.slice(index, index + 400)) {
+        batch.set(users().doc(entry.uid), { tier: entry.to, updatedAt: now() }, { merge: true });
+      }
+      await batch.commit();
+    }
+  }
+
+  return { total: snap.size, changed };
 }

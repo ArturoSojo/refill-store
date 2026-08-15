@@ -225,7 +225,7 @@ ordersRouter.post(
     ]);
 
     const subtotalUsd = Number((product.priceUsd * body.quantity).toFixed(2));
-    const tierPercent = usersService.tierDiscountPercent(profile.tier);
+    const tierPercent = await usersService.tierDiscountPercent(profile.tier);
     let discountUsd = Number(((subtotalUsd * tierPercent) / 100).toFixed(2));
     let couponError: string | null = null;
     let couponCode: string | null = null;
