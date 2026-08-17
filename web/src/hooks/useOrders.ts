@@ -127,6 +127,7 @@ export function useCreateOrder() {
       playerFields: Record<string, string>;
       quantity?: number;
       couponCode?: string | null;
+      creatorCode?: string | null;
       useWallet?: boolean;
     }) => api.post<CreateOrderResponse>('/orders', input),
     onSuccess: () => {
@@ -169,6 +170,7 @@ export function usePricePreview() {
       productId: string;
       quantity?: number;
       couponCode?: string | null;
+      creatorCode?: string | null;
       useWallet?: boolean;
       /** Permite validar ya el límite del cupón por ID de jugador. */
       playerId?: string | null;

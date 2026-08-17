@@ -115,6 +115,31 @@ service cloud.firestore {
       }
     }
 
+    // Creadores de contenido. El creador lee su propia ficha y su libro de
+    // comisiones; el staff lee todos. Escribir es siempre cosa del backend,
+    // porque estos documentos son un pasivo con un tercero.
+    match /creators/{uid} {
+      allow read: if isStaff() || (isSignedIn() && request.auth.uid == uid);
+      allow write: if false;
+
+      // El libro no guarda quién compró, así que el creador puede leerlo sin
+      // ver datos de los clientes.
+      match /commissions/{orderId} {
+        allow read: if isStaff() || (isSignedIn() && request.auth.uid == uid);
+        allow write: if false;
+      }
+
+      match /payouts/{payoutId} {
+        allow read: if isStaff() || (isSignedIn() && request.auth.uid == uid);
+        allow write: if false;
+      }
+    }
+
+    // El candado de códigos es un índice interno: nadie lo lee desde el cliente.
+    match /creatorCodes/{code} {
+      allow read, write: if false;
+    }
+
     // ---------- Sólo staff ----------
     match /coupons/{code} {
       allow read: if isStaff();

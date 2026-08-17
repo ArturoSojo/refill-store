@@ -27,6 +27,7 @@ import * as ordersService from '../services/orders';
 import * as usersService from '../services/users';
 import * as catalog from '../services/catalog';
 import * as couponsService from '../services/coupons';
+import * as creatorsService from '../services/creators';
 import * as statsService from '../services/stats';
 import * as rateService from '../services/rate';
 import * as audit from '../services/audit';
@@ -893,8 +894,18 @@ adminRouter.get(
         cursor: z.string().max(400).optional(),
         role: z.enum(['user', 'staff', 'admin']).optional(),
         search: z.string().trim().max(80).optional(),
+        sort: z.enum(['recent', 'spent', 'orders']).default('recent'),
       })
     );
+
+    // Todos los perfiles tienen `stats` (lo rellena `ensureProfile`), así que
+    // ordenar por un campo de ahí no deja a nadie fuera: `orderBy` omite los
+    // documentos que no tienen el campo por el que se ordena.
+    const ORDER_FIELD = {
+      recent: 'createdAt',
+      spent: 'stats.totalSpentUsd',
+      orders: 'stats.completedOrders',
+    } as const;
 
     if (query.search) {
       const term = query.search.toLowerCase();
@@ -928,7 +939,12 @@ adminRouter.get(
     const base = query.role ? users().where('role', '==', query.role) : users();
     const page = await paginate(
       base,
-      { orderBy: 'createdAt', limit: query.limit, cursor: query.cursor, withTotal: true },
+      {
+        orderBy: ORDER_FIELD[query.sort],
+        limit: query.limit,
+        cursor: query.cursor,
+        withTotal: true,
+      },
       (id, data) => ({ uid: id, ...data }) as UserProfile
     );
 
@@ -1775,6 +1791,161 @@ adminRouter.post(
         ip: clientIp(req),
       });
     }
+
+    ok(res, result);
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Creadores de contenido
+// ---------------------------------------------------------------------------
+
+const creatorSchema = z.object({
+  code: z.string().trim().min(3).max(24),
+  active: z.boolean().default(true),
+  commissionPercent: z.coerce.number().min(0).max(creatorsService.MAX_COMMISSION_PERCENT),
+  discountPercent: z.coerce
+    .number()
+    .min(0)
+    .max(creatorsService.MAX_CREATOR_DISCOUNT_PERCENT)
+    .default(0),
+  notes: z.string().trim().max(300).optional().nullable(),
+});
+
+/**
+ * Alta o edición de un creador desde la ficha del usuario.
+ *
+ * Ser creador no se guarda como rol: los roles viajan en los claims del token,
+ * son excluyentes entre sí y cambiarlos cierra la sesión del usuario. Ajustar
+ * una comisión no debería echar a nadie de la aplicación.
+ */
+adminRouter.post(
+  '/users/:id/creator',
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const { id } = parseParams(req, idParam);
+    const body = parseBody(req, creatorSchema);
+    const profile = await usersService.getProfile(id);
+
+    const creator = await creatorsService.upsertCreator(id, {
+      code: body.code,
+      active: body.active,
+      commissionPercent: body.commissionPercent,
+      discountPercent: body.discountPercent,
+      displayName: profile.displayName,
+      email: profile.email,
+      notes: body.notes ?? null,
+    });
+
+    await audit.record({
+      action: audit.ACTIONS.CREATOR_UPDATED,
+      actorUid: currentUser(req).uid,
+      actorEmail: currentUser(req).email,
+      targetType: 'user',
+      targetId: id,
+      summary:
+        `Creador ${creator.code} ${creator.active ? 'activo' : 'desactivado'}: ` +
+        `${creator.commissionPercent}% de comisión, ${creator.discountPercent}% de descuento.`,
+      ip: clientIp(req),
+    });
+
+    ok(res, { creator });
+  })
+);
+
+adminRouter.delete(
+  '/users/:id/creator',
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const { id } = parseParams(req, idParam);
+    // Se desactiva, no se borra: el libro de comisiones es el respaldo de lo
+    // que se le pagó, y liberar el código dejaría que otro heredara las
+    // atribuciones de su audiencia.
+    const creator = await creatorsService.deactivate(id);
+
+    await audit.record({
+      action: audit.ACTIONS.CREATOR_DISABLED,
+      actorUid: currentUser(req).uid,
+      actorEmail: currentUser(req).email,
+      targetType: 'user',
+      targetId: id,
+      summary: `Creador ${creator.code} desactivado.`,
+      ip: clientIp(req),
+    });
+
+    ok(res, { creator });
+  })
+);
+
+adminRouter.get(
+  '/creators',
+  asyncHandler(async (req, res) => {
+    const query = parseQuery(
+      req,
+      z.object({
+        limit: z.coerce.number().int().min(PAGE_LIMIT.min).max(PAGE_LIMIT.max).default(PAGE_LIMIT.default),
+        cursor: z.string().max(400).optional(),
+      })
+    );
+
+    const page = await creatorsService.listCreators(query);
+    ok(res, { creators: page.items, nextCursor: page.nextCursor, total: page.total });
+  })
+);
+
+adminRouter.get(
+  '/creators/:id',
+  asyncHandler(async (req, res) => {
+    const { id } = parseParams(req, idParam);
+    const query = parseQuery(
+      req,
+      z.object({
+        limit: z.coerce.number().int().min(PAGE_LIMIT.min).max(PAGE_LIMIT.max).default(PAGE_LIMIT.default),
+        cursor: z.string().max(400).optional(),
+        status: z.enum(['pending', 'paid', 'reverted']).optional(),
+      })
+    );
+
+    const [creator, page] = await Promise.all([
+      creatorsService.requireCreator(id),
+      creatorsService.listCommissions(id, query),
+    ]);
+
+    ok(res, {
+      creator,
+      commissions: page.items,
+      nextCursor: page.nextCursor,
+      total: page.total,
+    });
+  })
+);
+
+/** Liquida las comisiones pendientes acreditándolas en la cartera del creador. */
+adminRouter.post(
+  '/creators/:id/payout',
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const { id } = parseParams(req, idParam);
+
+    // Pagarle a una cuenta suspendida es tirar el dinero: el saldo queda ahí
+    // pero no puede gastarlo. El sistema de referidos sí tiene este hueco.
+    const profile = await usersService.getProfile(id);
+    if (profile.banned) {
+      throw failedPrecondition('Esa cuenta está suspendida: levanta la suspensión antes de pagar.');
+    }
+
+    const result = await creatorsService.payPending(id, { actorUid: currentUser(req).uid });
+
+    await audit.record({
+      action: audit.ACTIONS.CREATOR_PAID,
+      actorUid: currentUser(req).uid,
+      actorEmail: currentUser(req).email,
+      targetType: 'user',
+      targetId: id,
+      summary: `Pagadas ${result.entries} comisión(es) por $${result.amountUsd.toFixed(2)}.`,
+      data: { payoutId: result.payoutId },
+      ip: clientIp(req),
+    });
 
     ok(res, result);
   })

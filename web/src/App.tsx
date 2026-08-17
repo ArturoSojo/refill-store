@@ -28,6 +28,8 @@ import { AdminSettings } from '@/pages/admin/AdminSettings';
 import { AdminSupport, AdminLogs } from '@/pages/admin/AdminSupport';
 import { AdminTicketDetail } from '@/pages/admin/AdminTicketDetail';
 import { AdminTiers } from '@/pages/admin/AdminTiers';
+import { AdminCreators, AdminCreatorDetail } from '@/pages/admin/AdminCreators';
+import { CreatorPage } from '@/pages/CreatorPage';
 import { AdminAlerts } from '@/pages/admin/AdminAlerts';
 
 export function App() {
@@ -104,6 +106,14 @@ export function App() {
             }
           />
           <Route
+            path="cuenta/creador"
+            element={
+              <RequireAuth>
+                <CreatorPage />
+              </RequireAuth>
+            }
+          />
+          <Route
             path="cuenta/notificaciones"
             element={
               <RequireAuth>
@@ -135,6 +145,8 @@ export function App() {
           <Route path="soporte" element={<AdminSupport />} />
           <Route path="soporte/:ticketId" element={<AdminTicketDetail />} />
           <Route path="avisos" element={<AdminAlerts />} />
+          <Route path="creadores" element={<AdminCreators />} />
+          <Route path="creadores/:uid" element={<AdminCreatorDetail />} />
           <Route path="niveles" element={<AdminTiers />} />
           <Route path="configuracion" element={<AdminSettings />} />
           <Route path="bitacora" element={<AdminLogs />} />

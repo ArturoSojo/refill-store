@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, HelpCircle, Loader2, Tag, Trash2 } from 'lucide-react';
 import { ROUTES } from '@/lib/constants';
+import { readCreatorCode } from '@/lib/creatorCode';
 import { Button } from '@/components/ui/Button';
 import { Input, Switch } from '@/components/ui/Field';
 import { Modal } from '@/components/ui/Modal';
@@ -82,6 +83,7 @@ export function PlayerIdStep({
         {
           productId: product.id,
           couponCode: couponCode.trim() || null,
+          creatorCode: readCreatorCode() || null,
           useWallet,
           // Sólo con los datos completos: valida el cupón contra esa cuenta del
           // juego antes de crear la orden.

@@ -22,6 +22,7 @@ import * as notifications from './notifications';
 import * as adminAlerts from './adminAlerts';
 import * as stats from './stats';
 import * as usersService from './users';
+import * as creatorsService from './creators';
 import { addEvent } from './orderEvents';
 import { getConfig } from './settings';
 import { sendOrderEmail } from './orderEmails';
@@ -377,6 +378,9 @@ export async function dispatchOrder(
         link: `/orden/${orderId}`,
       }),
       usersService.registerCompletedPurchase(order.uid, order.pricing.totalUsd),
+      // No lanza: la recarga ya llegó al jugador y un fallo contable no puede
+      // deshacerla. Deja rastro en el registro para conciliar.
+      creatorsService.accrueCommission(order),
       stats.trackEvent({ type: 'order_completed', order: { ...order, status } }),
       audit.record({
         action: audit.ACTIONS.ORDER_DISPATCHED,

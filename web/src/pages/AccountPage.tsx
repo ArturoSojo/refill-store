@@ -11,6 +11,7 @@ import {
   Save,
   ShieldCheck,
   Sparkles,
+  TrendingUp,
   Users,
   Wallet,
 } from 'lucide-react';
@@ -203,6 +204,16 @@ export function AccountPage() {
       icon: Users,
       hint: `${me.profile.referralCount} invitados`,
     },
+    ...(me.isCreator
+      ? [
+          {
+            to: ROUTES.creator,
+            label: 'Panel de creador',
+            icon: TrendingUp,
+            hint: 'Tus comisiones',
+          },
+        ]
+      : []),
     {
       to: ROUTES.notifications,
       label: 'Notificaciones',

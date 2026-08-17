@@ -36,6 +36,9 @@ export const COLLECTIONS = {
   rateLimits: 'rateLimits',
   stats: 'stats',
   adminAlerts: 'adminAlerts',
+  creators: 'creators',
+  /** Candado de unicidad del código: doc id = el código en mayúsculas. */
+  creatorCodes: 'creatorCodes',
 } as const;
 
 export const CONFIG_DOC_ID = 'app';
@@ -51,6 +54,8 @@ export const paymentRefs = () => db.collection(COLLECTIONS.paymentRefs);
 export const rateHistory = () => db.collection(COLLECTIONS.rateHistory);
 export const rateLimits = () => db.collection(COLLECTIONS.rateLimits);
 export const adminAlerts = () => db.collection(COLLECTIONS.adminAlerts);
+export const creators = () => db.collection(COLLECTIONS.creators);
+export const creatorCodes = () => db.collection(COLLECTIONS.creatorCodes);
 export const configDoc = () => db.collection(COLLECTIONS.config).doc(CONFIG_DOC_ID);
 export const dailyStats = () =>
   db.collection(COLLECTIONS.stats).doc('daily').collection('days');

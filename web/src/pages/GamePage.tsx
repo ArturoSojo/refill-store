@@ -41,6 +41,7 @@ import { Modal, ConfirmDialog } from '@/components/ui/Modal';
 import { ErrorState, FullPageLoader, EmptyState } from '@/components/ui/Feedback';
 import { ButtonLink } from '@/components/ui/Button';
 import { ROUTES } from '@/lib/constants';
+import { readCreatorCode } from '@/lib/creatorCode';
 import { formatUsd } from '@/lib/format';
 import { cn, hexToRgb } from '@/lib/utils';
 import type { PricePreview, PublicProduct } from '@/types/models';
@@ -63,6 +64,8 @@ export function GamePage() {
   const [tab, setTab] = useState<Tab>('auto');
   const [quantity, setQuantity] = useState(1);
   const [couponCode, setCouponCode] = useState('');
+  // Precargado desde el enlace del creador: sin esto nadie lo escribiría.
+  const [creatorCode, setCreatorCode] = useState(() => readCreatorCode());
   const [showCoupon, setShowCoupon] = useState(false);
   const [useWallet, setUseWallet] = useState(false);
   const [preview, setPreview] = useState<PricePreview | null>(null);
@@ -127,6 +130,7 @@ export function GamePage() {
           productId: selected.id,
           quantity,
           couponCode: couponCode.trim() || null,
+          creatorCode: creatorCode.trim() || null,
           useWallet,
           // Sólo cuando el ID está completo: así el cupón se valida contra esa
           // cuenta del juego antes de llegar al pago.
@@ -138,7 +142,7 @@ export function GamePage() {
 
     return () => clearTimeout(timeout);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, selected?.id, quantity, couponCode, useWallet, idIsValid, playerValues]);
+  }, [user, selected?.id, quantity, couponCode, creatorCode, useWallet, idIsValid, playerValues]);
 
   if (catalog.isLoading) return <FullPageLoader label="Cargando el catálogo…" />;
 
@@ -181,6 +185,7 @@ export function GamePage() {
         playerFields: cleanValues(fields, playerValues),
         quantity,
         couponCode: couponCode.trim() || null,
+        creatorCode: creatorCode.trim() || null,
         useWallet,
       },
     });
@@ -401,6 +406,26 @@ export function GamePage() {
                   error={preview?.couponError ?? null}
                   hint={preview?.couponCode ? `Cupón ${preview.couponCode} aplicado.` : undefined}
                 />
+                {config?.features.creatorsEnabled && (
+                  <div className="mt-3">
+                    <Input
+                      label="Código de creador (opcional)"
+                      placeholder="CREADOR"
+                      value={creatorCode}
+                      onChange={(event) =>
+                        setCreatorCode(event.target.value.toUpperCase().slice(0, 24))
+                      }
+                      leftIcon={<Sparkles className="h-4 w-4" aria-hidden />}
+                      className="uppercase"
+                      error={preview?.creatorError ?? null}
+                      hint={
+                        preview?.creatorCode
+                          ? `Apoyando a ${preview.creatorCode}.`
+                          : 'Si viste la tienda en un vídeo, pon aquí el código.'
+                      }
+                    />
+                  </div>
+                )}
               </div>
             ) : (
               <button

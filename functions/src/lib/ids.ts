@@ -22,6 +22,27 @@ export function generateReferralCode(): string {
   return `REF-${randomFromAlphabet(6, SAFE_ALPHABET)}`;
 }
 
+/**
+ * Código de creador sugerido: `CR-8K3M2Q`.
+ *
+ * Sólo es el valor inicial: el administrador casi siempre lo cambia por el
+ * nombre del creador, que es lo que su audiencia va a escribir.
+ */
+export function generateCreatorCode(): string {
+  return `CR-${randomFromAlphabet(6, SAFE_ALPHABET)}`;
+}
+
+/**
+ * Normaliza un código de creador escrito a mano.
+ *
+ * Mayúsculas y sin espacios porque es lo que el cliente teclea desde un vídeo:
+ * comparar en minúsculas o con espacios sueltos haría fallar atribuciones
+ * legítimas.
+ */
+export function normalizeCreatorCode(input: string): string {
+  return input.trim().toUpperCase().replace(/\s+/g, '');
+}
+
 /** Token opaco para operaciones internas. */
 export function generateToken(bytes = 24): string {
   return randomBytes(bytes).toString('hex');

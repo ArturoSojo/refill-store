@@ -71,6 +71,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     manualProductsEnabled: true,
     couponsEnabled: true,
     referralsEnabled: true,
+    creatorsEnabled: true,
   },
   announcement: {
     enabled: false,
@@ -175,6 +176,7 @@ export function toPublicConfig(config: AppConfig): PublicConfig {
       maintenanceMessage: config.features.maintenanceMessage,
       couponsEnabled: config.features.couponsEnabled,
       referralsEnabled: config.features.referralsEnabled,
+      creatorsEnabled: config.features.creatorsEnabled,
     },
     announcement: config.announcement,
     contact: config.contact,

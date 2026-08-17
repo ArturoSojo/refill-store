@@ -3,11 +3,12 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { FieldValue } from 'firebase-admin/firestore';
 import { users, tickets, now } from '../config/firebase';
-import { asyncHandler, ok, parseBody, parseParams } from '../lib/http';
-import { forbidden, notFound } from '../lib/errors';
+import { asyncHandler, ok, parseBody, parseParams, parseQuery } from '../lib/http';
+import { failedPrecondition, forbidden, notFound } from '../lib/errors';
 import { requireAuth, currentUser } from '../middleware/auth';
 import { rateLimit } from '../middleware/rateLimit';
 import * as usersService from '../services/users';
+import * as creatorsService from '../services/creators';
 import * as notificationsService from '../services/notifications';
 import * as adminAlerts from '../services/adminAlerts';
 import * as ordersService from '../services/orders';
@@ -42,6 +43,7 @@ meRouter.get(
       unreadNotifications: unread.data().count,
       recentOrders: recentOrders.map(ordersService.toCustomerOrder),
       tierDiscountPercent: await usersService.tierDiscountPercent(profile.tier),
+      isCreator: Boolean((await creatorsService.getCreator(user.uid))?.active),
     });
   })
 );
@@ -440,5 +442,62 @@ meRouter.post(
       { merge: true }
     );
     ok(res, { closed: true });
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Creador de contenido
+// ---------------------------------------------------------------------------
+
+/**
+ * Sólo responde a quien es creador activo.
+ *
+ * Se comprueba contra el documento, no contra un claim del token: ser creador
+ * no es un rol, y así activar o desactivar a alguien surte efecto de inmediato
+ * sin obligarle a volver a entrar.
+ */
+async function requireOwnCreator(uid: string) {
+  const creator = await creatorsService.getCreator(uid);
+  if (!creator || !creator.active) {
+    throw failedPrecondition('Tu cuenta no tiene el programa de creadores activo.');
+  }
+  return creator;
+}
+
+/** Resumen del creador: su código, sus condiciones y sus métricas. */
+meRouter.get(
+  '/creator',
+  asyncHandler(async (req, res) => {
+    const creator = await requireOwnCreator(currentUser(req).uid);
+    ok(res, {
+      creator: {
+        code: creator.code,
+        active: creator.active,
+        commissionPercent: creator.commissionPercent,
+        discountPercent: creator.discountPercent,
+        stats: creator.stats,
+      },
+    });
+  })
+);
+
+/** Libro de comisiones del creador, paginado. */
+meRouter.get(
+  '/creator/commissions',
+  asyncHandler(async (req, res) => {
+    const uid = currentUser(req).uid;
+    await requireOwnCreator(uid);
+
+    const query = parseQuery(
+      req,
+      z.object({
+        limit: z.coerce.number().int().min(1).max(50).default(20),
+        cursor: z.string().max(400).optional(),
+        status: z.enum(['pending', 'paid', 'reverted']).optional(),
+      })
+    );
+
+    const page = await creatorsService.listCommissions(uid, query);
+    ok(res, { commissions: page.items, nextCursor: page.nextCursor, total: page.total });
   })
 );

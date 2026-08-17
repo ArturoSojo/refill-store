@@ -264,6 +264,8 @@ export interface OrderPricing {
   /** Monto exacto a pagar en bolívares (lo que se compara contra Pabilo). */
   totalBs: number;
   couponCode: string | null;
+  /** Código de creador usado, si hubo. */
+  creatorCode: string | null;
   /** Costo del proveedor, para calcular utilidad. Sólo lo ve el staff. */
   costUsd: number;
   profitUsd: number;
@@ -340,6 +342,14 @@ export interface Order {
    */
   playerFields: Record<string, string>;
   pricing: OrderPricing;
+  /**
+   * Creador al que se atribuye la venta, congelado al comprar.
+   *
+   * Va aparte de `pricing.creatorCode` porque lleva el porcentaje vigente en
+   * ese momento: cambiar la comisión después no puede recalcular lo ya vendido.
+   * Nunca se envía al cliente (`toCustomerOrder` lo quita).
+   */
+  creator: OrderCreatorRef | null;
   payment: OrderPayment;
   dispatch: {
     calls: DispatchCallResult[];
@@ -484,6 +494,82 @@ export interface UserNotification {
   createdAt: TimestampLike;
 }
 
+
+// ---------------------------------------------------------------------------
+// Creadores de contenido
+// ---------------------------------------------------------------------------
+
+/**
+ * Perfil de creador. El id del documento es el uid del usuario.
+ *
+ * Ser creador NO es un `UserRole`: el rol viaja en los claims del token y
+ * `ensureProfile` lo sobrescribe con lo que diga el claim, así que un rol
+ * guardado sólo en Firestore se revertiría solo. Además los roles son
+ * excluyentes entre sí (un creador no podría ser staff) y cambiarlos cierra la
+ * sesión del usuario, cosa que ajustar una comisión no debería hacer.
+ */
+export interface Creator {
+  uid: string;
+  /** Código que comparte con su audiencia, en mayúsculas y único. */
+  code: string;
+  active: boolean;
+  /** Comisión sobre cada compra hecha con su código, en porcentaje. */
+  commissionPercent: number;
+  /** Descuento que recibe el comprador por usar el código, en porcentaje. */
+  discountPercent: number;
+  /** Denormalizados para poder listar creadores sin leer cada perfil. */
+  displayName: string | null;
+  email: string | null;
+  notes: string | null;
+  stats: {
+    orders: number;
+    salesUsd: number;
+    /** Comisión devengada y todavía no pagada. */
+    pendingUsd: number;
+    paidUsd: number;
+    /** Comisión anulada por reembolsos. */
+    revertedUsd: number;
+  };
+  createdAt: TimestampLike;
+  updatedAt: TimestampLike;
+}
+
+/** Estado de un asiento del libro de comisiones. */
+export type CommissionStatus = 'pending' | 'paid' | 'reverted';
+
+/**
+ * Una comisión devengada, en `creators/{uid}/commissions/{orderId}`.
+ *
+ * El id del documento es el de la orden a propósito: escribirlo con `create()`
+ * hace que un segundo devengo de la misma orden falle en vez de pagar dos veces.
+ *
+ * No guarda quién compró: el creador puede leer su propio libro y no tiene por
+ * qué conocer la identidad de sus compradores.
+ */
+export interface CommissionEntry {
+  orderId: string;
+  orderCode: string;
+  status: CommissionStatus;
+  /** Base de cálculo: el total de la orden tras descuentos. */
+  saleUsd: number;
+  percent: number;
+  amountUsd: number;
+  gameId: string;
+  gameName: string;
+  productName: string;
+  payoutId: string | null;
+  createdAt: TimestampLike;
+  updatedAt: TimestampLike;
+}
+
+/** Referencia al creador congelada en la orden, en el momento de comprar. */
+export interface OrderCreatorRef {
+  uid: string;
+  code: string;
+  /** Porcentaje vigente al comprar: cambiarlo después no altera lo ya vendido. */
+  commissionPercent: number;
+}
+
 // ---------------------------------------------------------------------------
 // Cupones
 // ---------------------------------------------------------------------------
@@ -598,6 +684,7 @@ export interface AppConfig {
     manualProductsEnabled: boolean;
     couponsEnabled: boolean;
     referralsEnabled: boolean;
+    creatorsEnabled: boolean;
   };
   announcement: {
     enabled: boolean;
@@ -666,7 +753,11 @@ export interface PublicConfig {
   checkout: AppConfig['checkout'];
   features: Pick<
     AppConfig['features'],
-    'maintenanceMode' | 'maintenanceMessage' | 'couponsEnabled' | 'referralsEnabled'
+    | 'maintenanceMode'
+    | 'maintenanceMessage'
+    | 'couponsEnabled'
+    | 'referralsEnabled'
+    | 'creatorsEnabled'
   >;
   announcement: AppConfig['announcement'];
   contact: AppConfig['contact'];

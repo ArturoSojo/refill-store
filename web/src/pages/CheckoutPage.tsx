@@ -21,6 +21,7 @@ import { OpenOrdersDialog } from '@/features/checkout/OpenOrdersDialog';
 import { FullPageLoader, ErrorState } from '@/components/ui/Feedback';
 import { ButtonLink } from '@/components/ui/Button';
 import { ROUTES } from '@/lib/constants';
+import { readCreatorCode } from '@/lib/creatorCode';
 import { ApiError } from '@/lib/api';
 import { errorMessage } from '@/lib/utils';
 import type { CreateOrderResponse, Order } from '@/types/models';
@@ -125,6 +126,8 @@ export function CheckoutPage() {
         playerFields: playerValues,
         quantity,
         couponCode: couponCode.trim() || null,
+        // El código del creador viaja desde el enlace, no lo escribe el cliente.
+        creatorCode: readCreatorCode() || null,
         useWallet,
       },
       {

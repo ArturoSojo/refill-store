@@ -10,6 +10,8 @@ import type {
   UserNotification,
   UserProfile,
   WalletTransaction,
+  CommissionEntry,
+  CreatorSummary,
 } from '@/types/models';
 
 /** Saldo a favor y sus movimientos. */
@@ -163,5 +165,30 @@ export function useSendTicketMessage(ticketId: string | undefined) {
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.ticket(ticketId ?? '') });
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.tickets });
     },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Creador de contenido
+// ---------------------------------------------------------------------------
+
+export function useCreatorSummary(enabled: boolean) {
+  return useQuery({
+    queryKey: QUERY_KEYS.creator,
+    queryFn: () => api.get<{ creator: CreatorSummary }>('/me/creator'),
+    enabled,
+    staleTime: 30_000,
+  });
+}
+
+export function useCreatorCommissions(enabled: boolean) {
+  return useQuery({
+    queryKey: QUERY_KEYS.creatorCommissions,
+    queryFn: () =>
+      api.get<{ commissions: CommissionEntry[]; total?: number }>(
+        '/me/creator/commissions?limit=25'
+      ),
+    enabled,
+    staleTime: 30_000,
   });
 }

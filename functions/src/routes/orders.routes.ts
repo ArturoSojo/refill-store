@@ -16,6 +16,7 @@ import { rateLimit } from '../middleware/rateLimit';
 import * as ordersService from '../services/orders';
 import * as usersService from '../services/users';
 import * as couponsService from '../services/coupons';
+import * as creatorsService from '../services/creators';
 import * as catalog from '../services/catalog';
 import { listEvents } from '../services/orderEvents';
 import { getConfig } from '../services/settings';
@@ -46,6 +47,7 @@ const createOrderSchema = z.object({
   playerId: z.string().trim().max(120).optional(),
   quantity: z.coerce.number().int().min(1).max(10).default(1),
   couponCode: z.string().trim().max(32).optional().nullable(),
+  creatorCode: z.string().trim().max(32).optional().nullable(),
   useWallet: z.boolean().default(false),
   customerNote: z.string().trim().max(300).optional().nullable(),
 });
@@ -207,6 +209,7 @@ const previewSchema = z.object({
   productId: z.string().min(1),
   quantity: z.coerce.number().int().min(1).max(10).default(1),
   couponCode: z.string().trim().max(32).optional().nullable(),
+  creatorCode: z.string().trim().max(32).optional().nullable(),
   useWallet: z.boolean().default(false),
   /** Opcional: permite comprobar ya el límite del cupón por ID de jugador. */
   playerId: z.string().trim().max(120).optional().nullable(),
@@ -249,6 +252,24 @@ ordersRouter.post(
       }
     }
 
+    // El código de creador se comprueba aquí para poder avisar antes de pagar,
+    // igual que el cupón: si está mal, se informa sin tumbar el checkout.
+    let creatorError: string | null = null;
+    let creatorCode: string | null = null;
+    if (body.creatorCode && config.features.creatorsEnabled) {
+      try {
+        const resolved = await creatorsService.resolveForPurchase(body.creatorCode, user.uid);
+        creatorCode = resolved.ref.code;
+        if (resolved.creator.discountPercent > 0) {
+          discountUsd = Number(
+            (discountUsd + (subtotalUsd * resolved.creator.discountPercent) / 100).toFixed(2)
+          );
+        }
+      } catch (error) {
+        creatorError = error instanceof Error ? error.message : 'Código de creador inválido.';
+      }
+    }
+
     discountUsd = Math.min(discountUsd, Number((subtotalUsd - 0.01).toFixed(2)));
     const totalUsd = Number((subtotalUsd - discountUsd).toFixed(2));
 
@@ -278,6 +299,8 @@ ordersRouter.post(
       tier: profile.tier,
       couponCode,
       couponError,
+      creatorCode,
+      creatorError,
     });
   })
 );

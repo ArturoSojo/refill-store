@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   Ban,
@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   Search,
   ShieldCheck,
+  Sparkles,
   Users as UsersIcon,
   Wallet,
 } from 'lucide-react';
@@ -18,11 +19,13 @@ import {
   useAdjustWallet,
   useAdminUserWallet,
   useNotifyUser,
+  useAdminCreator,
+  useSaveCreator,
 } from '@/hooks/useAdmin';
 import { useAuth } from '@/providers/AuthProvider';
 import { useDebouncedValue, useDocumentTitle } from '@/hooks/useMisc';
 import { Card, CardHeader } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
+import { Button, ButtonLink } from '@/components/ui/Button';
 import { Input, Select, Textarea } from '@/components/ui/Field';
 import { Modal, ConfirmDialog } from '@/components/ui/Modal';
 import {
@@ -38,16 +41,21 @@ import { ROUTES } from '@/lib/constants';
 import { TIER_META, formatBs, formatDateTime, formatRelative, formatUsd } from '@/lib/format';
 import { shortOrderItem } from '@/lib/orderItem';
 import { errorMessage, initials } from '@/lib/utils';
+import type { UserProfile } from '@/types/models';
 
 export function AdminUsers() {
   useDocumentTitle('Panel · Usuarios');
   const [search, setSearch] = useState('');
   const [role, setRole] = useState('');
+  const [sort, setSort] = useState<'recent' | 'spent' | 'orders'>('recent');
   const debounced = useDebouncedValue(search, 400);
+
+  const searching = debounced.trim().length > 0;
 
   const users = useAdminUsers({
     search: debounced.trim() || undefined,
     role: role || undefined,
+    sort,
     limit: 50,
   });
 
@@ -62,7 +70,7 @@ export function AdminUsers() {
         </p>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-[1fr,200px]">
+      <div className="grid gap-3 sm:grid-cols-[1fr,180px,180px]">
         <Input
           placeholder="Buscar por correo, nombre o código de referido…"
           value={search}
@@ -77,6 +85,18 @@ export function AdminUsers() {
             { value: 'user', label: 'Clientes' },
             { value: 'staff', label: 'Staff' },
             { value: 'admin', label: 'Administradores' },
+          ]}
+        />
+        {/* La búsqueda devuelve coincidencias sueltas sin paginar: ahí el orden
+            del servidor no se aplica y ofrecerlo confundiría. */}
+        <Select
+          value={sort}
+          onChange={(event) => setSort(event.target.value as typeof sort)}
+          disabled={searching}
+          options={[
+            { value: 'recent', label: 'Más recientes' },
+            { value: 'spent', label: 'Los que más gastan' },
+            { value: 'orders', label: 'Más recargas' },
           ]}
         />
       </div>
@@ -151,6 +171,175 @@ export function AdminUsers() {
         label="usuarios"
       />
     </div>
+  );
+}
+
+/**
+ * Alta y edición del creador, dentro de la ficha del usuario.
+ *
+ * Va aquí y no en el selector de rol porque ser creador no es un rol: los roles
+ * viajan en los claims del token, son excluyentes entre sí (un creador no
+ * podría ser staff) y cambiarlos cierra la sesión del usuario. Ajustar una
+ * comisión no debería echar a nadie de la aplicación.
+ */
+function CreatorCard({ profile }: { profile: UserProfile }) {
+  const detail = useAdminCreator(profile.uid);
+  const save = useSaveCreator(profile.uid);
+
+  const creator = detail.data?.creator;
+  const [open, setOpen] = useState(false);
+  const [code, setCode] = useState('');
+  const [commission, setCommission] = useState('2');
+  const [discount, setDiscount] = useState('0');
+  const [notes, setNotes] = useState('');
+
+  useEffect(() => {
+    if (!creator) return;
+    setCode(creator.code);
+    setCommission(String(creator.commissionPercent));
+    setDiscount(String(creator.discountPercent));
+    setNotes(creator.notes ?? '');
+  }, [creator]);
+
+  const submit = (active: boolean) => {
+    save.mutate(
+      {
+        code: code.trim(),
+        active,
+        commissionPercent: Number(commission) || 0,
+        discountPercent: Number(discount) || 0,
+        notes: notes.trim() || null,
+      },
+      {
+        onSuccess: () => {
+          toast.success(active ? 'Creador guardado.' : 'Creador desactivado.');
+          setOpen(false);
+        },
+        onError: (error: unknown) => toast.error(errorMessage(error)),
+      }
+    );
+  };
+
+  return (
+    <Card>
+      <CardHeader
+        title="Creador de contenido"
+        description="Le da un código propio y una comisión por cada recarga hecha con él."
+      />
+
+      {detail.isLoading ? (
+        <Skeleton className="h-16 rounded-xl" />
+      ) : creator ? (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-base-900/60 px-3 py-2.5">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-mono text-sm font-bold text-neon-crimson">
+                  {creator.code}
+                </span>
+                {creator.active ? (
+                  <Badge variant="success">Activo</Badge>
+                ) : (
+                  <Badge variant="danger">Inactivo</Badge>
+                )}
+              </div>
+              <p className="mt-0.5 text-xs text-slate-400">
+                {creator.commissionPercent}% de comisión
+                {creator.discountPercent > 0 && ` · ${creator.discountPercent}% al comprador`}
+              </p>
+            </div>
+
+            <div className="text-right">
+              <p className="text-sm font-bold tabular text-amber-300">
+                {formatUsd(creator.stats?.pendingUsd ?? 0)}
+              </p>
+              <p className="text-xs text-slate-500">por pagar</p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="secondary" onClick={() => setOpen(true)}>
+              Editar
+            </Button>
+            <ButtonLink size="sm" variant="secondary" to={ROUTES.adminCreator(profile.uid)}>
+              Ver comisiones
+            </ButtonLink>
+          </div>
+        </div>
+      ) : (
+        <Button
+          size="sm"
+          leftIcon={<Sparkles className="h-4 w-4" aria-hidden />}
+          onClick={() => {
+            // Sugerencia a partir del nombre: es lo que su audiencia va a
+            // teclear. El administrador puede cambiarlo antes de guardar.
+            setCode(
+              (profile.displayName ?? '')
+                .toUpperCase()
+                .replace(/[^A-Z0-9]/g, '')
+                .slice(0, 12) || 'CREADOR'
+            );
+            setOpen(true);
+          }}
+        >
+          Hacer creador
+        </Button>
+      )}
+
+      <Modal open={open} onClose={() => setOpen(false)} title="Creador de contenido">
+        <div className="space-y-3">
+          <Input
+            label="Código"
+            value={code}
+            onChange={(event) => setCode(event.target.value.toUpperCase().slice(0, 24))}
+            hint="Lo que su audiencia escribe al comprar. Entre 3 y 24 caracteres."
+          />
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="Comisión (%)"
+              type="number"
+              min={0}
+              max={30}
+              step="0.5"
+              value={commission}
+              onChange={(event) => setCommission(event.target.value)}
+              hint="Lo que gana el creador"
+            />
+            <Input
+              label="Descuento (%)"
+              type="number"
+              min={0}
+              max={30}
+              step="0.5"
+              value={discount}
+              onChange={(event) => setDiscount(event.target.value)}
+              hint="Lo que ahorra el comprador"
+            />
+          </div>
+          <Textarea
+            label="Notas (opcional)"
+            value={notes}
+            onChange={(event) => setNotes(event.target.value.slice(0, 300))}
+            rows={2}
+          />
+
+          <div className="flex gap-2">
+            <Button fullWidth loading={save.isPending} onClick={() => submit(true)}>
+              Guardar
+            </Button>
+            {creator?.active && (
+              <Button
+                variant="danger"
+                loading={save.isPending}
+                onClick={() => submit(false)}
+              >
+                Desactivar
+              </Button>
+            )}
+          </div>
+        </div>
+      </Modal>
+    </Card>
   );
 }
 
@@ -331,6 +520,8 @@ export function AdminUserDetail() {
           )}
         </div>
       </Card>
+
+      {isAdmin && <CreatorCard profile={profile} />}
 
       {/* Movimientos del saldo: sin este libro, un reembolso y un error de
           dedo son indistinguibles cuando el cliente reclama. */}

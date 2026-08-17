@@ -35,6 +35,7 @@ import { checkAmount, round, usdToBs } from '../lib/money';
 import { log } from '../lib/logger';
 import * as catalog from './catalog';
 import * as couponsService from './coupons';
+import * as creatorsService from './creators';
 import * as pabilo from './pabilo';
 import * as dispatchService from './dispatch';
 import * as audit from './audit';
@@ -47,7 +48,13 @@ import { addEvent } from './orderEvents';
 import { getConfig } from './settings';
 import { buildCallPlan } from './dispatch';
 import type { AuthUser } from '../middleware/auth';
-import type { Order, OrderPricing, OrderStatus, UserProfile } from '../types/models';
+import type {
+  Order,
+  OrderCreatorRef,
+  OrderPricing,
+  OrderStatus,
+  UserProfile,
+} from '../types/models';
 
 // ---------------------------------------------------------------------------
 // Lectura
@@ -127,12 +134,21 @@ export async function listOrders(options: ListOrdersOptions): Promise<Order[]> {
  * Vista de la orden para el cliente: sin la nota interna, sin los metadatos
  * anti-fraude y, sobre todo, sin el costo ni la utilidad del negocio.
  */
-export type CustomerOrder = Omit<Order, 'adminNote' | 'meta' | 'pricing'> & {
+export type CustomerOrder = Omit<Order, 'adminNote' | 'meta' | 'creator' | 'pricing'> & {
   pricing: Omit<OrderPricing, 'costUsd' | 'profitUsd'>;
 };
 
 export function toCustomerOrder(order: Order): CustomerOrder {
-  const { adminNote: _adminNote, meta: _meta, pricing: fullPricing, ...rest } = order;
+  // `creator` lleva el porcentaje de comisión pactado: es un acuerdo entre la
+  // tienda y el creador, no algo que el comprador tenga que ver. El código sí
+  // se queda en `pricing.creatorCode`, porque el cliente lo escribió.
+  const {
+    adminNote: _adminNote,
+    meta: _meta,
+    creator: _creator,
+    pricing: fullPricing,
+    ...rest
+  } = order;
   const { costUsd: _costUsd, profitUsd: _profitUsd, ...pricing } = fullPricing;
   return { ...rest, pricing };
 }
@@ -185,6 +201,8 @@ export interface CreateOrderInput {
   playerFields: Record<string, string> | string;
   quantity: number;
   couponCode?: string | null;
+  /** Código del creador de contenido que trajo la venta. */
+  creatorCode?: string | null;
   /** Descontar del saldo a favor lo que alcance. */
   useWallet?: boolean;
   customerNote?: string | null;
@@ -293,6 +311,17 @@ export async function createOrder(
     couponCode = evaluation.coupon.code;
   }
 
+  // El código de creador va en su propio carril, no en el del cupón: así el
+  // cliente puede usar una promo y el código de su creador a la vez.
+  let creatorRef: OrderCreatorRef | null = null;
+  if (input.creatorCode && config.features.creatorsEnabled) {
+    const resolved = await creatorsService.resolveForPurchase(input.creatorCode, user.uid);
+    creatorRef = resolved.ref;
+    if (resolved.creator.discountPercent > 0) {
+      discountUsd = round(discountUsd + (subtotalUsd * resolved.creator.discountPercent) / 100, 2);
+    }
+  }
+
   // Nunca por debajo de un céntimo: el monto debe poder pagarse y verificarse.
   discountUsd = Math.min(discountUsd, round(subtotalUsd - 0.01, 2));
   const totalUsd = round(subtotalUsd - discountUsd, 2);
@@ -364,9 +393,11 @@ export async function createOrder(
       rate,
       totalBs,
       couponCode,
+      creatorCode: creatorRef?.code ?? null,
       costUsd,
       profitUsd: round(totalUsd - costUsd, 4),
     },
+    creator: creatorRef,
     emailsSent: [],
     payment: {
       method: paidWithWallet ? 'wallet' : 'pagomovil_bdv',
@@ -913,6 +944,8 @@ export async function markCompleted(
       link: `/orden/${orderId}`,
     }),
     usersService.registerCompletedPurchase(order.uid, order.pricing.totalUsd),
+    // Idempotente: si el despacho automático ya la devengó, ésta no hace nada.
+    creatorsService.accrueCommission(order),
     stats.trackEvent({ type: 'order_completed', order: { ...order, status: 'completed' } }),
     audit.record({
       action: audit.ACTIONS.ORDER_COMPLETED_MANUALLY,
@@ -951,6 +984,9 @@ export async function refundOrder(
       actorUid: actor.uid,
     });
   }
+
+  // La venta deja de existir: la comisión del creador también.
+  await creatorsService.revertCommission(order);
 
   await orders().doc(orderId).set(
     { status: 'refunded', adminNote: options.note ?? order.adminNote, updatedAt: now() },

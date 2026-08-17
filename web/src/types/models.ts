@@ -183,6 +183,7 @@ export interface OrderPricing {
   rate: number;
   totalBs: number;
   couponCode: string | null;
+  creatorCode: string | null;
   /** Sólo presente para staff. */
   costUsd?: number;
   profitUsd?: number;
@@ -410,6 +411,7 @@ export interface PublicConfig {
     maintenanceMessage: string;
     couponsEnabled: boolean;
     referralsEnabled: boolean;
+    creatorsEnabled: boolean;
   };
   announcement: {
     enabled: boolean;
@@ -577,6 +579,8 @@ export interface PricePreview {
   tier: UserTier;
   couponCode: string | null;
   couponError: string | null;
+  creatorCode: string | null;
+  creatorError: string | null;
 }
 
 export interface MeResponse {
@@ -586,6 +590,8 @@ export interface MeResponse {
   unreadNotifications: number;
   recentOrders: Order[];
   tierDiscountPercent: number;
+  /** Deriva de tener ficha de creador activa; no es un rol. */
+  isCreator: boolean;
 }
 
 export interface SeriesPoint {
@@ -662,3 +668,54 @@ export interface TopProductsResponse {
   >;
   byGame: Record<string, BreakdownEntry>;
 }
+
+// ---------------------------------------------------------------------------
+// Creadores de contenido
+// ---------------------------------------------------------------------------
+
+export interface Creator {
+  uid: string;
+  code: string;
+  active: boolean;
+  commissionPercent: number;
+  discountPercent: number;
+  displayName: string | null;
+  email: string | null;
+  notes: string | null;
+  stats: {
+    orders: number;
+    salesUsd: number;
+    pendingUsd: number;
+    paidUsd: number;
+    revertedUsd: number;
+  };
+  createdAt: TimestampLike;
+  updatedAt: TimestampLike;
+}
+
+export type CommissionStatus = 'pending' | 'paid' | 'reverted';
+
+export interface CommissionEntry {
+  orderId: string;
+  orderCode: string;
+  status: CommissionStatus;
+  saleUsd: number;
+  percent: number;
+  amountUsd: number;
+  gameId: string;
+  gameName: string;
+  productName: string;
+  payoutId: string | null;
+  createdAt: TimestampLike;
+  updatedAt: TimestampLike;
+}
+
+/** Lo que ve el propio creador de su programa. */
+export interface CreatorSummary {
+  code: string;
+  active: boolean;
+  commissionPercent: number;
+  discountPercent: number;
+  stats: Creator['stats'];
+}
+

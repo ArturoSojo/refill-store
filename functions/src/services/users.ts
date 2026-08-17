@@ -38,6 +38,53 @@ export async function tierDiscountPercent(tier: UserTier): Promise<number> {
   return tiers.tierDiscountPercent(tier, await activeLadder());
 }
 
+
+/**
+ * Perfil recién nacido, con todos los campos poblados.
+ *
+ * Se extrajo para que `setRole` pueda sembrarlo también: escribía sólo
+ * `{ role, updatedAt }` con `merge`, así que nombrar staff a alguien que aún no
+ * había entrado creaba un documento de dos campos. Sin `createdAt` ni `stats`
+ * ese perfil quedaba **invisible en el listado del panel**, porque `orderBy`
+ * omite los documentos que no tienen el campo por el que se ordena.
+ */
+function blankProfile(input: {
+  email: string | null;
+  displayName: string | null;
+  photoURL: string | null;
+  role: UserRole;
+  timestamp: FirebaseFirestore.Timestamp;
+}): Omit<UserProfile, 'uid'> {
+  return {
+    email: input.email,
+    displayName: input.displayName,
+    photoURL: input.photoURL,
+    phone: null,
+    role: input.role,
+    banned: false,
+    bannedReason: null,
+    walletBalanceUsd: 0,
+    points: 0,
+    tier: tiers.BASE_TIER,
+    referralCode: generateReferralCode(),
+    referredBy: null,
+    referralCount: 0,
+    stats: {
+      totalOrders: 0,
+      completedOrders: 0,
+      totalSpentUsd: 0,
+      lastOrderAt: null,
+    },
+    preferences: {
+      notifyEmail: true,
+      notifyOrderUpdates: true,
+    },
+    createdAt: input.timestamp,
+    updatedAt: input.timestamp,
+    lastLoginAt: input.timestamp,
+  };
+}
+
 /** Devuelve el perfil, creándolo si es la primera vez que entra el usuario. */
 export async function ensureProfile(authUser: AuthUser): Promise<UserProfile> {
   const ref = users().doc(authUser.uid);
@@ -84,34 +131,13 @@ export async function ensureProfile(authUser: AuthUser): Promise<UserProfile> {
     return { ...profile, ...(patch as Partial<UserProfile>) };
   }
 
-  const profile: Omit<UserProfile, 'uid'> = {
+  const profile = blankProfile({
     email: authUser.email,
     displayName: authUser.displayName,
     photoURL: authUser.photoURL,
-    phone: null,
     role: authUser.role,
-    banned: false,
-    bannedReason: null,
-    walletBalanceUsd: 0,
-    points: 0,
-    tier: tiers.BASE_TIER,
-    referralCode: generateReferralCode(),
-    referredBy: null,
-    referralCount: 0,
-    stats: {
-      totalOrders: 0,
-      completedOrders: 0,
-      totalSpentUsd: 0,
-      lastOrderAt: null,
-    },
-    preferences: {
-      notifyEmail: true,
-      notifyOrderUpdates: true,
-    },
-    createdAt: timestamp,
-    updatedAt: timestamp,
-    lastLoginAt: timestamp,
-  };
+    timestamp,
+  });
 
   await ref.set(profile);
   await stats.trackEvent({ type: 'user_created' });
@@ -215,7 +241,25 @@ export async function setRole(uid: string, role: UserRole): Promise<void> {
         : { admin: false, staff: false };
 
   await auth.setCustomUserClaims(uid, claims);
-  await users().doc(uid).set({ role, updatedAt: now() }, { merge: true });
+
+  // Nombrar a alguien que todavía no ha entrado a la tienda no puede dejar un
+  // documento a medias: se siembra el perfil entero la primera vez.
+  const ref = users().doc(uid);
+  const snap = await ref.get();
+  if (snap.exists) {
+    await ref.set({ role, updatedAt: now() }, { merge: true });
+  } else {
+    const authUser = await auth.getUser(uid).catch(() => null);
+    await ref.set(
+      blankProfile({
+        email: authUser?.email ?? null,
+        displayName: authUser?.displayName ?? null,
+        photoURL: authUser?.photoURL ?? null,
+        role,
+        timestamp: now(),
+      })
+    );
+  }
   // Fuerza a que el navegador pida un token nuevo con los claims actualizados.
   await auth.revokeRefreshTokens(uid);
 }

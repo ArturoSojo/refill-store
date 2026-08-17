@@ -1,5 +1,5 @@
 /** Cascarón de la tienda: cabecera, contenido, navegación inferior y pie. */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
   Bell,
@@ -20,6 +20,7 @@ import { useConfig } from '@/providers/ConfigProvider';
 import { BrandMark, BrandLockup } from '@/components/common/Brand';
 import { ROUTES } from '@/lib/constants';
 import { cn, initials } from '@/lib/utils';
+import { captureCreatorCodeFromUrl } from '@/lib/creatorCode';
 import { formatBs, formatUsd } from '@/lib/format';
 import { Button, ButtonLink } from '@/components/ui/Button';
 
@@ -412,6 +413,13 @@ function AnnouncementBar() {
 
 export function StoreLayout() {
   const [menuOpen, setMenuOpen] = useState(false);
+
+  // El código del creador llega por `?c=` en el enlace que él comparte. Se
+  // guarda al aterrizar, en cualquier página, porque el cliente puede entrar
+  // directo a un juego y no pasar nunca por el inicio.
+  useEffect(() => {
+    captureCreatorCodeFromUrl();
+  }, []);
 
   return (
     <div className="flex min-h-dvh flex-col">

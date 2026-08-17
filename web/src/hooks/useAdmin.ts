@@ -3,6 +3,8 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { api } from '@/lib/api';
 import { QUERY_KEYS } from '@/lib/constants';
 import type {
+  CommissionEntry,
+  Creator,
   TierDefinition,
   UserTier,
   AdminAlert,
@@ -335,7 +337,12 @@ export function useSeedCatalog() {
 
 // --- Usuarios --------------------------------------------------------------
 
-export function useAdminUsers(filters: { role?: string; search?: string; limit?: number }) {
+export function useAdminUsers(filters: {
+  role?: string;
+  search?: string;
+  sort?: 'recent' | 'spent' | 'orders';
+  limit?: number;
+}) {
   const query = toQueryString(filters);
 
   return usePagedQuery<'users', UserProfile>(
@@ -725,6 +732,64 @@ export function useRecalculateTiers() {
       api.post<TierRecalculation>('/admin/tiers/recalculate', { dryRun }),
     onSuccess: (_data, dryRun) => {
       if (!dryRun) void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Creadores de contenido
+// ---------------------------------------------------------------------------
+
+export function useAdminCreators() {
+  return usePagedQuery<'creators', Creator>(
+    QUERY_KEYS.adminCreators,
+    '/admin/creators?limit=50',
+    'creators',
+    { staleTime: 30_000 }
+  );
+}
+
+export function useAdminCreator(uid: string | undefined) {
+  return useQuery({
+    queryKey: QUERY_KEYS.adminCreator(uid ?? ''),
+    queryFn: () =>
+      api.get<{ creator: Creator; commissions: CommissionEntry[]; total?: number }>(
+        `/admin/creators/${uid}`
+      ),
+    enabled: Boolean(uid),
+    staleTime: 30_000,
+  });
+}
+
+/** Alta, edición o baja del creador desde la ficha del usuario. */
+export function useSaveCreator(uid: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: Record<string, unknown> | null) =>
+      data === null
+        ? api.delete<{ creator: Creator }>(`/admin/users/${uid}/creator`)
+        : api.post<{ creator: Creator }>(`/admin/users/${uid}/creator`, data),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminUser(uid) });
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminCreators });
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminCreator(uid) });
+    },
+  });
+}
+
+export function usePayCreator(uid: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () =>
+      api.post<{ payoutId: string; amountUsd: number; entries: number; hasMore: boolean }>(
+        `/admin/creators/${uid}/payout`
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminCreator(uid) });
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminCreators });
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminUser(uid) });
     },
   });
 }
