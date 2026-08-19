@@ -237,7 +237,11 @@ export function AdminSettings() {
             leftIcon={<RefreshCw className="h-4 w-4" aria-hidden />}
             onClick={() =>
               refreshRate.mutate(undefined, {
-                onSuccess: (result) => toast.success(result.reason),
+                // La petición puede salir bien y aun así no actualizar nada (la
+                // fuente caída, una variación sospechosa). Pintar eso en verde
+                // es lo que hacía creer que la tasa se estaba refrescando sola.
+                onSuccess: (result) =>
+                  result.updated ? toast.success(result.reason) : toast.error(result.reason),
                 onError: (error) => toast.error(errorMessage(error)),
               })
             }
@@ -270,7 +274,7 @@ export function AdminSettings() {
             }
             disabled={!isAdmin}
             label="Actualizar la tasa automáticamente cada hora"
-            description="Consulta una fuente pública del BCV y le suma el margen configurado."
+            description="Consulta la tasa oficial del BCV a través de Pabilo y le suma el margen configurado."
           />
 
           {config.rate.autoRefresh && (

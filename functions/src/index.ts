@@ -9,11 +9,11 @@
 import { setGlobalOptions } from 'firebase-functions/v2';
 import { onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
-import { API_SECRETS, REGION } from './config/env';
+import { API_SECRETS, PABILO_API_KEY, REGION, TELEGRAM_BOT_TOKEN } from './config/env';
 import { createApp } from './app';
 import { log } from './lib/logger';
 import { expireStaleOrders } from './services/orders';
-import { refreshAutoRate } from './services/rate';
+import { refreshAutoRate, alertStaleRate } from './services/rate';
 import { STORE_TIMEZONE } from './services/stats';
 import { cleanupRateLimits } from './triggers/maintenance';
 
@@ -61,9 +61,21 @@ export const refreshRate = onSchedule(
     schedule: '0 * * * *',
     timeZone: STORE_TIMEZONE,
     timeoutSeconds: 60,
+    // Sin declararlos aquí, `PABILO_API_KEY.value()` llega vacío en esta
+    // función —los secretos se montan por función, no por proyecto— y la
+    // consulta de tasa caería siempre a la fuente de respaldo sin decir nada.
+    secrets: [PABILO_API_KEY, TELEGRAM_BOT_TOKEN],
   },
   async () => {
     const result = await refreshAutoRate();
     log.info('Refresco de tasa', { ...result });
+
+    // Un fallo suelto no merece aviso (la fuente puede tardar un minuto), pero
+    // llevar horas sin poder actualizar sí: es lo que pasó con la fuente
+    // anterior, que murió y nadie se enteró porque sólo quedaba en los
+    // registros mientras el panel mostraba el auto-refresco activo.
+    if (!result.updated && result.reason.includes('Ninguna fuente')) {
+      await alertStaleRate(result.reason);
+    }
   }
 );

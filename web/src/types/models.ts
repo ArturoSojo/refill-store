@@ -333,6 +333,7 @@ export interface AdminAlert {
     | 'ticket_reply'
     | 'payment_rejected'
     | 'low_balance'
+    | 'rate_stale'
     | 'provider_down'
     | 'test';
   severity: 'info' | 'warning' | 'critical';

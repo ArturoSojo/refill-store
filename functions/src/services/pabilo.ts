@@ -343,3 +343,63 @@ export async function checkAccount(): Promise<PabiloHealth> {
 
   return { configured: true, accountOk: true, message: null };
 }
+
+// ---------------------------------------------------------------------------
+// Tasa de cambio
+// ---------------------------------------------------------------------------
+
+/**
+ * Tasa oficial del BCV, servida por Pabilo.
+ *
+ * `GET {base}/exchange/rate` con `Authorization: Bearer`. Ojo: la verificación
+ * de pagos usa la cabecera `appKey` y ésta usa `Bearer`; son endpoints del
+ * mismo proveedor con autenticación distinta, así que no se comparte el helper.
+ *
+ * Respuesta verificada contra producción:
+ *   { message, price: 775.3356,
+ *     rates: { USD: 775.3356, EUR: 897.82311808, USDT: 912.2541 } }
+ *
+ * `price` coincide con `rates.USD` y es lo que publica el BCV en bolívares por
+ * dólar. `USDT` es el promedio de Binance P2P: NO es la tasa oficial y no debe
+ * usarse para cotizar.
+ */
+export interface PabiloExchangeRate {
+  /** Bolívares por dólar, tasa oficial del BCV. */
+  usd: number;
+  /** Bolívares por euro. */
+  eur: number | null;
+  /** Promedio de Binance P2P, sólo informativo. */
+  usdt: number | null;
+}
+
+export async function getExchangeRate(): Promise<PabiloExchangeRate | null> {
+  const apiKey = PABILO_API_KEY.value();
+  if (!apiKey) return null;
+
+  const response = await fetchJson<{
+    price?: number;
+    rates?: { USD?: number; EUR?: number; USDT?: number };
+  }>(`${pabiloBaseUrl().replace(/\/+$/, '')}/exchange/rate`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${apiKey}` },
+    timeoutMs: 12_000,
+    retries: 1,
+  });
+
+  if (!response.ok) {
+    log.warn('Pabilo no devolvió la tasa de cambio', { status: response.status });
+    return null;
+  }
+
+  const usd = response.data?.rates?.USD ?? response.data?.price;
+  if (typeof usd !== 'number' || !(usd > 0)) {
+    log.warn('La tasa de Pabilo llegó vacía o con un valor imposible', { usd });
+    return null;
+  }
+
+  return {
+    usd,
+    eur: typeof response.data?.rates?.EUR === 'number' ? response.data.rates.EUR : null,
+    usdt: typeof response.data?.rates?.USDT === 'number' ? response.data.rates.USDT : null,
+  };
+}

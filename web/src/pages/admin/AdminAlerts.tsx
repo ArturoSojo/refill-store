@@ -14,6 +14,7 @@ import {
   ExternalLink,
   Send,
   ShieldAlert,
+  TrendingUp,
   Wallet,
   MessageSquare,
 } from 'lucide-react';
@@ -41,6 +42,7 @@ const ICONS: Record<AdminAlert['kind'], typeof BellRing> = {
   ticket_reply: MessageSquare,
   payment_rejected: ShieldAlert,
   low_balance: Wallet,
+  rate_stale: TrendingUp,
   provider_down: ShieldAlert,
   test: BellRing,
 };
