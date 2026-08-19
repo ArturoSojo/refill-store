@@ -540,6 +540,21 @@ export interface VerifyPaymentResult {
   message: string;
 }
 
+/**
+ * Estados en los que el dinero del cliente ya entró.
+ *
+ * Volver a verificar en cualquiera de ellos es inofensivo y debe responder
+ * bien: el pago está hecho y lo único que falta —si falta algo— es la entrega.
+ */
+const PAID_STATES: OrderStatus[] = [
+  'verifying',
+  'paid',
+  'dispatching',
+  'awaiting_manual',
+  'completed',
+  'failed',
+];
+
 export async function verifyPayment(
   user: AuthUser,
   orderId: string,
@@ -551,8 +566,28 @@ export async function verifyPayment(
 
   if (order.uid !== user.uid) throw forbidden('Esa orden no es tuya.');
 
-  if (order.status === 'completed' || order.status === 'awaiting_manual') {
-    return { order, verified: true, message: 'Esta orden ya fue pagada.' };
+  // Reintentar la verificación cuando el pago YA entró no es un error del
+  // cliente: es lo que hace cualquiera cuando la petición anterior se le cortó
+  // a medias. La entrega puede tardar más que el tope del proxy (26 s), así que
+  // el navegador se queda sin respuesta mientras el servidor sigue trabajando;
+  // el cliente vuelve a pulsar y, si esto lanzara, leería «esta orden ya no
+  // admite verificación» justo cuando todo va bien.
+  //
+  // Se responde con el estado real y `verified: true`, para que la pantalla
+  // siga esperando la entrega en vez de pintar un fallo.
+  if (PAID_STATES.includes(order.status)) {
+    return {
+      order,
+      verified: true,
+      message:
+        order.status === 'completed'
+          ? 'Tu pago ya estaba verificado y la recarga fue entregada.'
+          : order.status === 'failed'
+            ? 'Tu pago está confirmado. La entrega falló y el equipo ya la está revisando.'
+            : order.status === 'awaiting_manual'
+              ? 'Tu pago ya estaba verificado. El equipo está preparando tu recarga.'
+              : 'Tu pago ya estaba verificado. Estamos entregando tu recarga.',
+    };
   }
 
   if (!['awaiting_payment', 'payment_rejected'].includes(order.status)) {

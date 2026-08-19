@@ -22,7 +22,7 @@ import { FullPageLoader, ErrorState } from '@/components/ui/Feedback';
 import { ButtonLink } from '@/components/ui/Button';
 import { ROUTES } from '@/lib/constants';
 import { readCreatorCode } from '@/lib/creatorCode';
-import { ApiError } from '@/lib/api';
+import { ApiError, isGatewayTimeout } from '@/lib/api';
 import { errorMessage } from '@/lib/utils';
 import type { CreateOrderResponse, Order } from '@/types/models';
 
@@ -256,6 +256,19 @@ export function CheckoutPage() {
         }
       },
       onError: (error) => {
+        // El proxy corta a los 26 s pero el servidor sigue verificando y
+        // despachando hasta 120 s. Ese corte no es un fallo: la orden casi
+        // siempre termina bien. Se pasa a la pantalla de resultado, que escucha
+        // la orden en vivo y va a mostrar la entrega en cuanto ocurra.
+        if (isGatewayTimeout(error) && orderData) {
+          setFinalOrder({ ...orderData.order, status: 'verifying' });
+          setStep('result');
+          toast('Tu pago está en proceso. Te avisamos aquí mismo en unos segundos.', {
+            icon: '⏳',
+          });
+          return;
+        }
+
         setAttempts((current) => current + 1);
         const message = errorMessage(error);
         setVerifyError(message);

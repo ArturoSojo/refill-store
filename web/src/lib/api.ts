@@ -123,6 +123,24 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   return (payload?.data ?? (null as unknown)) as T;
 }
 
+/**
+ * Códigos que significan «la petición se cortó por el camino», no «falló».
+ *
+ * El proxy que sirve la tienda corta a los 26 s, pero la función sigue viva
+ * hasta 120 s: una entrega lenta deja al navegador sin respuesta mientras el
+ * servidor la termina bien. Tratar eso como un fallo es lo que hacía aparecer
+ * «Error 504» en pagos que en realidad salían perfectos.
+ *
+ * No se incluye el 0 (sin respuesta HTTP): ahí la petición pudo no haber salido
+ * del teléfono, y decirle a alguien sin internet que su pago está en curso sería
+ * peor que decirle que revise su conexión.
+ */
+const GATEWAY_TIMEOUTS = [408, 502, 503, 504, 522, 524];
+
+export function isGatewayTimeout(error: unknown): boolean {
+  return error instanceof ApiError && GATEWAY_TIMEOUTS.includes(error.status);
+}
+
 export const api = {
   get: <T>(path: string, options?: Omit<RequestOptions, 'method' | 'body'>) =>
     request<T>(path, { ...options, method: 'GET' }),
