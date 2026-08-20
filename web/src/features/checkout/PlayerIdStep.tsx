@@ -122,7 +122,11 @@ export function PlayerIdStep({
             <p className="mt-0.5 text-sm text-slate-400">{game.name}</p>
           </div>
           <Badge variant={product.fulfillment === 'auto' ? 'brand' : 'success'}>
-            {product.fulfillment === 'auto' ? 'Automático' : 'Por WhatsApp'}
+            {product.fulfillment === 'auto'
+              ? 'Automático'
+              : product.manualFlow === 'whatsapp'
+                ? 'Por WhatsApp'
+                : 'Lo activa el equipo'}
           </Badge>
         </div>
 

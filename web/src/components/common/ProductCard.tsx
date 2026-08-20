@@ -119,7 +119,7 @@ export function ProductCard({ product, game, currencyIcon, className }: ProductC
           {isManual ? (
             <>
               <MessageCircle className="h-3 w-3" aria-hidden />
-              WhatsApp
+              {product.manualFlow === 'whatsapp' ? 'WhatsApp' : 'Manual'}
             </>
           ) : (
             <>

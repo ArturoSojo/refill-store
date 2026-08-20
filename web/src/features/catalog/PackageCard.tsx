@@ -143,7 +143,7 @@ export function PackageCard({ product, game, selected, onSelect, index = 0 }: Pa
         {isManual ? (
           <>
             <MessageCircle className="h-2.5 w-2.5" aria-hidden />
-            WhatsApp
+            {product.manualFlow === 'whatsapp' ? 'WhatsApp' : 'Manual'}
           </>
         ) : (
           <>
