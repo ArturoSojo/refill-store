@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, HelpCircle, Loader2, Tag, Trash2 } from 'lucide-react';
+import { AlertTriangle, HelpCircle, Loader2, Tag, Trash2, MessageCircle } from 'lucide-react';
 import { ROUTES } from '@/lib/constants';
 import { readCreatorCode } from '@/lib/creatorCode';
 import { Button } from '@/components/ui/Button';
@@ -28,6 +28,10 @@ interface PlayerIdStepProps {
   couponCode: string;
   onCouponChange: (value: string) => void;
   couponsEnabled: boolean;
+  /** El producto se entrega a mano y el equipo necesita poder escribirle. */
+  needsPhone: boolean;
+  contactPhone: string;
+  onContactPhoneChange: (value: string) => void;
   useWallet: boolean;
   onUseWalletChange: (value: boolean) => void;
   onContinue: () => void;
@@ -45,6 +49,9 @@ export function PlayerIdStep({
   couponCode,
   onCouponChange,
   couponsEnabled,
+  needsPhone,
+  contactPhone,
+  onContactPhoneChange,
   useWallet,
   onUseWalletChange,
   onContinue,
@@ -188,6 +195,22 @@ export function PlayerIdStep({
           </div>
         )}
       </div>
+
+      {needsPhone && (
+        <div className="card border-amber-500/30 bg-amber-500/5">
+          <Input
+            id="contacto-telefono"
+            label="Tu número de WhatsApp"
+            type="tel"
+            inputMode="tel"
+            placeholder="0412-0000000"
+            value={contactPhone}
+            onChange={(event) => onContactPhoneChange(event.target.value.slice(0, 20))}
+            leftIcon={<MessageCircle className="h-4 w-4" aria-hidden />}
+            hint="Este producto lo activa nuestro equipo a mano. Te escribimos nosotros: no tienes que hacer nada más."
+          />
+        </div>
+      )}
 
       {couponsEnabled && user && (
         <div className="card">

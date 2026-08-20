@@ -34,7 +34,10 @@ export function ResultStep({ order, game, supportUrl }: ResultStepProps) {
 
   const isProcessing = ['paid', 'dispatching', 'verifying'].includes(order.status);
   const isDone = order.status === 'completed';
-  const needsWhatsapp = order.status === 'awaiting_manual' && order.whatsappUrl;
+  const needsWhatsapp = order.status === 'awaiting_manual' && Boolean(order.whatsappUrl);
+  // Manual sin chat: el equipo lo entrega y avisa. El cliente no tiene que
+  // hacer nada, y decírselo así evita que escriba preguntando.
+  const manualPending = order.status === 'awaiting_manual' && !order.whatsappUrl;
 
   return (
     <div className="space-y-5">
@@ -57,7 +60,7 @@ export function ResultStep({ order, game, supportUrl }: ResultStepProps) {
           </motion.div>
         ) : (
           <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-500/15">
-            {isProcessing ? (
+            {isProcessing || manualPending ? (
               <Loader2 className="h-8 w-8 animate-spin text-neon-crimson" aria-hidden />
             ) : needsWhatsapp ? (
               <MessageCircle className="h-8 w-8 text-green-400" aria-hidden />
@@ -72,7 +75,7 @@ export function ResultStep({ order, game, supportUrl }: ResultStepProps) {
             ? '¡Recarga entregada!'
             : needsWhatsapp
               ? 'Pago verificado'
-              : isProcessing
+              : isProcessing || manualPending
                 ? 'Procesando tu recarga…'
                 : meta.label}
         </h2>
@@ -101,6 +104,25 @@ export function ResultStep({ order, game, supportUrl }: ResultStepProps) {
         </dl>
       </motion.div>
 
+      {manualPending && (
+        <div className="card border-amber-500/30 bg-amber-500/5">
+          <p className="text-sm text-amber-50">
+            Tu pago ya está confirmado. Este producto lo activa nuestro equipo a mano, así que
+            no tienes que hacer nada más.
+          </p>
+          <p className="mt-2 text-sm text-amber-100/80">
+            Te enviaremos una notificación aquí y un correo a{' '}
+            <span className="font-semibold">{order.user.email ?? 'tu correo'}</span> apenas esté
+            completada.
+          </p>
+          {order.contactPhone && (
+            <p className="mt-2 text-xs text-amber-100/70">
+              También te escribiremos por WhatsApp al {order.contactPhone}.
+            </p>
+          )}
+        </div>
+      )}
+
       {needsWhatsapp && (
         <div className="card border-green-500/30 bg-green-500/5">
           <p className="text-sm text-green-100">
@@ -121,7 +143,7 @@ export function ResultStep({ order, game, supportUrl }: ResultStepProps) {
       )}
 
       {/* Guardar el ID sólo tiene sentido si el pago salió bien. */}
-      {(isDone || needsWhatsapp) && !saved && (
+      {(isDone || needsWhatsapp || manualPending) && !saved && (
         <div className="card">
           <p className="text-sm font-medium text-white">¿Guardas este ID para la próxima?</p>
           <p className="mt-1 text-xs text-slate-400">

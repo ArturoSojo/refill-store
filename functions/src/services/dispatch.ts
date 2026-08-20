@@ -13,7 +13,7 @@
  *  - Los productos manuales (Categoría B) no tocan el API del proveedor: se
  *    genera el enlace de WhatsApp y la orden queda esperando gestión humana.
  */
-import { orders, games, now } from '../config/firebase';
+import { orders, games, products, now } from '../config/firebase';
 import { log } from '../lib/logger';
 import { notFound } from '../lib/errors';
 import * as inefable from './inefable';
@@ -28,8 +28,14 @@ import { getConfig } from './settings';
 import { sendOrderEmail } from './orderEmails';
 import { resolvePlayerFields } from './catalog';
 import { describeOrder } from '../lib/orderItem';
-import { buildManualOrderUrl } from './whatsapp';
-import type { DispatchCallResult, Game, Order, OrderStatus } from '../types/models';
+import { buildManualOrderUrl, buildWhatsappUrl } from './whatsapp';
+import type {
+  DispatchCallResult,
+  Game,
+  ManualFlow,
+  Order,
+  OrderStatus,
+} from '../types/models';
 
 export interface DispatchOutcome {
   status: OrderStatus;
@@ -81,6 +87,12 @@ export async function prepareManualOrder(orderId: string): Promise<DispatchOutco
   const order = await loadOrder(orderId);
   const config = await getConfig();
 
+  // El flujo lo decide el producto. Se lee del catálogo y no de la orden porque
+  // es una preferencia de operación, no una condición de la venta: cambiarla
+  // debe valer para las órdenes que ya están esperando gestión.
+  const productSnap = await products().doc(order.productId).get();
+  const flow: ManualFlow = (productSnap.data()?.manualFlow as ManualFlow | undefined) ?? 'notify';
+
   // El mensaje lleva todos los datos que pidió el juego, no sólo el ID: sin el
   // Zone ID o el correo, el asesor no puede completar la recarga.
   const gameSnap = await games().doc(order.gameId).get();
@@ -88,7 +100,10 @@ export async function prepareManualOrder(orderId: string): Promise<DispatchOutco
     ? resolvePlayerFields({ id: gameSnap.id, ...gameSnap.data() } as Game)
     : [];
 
-  const whatsappUrl = buildManualOrderUrl(order, config.whatsapp.adminNumber, fields);
+  // Sólo el flujo `whatsapp` empuja al cliente al chat. En los otros dos se
+  // queda en la tienda y se le avisa cuando esté lista.
+  const whatsappUrl =
+    flow === 'whatsapp' ? buildManualOrderUrl(order, config.whatsapp.adminNumber, fields) : null;
 
   await orders().doc(orderId).set(
     {
@@ -108,15 +123,32 @@ export async function prepareManualOrder(orderId: string): Promise<DispatchOutco
   await addEvent({
     orderId,
     type: 'manual_ready',
-    message: 'Pago verificado. Producto manual listo para gestionar por WhatsApp.',
+    message:
+      flow === 'whatsapp'
+        ? 'Pago verificado. Producto manual listo para gestionar por WhatsApp.'
+        : 'Pago verificado. Producto manual pendiente de entrega por el equipo.',
     status: 'awaiting_manual',
   });
+
+  // Cuando el cliente dejó su teléfono, el aviso trae el enlace listo para que
+  // sea la tienda quien escriba: es lo que evita que el cliente tenga que dar
+  // el primer paso.
+  const contactPhone = order.contactPhone ?? null;
+  const contactLink = contactPhone
+    ? buildWhatsappUrl(
+        contactPhone,
+        `Hola 👋 Soy de Refill Store. Vi tu orden ${order.code} (${describeOrder(order)}). Ya la estoy gestionando.`
+      )
+    : null;
 
   await Promise.all([
     notifications.notify({
       uid: order.uid,
       title: 'Pago confirmado ✅',
-      body: `Tu ${describeOrder(order)} se entrega por WhatsApp. Abre el chat para completarlo.`,
+      body:
+        flow === 'whatsapp'
+          ? `Tu ${describeOrder(order)} se entrega por WhatsApp. Abre el chat para completarlo.`
+          : `Tu ${describeOrder(order)} está siendo procesada. Te avisamos aquí y por correo apenas esté lista.`,
       type: 'order',
       link: `/orden/${orderId}`,
     }),
@@ -127,10 +159,20 @@ export async function prepareManualOrder(orderId: string): Promise<DispatchOutco
       body: [
         `${describeOrder(order)} (${order.gameName}).`,
         `Cuenta a recargar: ${order.playerId}.`,
-        `Cobrado: ${order.pricing.totalBs.toFixed(2)} Bs. Espera gestión por WhatsApp.`,
+        `Cobrado: ${order.pricing.totalBs.toFixed(2)} Bs.`,
+        contactPhone
+          ? `Escríbele tú: ${contactPhone}${contactLink ? ` — ${contactLink}` : ''}`
+          : flow === 'whatsapp'
+            ? 'El cliente puede escribir por WhatsApp.'
+            : 'Entrégalo y márcalo como completado desde el panel.',
       ].join('\n'),
       link: `/admin/ordenes/${orderId}`,
-      data: { code: order.code, playerId: order.playerId, customer: order.user.email },
+      data: {
+        code: order.code,
+        playerId: order.playerId,
+        customer: order.user.email,
+        contactPhone,
+      },
     }),
   ]);
 
@@ -138,7 +180,10 @@ export async function prepareManualOrder(orderId: string): Promise<DispatchOutco
     status: 'awaiting_manual',
     calls: [],
     allSucceeded: true,
-    message: 'Producto manual listo para gestión por WhatsApp.',
+    message:
+      flow === 'whatsapp'
+        ? 'Producto manual listo para gestión por WhatsApp.'
+        : 'Producto manual pendiente de entrega por el equipo.',
   };
 }
 

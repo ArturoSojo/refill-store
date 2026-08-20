@@ -20,7 +20,7 @@ import { Badge, EmptyState, Skeleton } from '@/components/ui/Feedback';
 import { ImageUpload } from '@/components/common/ImageUpload';
 import { formatBs, formatUsd } from '@/lib/format';
 import { cn, errorMessage } from '@/lib/utils';
-import type { DispatchCall, Product } from '@/types/models';
+import type { DispatchCall, ManualFlow, Product } from '@/types/models';
 
 interface ProductFormState {
   gameId: string;
@@ -28,6 +28,7 @@ interface ProductFormState {
   name: string;
   description: string;
   fulfillment: 'auto' | 'manual';
+  manualFlow: ManualFlow;
   kind: 'package' | 'combo' | 'special';
   amount: string;
   bonus: string;
@@ -50,6 +51,7 @@ const EMPTY_FORM: ProductFormState = {
   name: '',
   description: '',
   fulfillment: 'auto',
+  manualFlow: 'notify',
   kind: 'package',
   amount: '0',
   bonus: '0',
@@ -73,6 +75,7 @@ function toForm(product: Product): ProductFormState {
     name: product.name,
     description: product.description ?? '',
     fulfillment: product.fulfillment,
+    manualFlow: product.manualFlow ?? 'notify',
     kind: product.kind,
     amount: String(product.amount),
     bonus: String(product.bonus),
@@ -215,6 +218,7 @@ export function AdminProducts() {
       name: form.name.trim(),
       description: form.description.trim(),
       fulfillment: form.fulfillment,
+      manualFlow: form.manualFlow,
       kind: form.kind,
       amount: Number(form.amount) || 0,
       bonus: Number(form.bonus) || 0,
@@ -434,7 +438,7 @@ export function AdminProducts() {
               }
               options={[
                 { value: 'auto', label: 'Automática (API Inefable)' },
-                { value: 'manual', label: 'Manual (WhatsApp)' },
+                { value: 'manual', label: 'Manual (la entrega el equipo)' },
               ]}
             />
             <Select
@@ -498,6 +502,28 @@ export function AdminProducts() {
               hint="Opcional"
             />
           </div>
+
+          {form.fulfillment === 'manual' && (
+            <Select
+              label="Qué ve el cliente al pagar"
+              value={form.manualFlow}
+              onChange={(event) =>
+                setForm({ ...form, manualFlow: event.target.value as ManualFlow })
+              }
+              hint={
+                form.manualFlow === 'notify'
+                  ? 'No hace nada: se le avisa por notificación y correo cuando lo completes.'
+                  : form.manualFlow === 'phone'
+                    ? 'Se le pide el teléfono al comprar y te llega en el aviso para que le escribas tú.'
+                    : 'Se le ofrece el botón para abrir el chat contigo, como antes.'
+              }
+              options={[
+                { value: 'notify', label: 'Sólo avisarle cuando esté lista' },
+                { value: 'phone', label: 'Pedirle su teléfono para escribirle yo' },
+                { value: 'whatsapp', label: 'Mandarlo a WhatsApp' },
+              ]}
+            />
+          )}
 
           {form.fulfillment === 'auto' && (
             <CallsEditor calls={form.calls} onChange={(calls) => setForm({ ...form, calls })} />

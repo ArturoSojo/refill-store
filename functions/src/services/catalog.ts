@@ -52,6 +52,21 @@ export function compareProducts(a: Product, b: Product): number {
   return a.sortOrder - b.sortOrder;
 }
 
+/**
+ * Producto con los campos que pueden faltar ya resueltos.
+ *
+ * `manualFlow` se añadió después, así que los productos creados antes no lo
+ * tienen. Se resuelve al leer y no con una migración obligatoria para que un
+ * documento viejo nunca llegue al checkout con el campo en `undefined`.
+ */
+function toProduct(id: string, data: FirebaseFirestore.DocumentData): Product {
+  return {
+    id,
+    ...data,
+    manualFlow: (data.manualFlow as Product['manualFlow'] | undefined) ?? 'notify',
+  } as Product;
+}
+
 export async function listProducts(
   options: { gameId?: string; onlyActive?: boolean } = {}
 ): Promise<Product[]> {
@@ -59,7 +74,7 @@ export async function listProducts(
     ? await products().where('gameId', '==', options.gameId).get()
     : await products().get();
 
-  const all = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }) as Product);
+  const all = snap.docs.map((doc) => toProduct(doc.id, doc.data()));
   const filtered = options.onlyActive ? all.filter((product) => product.active) : all;
 
   // Los productos de juegos distintos no se comparan entre sí: primero se
@@ -72,7 +87,7 @@ export async function listProducts(
 export async function getProduct(productId: string): Promise<Product> {
   const snap = await products().doc(productId).get();
   if (!snap.exists) throw notFound('Ese producto no existe.');
-  return { id: snap.id, ...snap.data() } as Product;
+  return toProduct(snap.id, snap.data() ?? {});
 }
 
 /**

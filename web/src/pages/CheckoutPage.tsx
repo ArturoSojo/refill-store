@@ -36,12 +36,15 @@ interface CheckoutState {
   useWallet?: boolean;
 }
 
+/** Mismo criterio que valida el backend, para avisar antes de enviar. */
+const PHONE_PATTERN = /^[\d+\s()-]{7,20}$/;
+
 export function CheckoutPage() {
   const { productId } = useParams<{ productId: string }>();
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { user, signInWithGoogle } = useAuth();
+  const { user, me, signInWithGoogle } = useAuth();
   const { config } = useConfig();
 
   const incoming = (location.state as CheckoutState | null) ?? null;
@@ -70,6 +73,9 @@ export function CheckoutPage() {
   const [verifyError, setVerifyError] = useState<string | null>(null);
   const [attempts, setAttempts] = useState(0);
   const [openOrdersVisible, setOpenOrdersVisible] = useState(false);
+  // Sólo lo piden los productos manuales configurados así. Se precarga del
+  // perfil para que quien ya lo dejó una vez no lo escriba otra.
+  const [contactPhone, setContactPhone] = useState('');
 
   const createOrder = useCreateOrder();
   const verifyPayment = useVerifyPayment(orderData?.order.id);
@@ -79,6 +85,9 @@ export function CheckoutPage() {
   const liveOrder = useLiveOrder(finalOrder?.id, finalOrder ?? undefined);
 
   useDocumentTitle(product ? `Comprar ${product.name}` : 'Comprar');
+
+  // Este producto lo entrega el equipo y necesita poder escribirle al cliente.
+  const needsPhone = product?.fulfillment === 'manual' && product.manualFlow === 'phone';
 
   const maxAttempts = config?.checkout.maxVerifyAttempts ?? 5;
 
@@ -95,6 +104,10 @@ export function CheckoutPage() {
    * se dispararía otra vez y sacaría al cliente de la pantalla de «recarga
    * entregada» justo cuando la está leyendo.
    */
+  useEffect(() => {
+    if (me?.profile.phone) setContactPhone((current) => current || me.profile.phone!);
+  }, [me]);
+
   const resumeHandled = useRef(false);
 
   useEffect(() => {
@@ -119,6 +132,15 @@ export function CheckoutPage() {
   const handleCreateOrder = () => {
     if (!game || !product) return;
 
+    if (needsPhone && !PHONE_PATTERN.test(contactPhone.trim())) {
+      toast.error('Necesitamos tu número de WhatsApp para entregarte este producto.');
+      document.getElementById('contacto-telefono')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+      return;
+    }
+
     createOrder.mutate(
       {
         gameId: game.id,
@@ -128,6 +150,7 @@ export function CheckoutPage() {
         couponCode: couponCode.trim() || null,
         // El código del creador viaja desde el enlace, no lo escribe el cliente.
         creatorCode: readCreatorCode() || null,
+        contactPhone: needsPhone ? contactPhone.trim() : null,
         useWallet,
       },
       {
@@ -327,6 +350,9 @@ export function CheckoutPage() {
             couponCode={couponCode}
             onCouponChange={setCouponCode}
             couponsEnabled={config?.features.couponsEnabled ?? false}
+            needsPhone={needsPhone}
+            contactPhone={contactPhone}
+            onContactPhoneChange={setContactPhone}
             useWallet={useWallet}
             onUseWalletChange={setUseWallet}
             onContinue={handleCreateOrder}

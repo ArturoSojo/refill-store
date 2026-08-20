@@ -182,9 +182,10 @@ export const ORDER_STATUS_META: Record<OrderStatus, StatusMeta> = {
     isLive: true,
   },
   awaiting_manual: {
-    label: 'Continúa por WhatsApp',
-    className: 'bg-green-500/15 text-green-300 border-green-500/30',
-    description: 'Pago verificado. Abre WhatsApp para que un asesor complete tu producto.',
+    label: 'En proceso',
+    className: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+    description:
+      'Pago verificado. Estamos procesando tu recarga y te avisamos apenas esté lista.',
     isLive: false,
   },
   completed: {

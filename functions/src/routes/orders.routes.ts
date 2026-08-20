@@ -48,6 +48,12 @@ const createOrderSchema = z.object({
   quantity: z.coerce.number().int().min(1).max(10).default(1),
   couponCode: z.string().trim().max(32).optional().nullable(),
   creatorCode: z.string().trim().max(32).optional().nullable(),
+  contactPhone: z
+    .string()
+    .trim()
+    .regex(/^[\d+\s()-]{7,20}$/, 'Teléfono inválido.')
+    .optional()
+    .nullable(),
   useWallet: z.boolean().default(false),
   customerNote: z.string().trim().max(300).optional().nullable(),
 });

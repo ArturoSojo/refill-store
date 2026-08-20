@@ -78,6 +78,25 @@ export interface Game {
 }
 
 export type FulfillmentType = 'auto' | 'manual';
+
+/**
+ * Qué pasa con una entrega manual después de que el cliente paga.
+ *
+ * Antes todas empujaban al cliente a WhatsApp, porque no había otra forma de
+ * enterarse de que alguien había pagado algo manual. Con los avisos de Telegram
+ * ya no hace falta: el cliente se queda tranquilo en la tienda y el equipo se
+ * entera igual.
+ *
+ *  - `notify`   Nada que hacer para el cliente: se le avisa por notificación y
+ *               por correo cuando quede lista. Es el comportamiento por defecto.
+ *  - `whatsapp` Se le ofrece el botón para abrir el chat, como antes. Para
+ *               productos donde hace falta coordinar algo con él.
+ *  - `phone`    Se le pide el teléfono al comprar y llega en el aviso al equipo,
+ *               para que sea la tienda quien escriba. Mejor que `whatsapp`
+ *               cuando el cliente no tiene por qué dar el primer paso.
+ */
+export type ManualFlow = 'notify' | 'whatsapp' | 'phone';
+
 export type ProductKind = 'package' | 'combo' | 'special';
 
 export interface DispatchCall {
@@ -92,6 +111,7 @@ export interface Product {
   name: string;
   description: string;
   fulfillment: FulfillmentType;
+  manualFlow: ManualFlow;
   kind: ProductKind;
   amount: number;
   bonus: number;
@@ -118,6 +138,7 @@ export interface PublicProduct {
   name: string;
   description: string;
   fulfillment: FulfillmentType;
+  manualFlow: ManualFlow;
   kind: ProductKind;
   amount: number;
   bonus: number;
@@ -233,6 +254,7 @@ export interface Order {
     lastError: string | null;
   };
   whatsappUrl: string | null;
+  contactPhone: string | null;
   status: OrderStatus;
   customerNote: string | null;
   /** Sólo presente para staff. */

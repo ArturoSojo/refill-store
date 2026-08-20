@@ -203,6 +203,8 @@ export interface CreateOrderInput {
   couponCode?: string | null;
   /** Código del creador de contenido que trajo la venta. */
   creatorCode?: string | null;
+  /** Teléfono de contacto, cuando el producto manual lo pide. */
+  contactPhone?: string | null;
   /** Descontar del saldo a favor lo que alcance. */
   useWallet?: boolean;
   customerNote?: string | null;
@@ -311,6 +313,17 @@ export async function createOrder(
     couponCode = evaluation.coupon.code;
   }
 
+  // Sólo se guarda si el producto lo pide: un teléfono suelto en órdenes que
+  // no lo necesitan es un dato personal de más.
+  const contactPhone =
+    product.fulfillment === 'manual' && product.manualFlow === 'phone'
+      ? (input.contactPhone?.trim() || null)
+      : null;
+
+  if (product.fulfillment === 'manual' && product.manualFlow === 'phone' && !contactPhone) {
+    throw invalidArgument('Necesitamos tu número de teléfono para entregarte este producto.');
+  }
+
   // El código de creador va en su propio carril, no en el del cupón: así el
   // cliente puede usar una promo y el código de su creador a la vez.
   let creatorRef: OrderCreatorRef | null = null;
@@ -398,6 +411,7 @@ export async function createOrder(
       profitUsd: round(totalUsd - costUsd, 4),
     },
     creator: creatorRef,
+    contactPhone,
     emailsSent: [],
     payment: {
       method: paidWithWallet ? 'wallet' : 'pagomovil_bdv',
