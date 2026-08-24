@@ -32,10 +32,6 @@ interface PlayerIdStepProps {
   needsPhone: boolean;
   contactPhone: string;
   onContactPhoneChange: (value: string) => void;
-  /** La transferencia sólo se ofrece si el panel la tiene activa y con cuenta. */
-  transferEnabled: boolean;
-  paymentMethod: 'pagomovil_bdv' | 'transfer';
-  onPaymentMethodChange: (value: 'pagomovil_bdv' | 'transfer') => void;
   useWallet: boolean;
   onUseWalletChange: (value: boolean) => void;
   onContinue: () => void;
@@ -56,9 +52,6 @@ export function PlayerIdStep({
   needsPhone,
   contactPhone,
   onContactPhoneChange,
-  transferEnabled,
-  paymentMethod,
-  onPaymentMethodChange,
   useWallet,
   onUseWalletChange,
   onContinue,
@@ -206,43 +199,6 @@ export function PlayerIdStep({
           </div>
         )}
       </div>
-
-      {/* Elegir cómo pagar antes de crear la orden: los datos que se muestran
-          después quedan congelados en ella, así que cambiar de idea más tarde
-          obligaría a crear otra. */}
-      {transferEnabled && (
-        <div className="card">
-          <p className="text-sm font-semibold text-white">¿Cómo vas a pagar?</p>
-          <p className="mt-0.5 text-xs text-slate-400">
-            Las dos se verifican solas con la referencia. Elige la que te quede cómoda.
-          </p>
-
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            {(
-              [
-                { id: 'pagomovil_bdv', label: 'Pago Móvil', hint: 'Al teléfono' },
-                { id: 'transfer', label: 'Transferencia', hint: 'A la cuenta' },
-              ] as const
-            ).map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                onClick={() => onPaymentMethodChange(option.id)}
-                aria-pressed={paymentMethod === option.id}
-                className={cn(
-                  'rounded-xl border px-3 py-2.5 text-left transition',
-                  paymentMethod === option.id
-                    ? 'border-neon-red bg-neon-red/10'
-                    : 'border-base-600 bg-base-900 hover:border-base-500'
-                )}
-              >
-                <span className="block text-sm font-semibold text-white">{option.label}</span>
-                <span className="block text-xs text-slate-400">{option.hint}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
 
       {needsPhone && (
         <div className="card border-amber-500/30 bg-amber-500/5">

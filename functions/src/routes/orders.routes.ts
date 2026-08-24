@@ -314,3 +314,29 @@ ordersRouter.post(
     });
   })
 );
+
+/**
+ * Cambia el método de pago de una orden pendiente.
+ *
+ * El cliente elige cómo pagar en la misma pantalla donde ve los datos del
+ * banco: es donde lo busca, y donde puede cambiar de idea al ver que le queda
+ * más cómodo el otro.
+ */
+ordersRouter.patch(
+  '/:orderId/payment-method',
+  asyncHandler(async (req, res) => {
+    const { orderId } = parseParams(req, z.object({ orderId: z.string().min(1) }));
+    const { method } = parseBody(
+      req,
+      z.object({ method: z.enum(['pagomovil_bdv', 'transfer']) })
+    );
+
+    const order = await ordersService.setPaymentMethod(currentUser(req), orderId, method);
+    const config = await getConfig();
+
+    ok(res, {
+      order: ordersService.toCustomerOrder(order),
+      payment: ordersService.toPaymentInstructions(order, config),
+    });
+  })
+);

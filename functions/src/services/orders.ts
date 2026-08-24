@@ -935,6 +935,62 @@ async function expireOrder(order: Order): Promise<void> {
   });
 }
 
+/**
+ * Cambia el método de pago de una orden que todavía no se ha pagado.
+ *
+ * Los datos bancarios se congelan al crear la orden, pero mientras nadie haya
+ * transferido nada cambiarlos es inofensivo: el monto es el mismo por los dos
+ * caminos y la verificación no distingue. Existe porque el cliente elige cómo
+ * pagar en la misma pantalla donde ve los datos, que es donde lo busca; sin
+ * esto tendría que cancelar y volver a empezar sólo para cambiar de idea.
+ */
+export async function setPaymentMethod(
+  user: AuthUser,
+  orderId: string,
+  method: 'pagomovil_bdv' | 'transfer'
+): Promise<Order> {
+  const order = await getOrderFor(orderId, user);
+  const config = await getConfig();
+
+  if (!['awaiting_payment', 'payment_rejected'].includes(order.status)) {
+    throw failedPrecondition('Esta orden ya no admite cambiar el método de pago.');
+  }
+  if (order.payment.method === 'wallet') {
+    throw failedPrecondition('Esta orden se pagó con saldo.');
+  }
+  if (method === 'transfer' && !config.transfer.enabled) {
+    throw failedPrecondition('La transferencia bancaria no está disponible ahora mismo.');
+  }
+
+  const bankSnapshot =
+    method === 'transfer'
+      ? {
+          code: config.transfer.code,
+          name: config.transfer.name,
+          idNumber: config.transfer.idNumber,
+          phone: '',
+          accountNumber: config.transfer.accountNumber,
+          accountType: config.transfer.accountType,
+        }
+      : {
+          code: config.bank.code,
+          name: config.bank.name,
+          idNumber: config.bank.idNumber,
+          phone: config.bank.phone,
+        };
+
+  // `update` con ruta con puntos REEMPLAZA el mapa entero; `set` con `merge` lo
+  // fusionaría y dejaría el `accountNumber` de la transferencia pegado al
+  // volver a Pago Móvil. Es la misma trampa que ya mordió en las estadísticas.
+  await orders().doc(orderId).update({
+    'payment.method': method,
+    'payment.bankSnapshot': bankSnapshot,
+    updatedAt: now(),
+  });
+
+  return getOrder(orderId);
+}
+
 export async function cancelOrder(user: AuthUser, orderId: string): Promise<Order> {
   const order = await getOrderFor(orderId, user);
 

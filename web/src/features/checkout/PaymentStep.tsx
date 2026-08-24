@@ -5,11 +5,15 @@ import { Input } from '@/components/ui/Field';
 import { CopyField } from '@/components/common/CopyField';
 import { useCountdown } from '@/hooks/useMisc';
 import { formatBs, formatUsd } from '@/lib/format';
-import { onlyDigits } from '@/lib/utils';
+import { onlyDigits, cn } from '@/lib/utils';
 import type { CreateOrderResponse } from '@/types/models';
 
 interface PaymentStepProps {
   data: CreateOrderResponse;
+  /** La transferencia sólo se ofrece si el panel la tiene activa y con cuenta. */
+  transferEnabled: boolean;
+  onMethodChange: (method: 'pagomovil_bdv' | 'transfer') => void;
+  switchingMethod: boolean;
   onVerify: (reference: string) => void;
   verifying: boolean;
   error: string | null;
@@ -28,6 +32,9 @@ interface PaymentStepProps {
  */
 export function PaymentStep({
   data,
+  transferEnabled,
+  onMethodChange,
+  switchingMethod,
   onVerify,
   verifying,
   error,
@@ -93,7 +100,45 @@ export function PaymentStep({
         </p>
       </div>
 
-      {/* 2. A dónde pagar */}
+      {/* 2. Cómo pagar. Va aquí, pegado a los datos, y no en el paso anterior:
+          es donde el cliente los mira y donde cambia de idea. */}
+      {transferEnabled && (
+        <div className="card">
+          <p className="text-sm font-semibold text-white">¿Cómo vas a pagar?</p>
+          <p className="mt-0.5 text-xs text-slate-400">
+            Las dos se verifican solas con la referencia. El monto es el mismo.
+          </p>
+
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {(
+              [
+                { id: 'pagomovil_bdv', label: 'Pago Móvil', hint: 'Al teléfono' },
+                { id: 'transfer', label: 'Transferencia', hint: 'A la cuenta' },
+              ] as const
+            ).map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                disabled={switchingMethod || method === option.id}
+                onClick={() => onMethodChange(option.id)}
+                aria-pressed={method === option.id}
+                className={cn(
+                  'rounded-xl border px-3 py-2.5 text-left transition disabled:cursor-default',
+                  method === option.id
+                    ? 'border-neon-red bg-neon-red/10'
+                    : 'border-base-600 bg-base-900 hover:border-base-500',
+                  switchingMethod && 'opacity-60'
+                )}
+              >
+                <span className="block text-sm font-semibold text-white">{option.label}</span>
+                <span className="block text-xs text-slate-400">{option.hint}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 3. A dónde pagar */}
       <div className="card">
         <div className="mb-3 flex items-center gap-2">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-neon-red/15 text-neon-red">
@@ -135,7 +180,7 @@ export function PaymentStep({
         </div>
       </div>
 
-      {/* 3. Referencia */}
+      {/* 4. Referencia */}
       <div className="card">
         <div className="mb-3 flex items-center gap-2">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-400">

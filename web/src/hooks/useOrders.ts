@@ -181,3 +181,21 @@ export function usePricePreview() {
     }) => api.post<PricePreview>('/orders/preview', input),
   });
 }
+
+/**
+ * Cambia el método de pago de una orden pendiente.
+ *
+ * Devuelve las instrucciones nuevas para que la pantalla pinte los datos del
+ * método elegido sin recargar nada.
+ */
+export function useSetPaymentMethod(orderId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (method: 'pagomovil_bdv' | 'transfer') =>
+      api.patch<CreateOrderResponse>(`/orders/${orderId}/payment-method`, { method }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.order(orderId ?? '') });
+    },
+  });
+}

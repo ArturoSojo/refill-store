@@ -9,6 +9,7 @@ import {
   useLiveOrder,
   useOrder,
   useVerifyPayment,
+  useSetPaymentMethod,
 } from '@/hooks/useOrders';
 import { useDocumentTitle } from '@/hooks/useMisc';
 import { useAuth } from '@/providers/AuthProvider';
@@ -76,10 +77,10 @@ export function CheckoutPage() {
   // Sólo lo piden los productos manuales configurados así. Se precarga del
   // perfil para que quien ya lo dejó una vez no lo escriba otra.
   const [contactPhone, setContactPhone] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<'pagomovil_bdv' | 'transfer'>('pagomovil_bdv');
 
   const createOrder = useCreateOrder();
   const verifyPayment = useVerifyPayment(orderData?.order.id);
+  const setPaymentMethod = useSetPaymentMethod(orderData?.order.id);
   const cancelOrder = useCancelOrder();
 
   // Mientras el proveedor despacha, el estado cambia solo: se escucha en vivo.
@@ -152,7 +153,6 @@ export function CheckoutPage() {
         // El código del creador viaja desde el enlace, no lo escribe el cliente.
         creatorCode: readCreatorCode() || null,
         contactPhone: needsPhone ? contactPhone.trim() : null,
-        paymentMethod,
         useWallet,
       },
       {
@@ -355,9 +355,6 @@ export function CheckoutPage() {
             needsPhone={needsPhone}
             contactPhone={contactPhone}
             onContactPhoneChange={setContactPhone}
-            transferEnabled={config?.transfer?.enabled ?? false}
-            paymentMethod={paymentMethod}
-            onPaymentMethodChange={setPaymentMethod}
             useWallet={useWallet}
             onUseWalletChange={setUseWallet}
             onContinue={handleCreateOrder}
@@ -372,6 +369,16 @@ export function CheckoutPage() {
       {step === 'payment' && orderData && (
         <PaymentStep
           data={orderData}
+          transferEnabled={config?.transfer?.enabled ?? false}
+          switchingMethod={setPaymentMethod.isPending}
+          onMethodChange={(method) =>
+            setPaymentMethod.mutate(method, {
+              // La respuesta trae ya las instrucciones del método nuevo: se
+              // reemplaza la orden en pantalla y los datos cambian al vuelo.
+              onSuccess: (data) => setOrderData(data),
+              onError: (error) => toast.error(errorMessage(error)),
+            })
+          }
           onVerify={handleVerify}
           verifying={verifyPayment.isPending}
           error={verifyError}
