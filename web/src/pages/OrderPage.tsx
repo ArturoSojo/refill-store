@@ -276,6 +276,16 @@ export function OrderPage() {
                 {order.payment.bankSnapshot.code} · {order.payment.bankSnapshot.name}
               </dd>
             </div>
+            {/* Saber por dónde pagó ahorra la mitad de las consultas cuando el
+                cliente reclama que «sí transfirió». */}
+            {order.payment.method !== 'wallet' && (
+              <div className="flex justify-between gap-3">
+                <dt className="text-slate-500">Método</dt>
+                <dd className="text-slate-300">
+                  {order.payment.method === 'transfer' ? 'Transferencia' : 'Pago Móvil'}
+                </dd>
+              </div>
+            )}
             <div className="flex justify-between gap-3">
               <dt className="text-slate-500">Creada</dt>
               <dd className="text-slate-300">{formatDateTime(order.createdAt)}</dd>

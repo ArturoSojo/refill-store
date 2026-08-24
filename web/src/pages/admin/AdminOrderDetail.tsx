@@ -297,6 +297,7 @@ export function AdminOrderDetail() {
               <dt className="text-slate-400">Banco destino</dt>
               <dd className="text-white">
                 {order.payment.bankSnapshot.code} · {order.payment.bankSnapshot.idNumber}
+                {order.payment.method === 'transfer' && ' · Transferencia'}
               </dd>
             </div>
             {order.meta?.ip && (

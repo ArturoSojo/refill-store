@@ -120,6 +120,33 @@ export interface Game {
 // ---------------------------------------------------------------------------
 
 /** Modalidad de entrega: `auto` despacha por API, `manual` va por WhatsApp. */
+
+/**
+ * Cómo transfiere el cliente su dinero.
+ *
+ * Ambos métodos entran a la MISMA cuenta y se verifican con la misma llamada a
+ * Pabilo: la consulta busca por referencia sobre todos los movimientos de la
+ * cuenta, sin filtrar por tipo (de hecho `movement_type` ni siquiera está
+ * disponible para esta cuenta: la API lo rechaza). Guardar cuál usó el cliente
+ * sirve para saber qué datos se le mostraron, no para verificar distinto.
+ */
+export type PaymentMethod = 'pagomovil_bdv' | 'transfer' | 'wallet';
+
+/** Datos de una cuenta para recibir pagos, tal como se le muestran al cliente. */
+export interface BankAccountInfo {
+  /** Código del banco, 4 dígitos (`0102`). */
+  code: string;
+  name: string;
+  /** Cédula o RIF del titular. */
+  idNumber: string;
+  holder: string;
+  /** Teléfono asociado. Sólo se usa en Pago Móvil. */
+  phone: string;
+  /** Número de cuenta de 20 dígitos. Sólo se usa en transferencia. */
+  accountNumber: string;
+  accountType: 'corriente' | 'ahorro';
+}
+
 export type FulfillmentType = 'auto' | 'manual';
 
 /**
@@ -294,7 +321,7 @@ export interface OrderPricing {
 
 export interface OrderPayment {
   /** `wallet` cuando el saldo a favor cubrió el total y no hubo transferencia. */
-  method: 'pagomovil_bdv' | 'wallet';
+  method: PaymentMethod;
   reference: string | null;
   /**
    * Monto que el banco reporta para esa referencia.
@@ -309,11 +336,19 @@ export interface OrderPayment {
   /** Eco de la respuesta relevante de Pabilo, para auditoría. */
   providerResponse: Record<string, unknown> | null;
   /** Datos bancarios mostrados al cliente, congelados en la orden. */
+  /**
+   * Los datos que se le mostraron al cliente, congelados.
+   *
+   * Si mañana cambia la cuenta, la orden vieja tiene que seguir contando a
+   * dónde se le pidió pagar.
+   */
   bankSnapshot: {
     code: string;
     name: string;
     idNumber: string;
     phone: string;
+    accountNumber?: string;
+    accountType?: 'corriente' | 'ahorro';
   };
 }
 
@@ -637,12 +672,28 @@ export interface AppConfig {
     updatedAt: TimestampLike | null;
     updatedBy: string | null;
   };
+  /** Cuenta para Pago Móvil. */
   bank: {
     code: string;
     name: string;
     idNumber: string;
     phone: string;
     holder: string;
+  };
+  /**
+   * Cuenta para transferencia bancaria.
+   *
+   * Va aparte y no como campos sueltos del `bank` porque puede ser otra cuenta,
+   * y porque se activa o desactiva por su cuenta sin tocar el Pago Móvil.
+   */
+  transfer: {
+    enabled: boolean;
+    code: string;
+    name: string;
+    idNumber: string;
+    holder: string;
+    accountNumber: string;
+    accountType: 'corriente' | 'ahorro';
   };
   whatsapp: {
     adminNumber: string;
@@ -774,6 +825,7 @@ export interface PublicConfig {
   tagline: string;
   rate: number;
   bank: AppConfig['bank'];
+  transfer: AppConfig['transfer'];
   whatsapp: { supportNumber: string };
   checkout: AppConfig['checkout'];
   features: Pick<

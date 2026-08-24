@@ -77,6 +77,8 @@ export interface Game {
   updatedAt: TimestampLike;
 }
 
+export type PaymentMethod = 'pagomovil_bdv' | 'transfer' | 'wallet';
+
 export type FulfillmentType = 'auto' | 'manual';
 
 /**
@@ -211,7 +213,7 @@ export interface OrderPricing {
 }
 
 export interface OrderPayment {
-  method: 'pagomovil_bdv' | 'wallet';
+  method: PaymentMethod;
   reference: string | null;
   /** Monto real que reporta el banco; puede diferir del total por la tolerancia. */
   reportedAmountBs: number | null;
@@ -223,6 +225,8 @@ export interface OrderPayment {
     name: string;
     idNumber: string;
     phone: string;
+    accountNumber?: string;
+    accountType?: 'corriente' | 'ahorro';
   };
 }
 
@@ -419,6 +423,15 @@ export interface PublicConfig {
   tagline: string;
   rate: number;
   bank: BankInfo;
+  transfer: {
+    enabled: boolean;
+    code: string;
+    name: string;
+    idNumber: string;
+    holder: string;
+    accountNumber: string;
+    accountType: 'corriente' | 'ahorro';
+  };
   whatsapp: { supportNumber: string };
   checkout: {
     referenceMinLength: number;
@@ -559,6 +572,7 @@ export interface GameCatalogResponse {
 }
 
 export interface PaymentInstructions {
+  method: PaymentMethod;
   bank: OrderPayment['bankSnapshot'];
   amountBs: number;
   amountUsd: number;

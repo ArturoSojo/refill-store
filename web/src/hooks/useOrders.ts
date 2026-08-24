@@ -129,6 +129,7 @@ export function useCreateOrder() {
       couponCode?: string | null;
       creatorCode?: string | null;
       contactPhone?: string | null;
+      paymentMethod?: 'pagomovil_bdv' | 'transfer';
       useWallet?: boolean;
     }) => api.post<CreateOrderResponse>('/orders', input),
     onSuccess: () => {
@@ -173,6 +174,7 @@ export function usePricePreview() {
       couponCode?: string | null;
       creatorCode?: string | null;
       contactPhone?: string | null;
+      paymentMethod?: 'pagomovil_bdv' | 'transfer';
       useWallet?: boolean;
       /** Permite validar ya el límite del cupón por ID de jugador. */
       playerId?: string | null;

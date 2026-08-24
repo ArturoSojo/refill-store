@@ -28,6 +28,17 @@ export const DEFAULT_CONFIG: AppConfig = {
     phone: '0412-2686326',
     holder: 'Refill Store',
   },
+  transfer: {
+    // Apagada hasta que el administrador cargue el número de cuenta: mostrar
+    // una cuenta a medias sería peor que no ofrecer el método.
+    enabled: false,
+    code: '0102',
+    name: 'Banco de Venezuela',
+    idNumber: 'V-31.955.598',
+    holder: 'Refill Store',
+    accountNumber: '',
+    accountType: 'corriente',
+  },
   whatsapp: {
     adminNumber: '584122686326',
     supportNumber: '584122686326',
@@ -167,6 +178,11 @@ export function toPublicConfig(config: AppConfig): PublicConfig {
     tagline: config.tagline,
     rate: config.rate.value,
     bank: config.bank,
+    // Se envía siempre la bandera, y los datos sólo cuando está activa: una
+    // cuenta bancaria publicada sin querer no se recoge.
+    transfer: config.transfer.enabled
+      ? config.transfer
+      : { ...config.transfer, accountNumber: '', enabled: false },
     whatsapp: { supportNumber: config.whatsapp.supportNumber },
     // `alerts` NO va aquí: contiene el chat de Telegram y la URL del webhook
     // del equipo, que no tienen por qué ser públicos.

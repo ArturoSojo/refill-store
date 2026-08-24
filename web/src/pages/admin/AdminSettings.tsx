@@ -359,6 +359,69 @@ export function AdminSettings() {
         </div>
       </Card>
 
+      {/* --- Transferencia bancaria --- */}
+      <Card>
+        <CardHeader
+          title="Transferencia bancaria"
+          description="Se verifica igual que el Pago Móvil: por referencia, con la misma consulta"
+          icon={<Landmark className="h-4 w-4" aria-hidden />}
+        />
+
+        <Switch
+          checked={config.transfer?.enabled ?? false}
+          onChange={(enabled) => patch('transfer', { enabled })}
+          label="Ofrecer transferencia en el checkout"
+          description="El cliente elige entre Pago Móvil y transferencia antes de pagar."
+          disabled={!isAdmin}
+        />
+
+        <div className="mt-4 grid gap-4 border-t border-base-600 pt-4 sm:grid-cols-2">
+          <Input
+            label="Código del banco"
+            defaultValue={config.transfer?.code ?? ''}
+            onChange={(event) => patch('transfer', { code: event.target.value })}
+            disabled={!isAdmin}
+          />
+          <Input
+            label="Nombre del banco"
+            defaultValue={config.transfer?.name ?? ''}
+            onChange={(event) => patch('transfer', { name: event.target.value })}
+            disabled={!isAdmin}
+          />
+          <Input
+            label="Número de cuenta"
+            defaultValue={config.transfer?.accountNumber ?? ''}
+            onChange={(event) => patch('transfer', { accountNumber: event.target.value })}
+            hint="20 dígitos. Sin esto la transferencia no se puede activar."
+            disabled={!isAdmin}
+            containerClassName="sm:col-span-2"
+          />
+          <Select
+            label="Tipo de cuenta"
+            value={config.transfer?.accountType ?? 'corriente'}
+            onChange={(event) => patch('transfer', { accountType: event.target.value })}
+            options={[
+              { value: 'corriente', label: 'Corriente' },
+              { value: 'ahorro', label: 'Ahorro' },
+            ]}
+            disabled={!isAdmin}
+          />
+          <Input
+            label="Cédula / RIF"
+            defaultValue={config.transfer?.idNumber ?? ''}
+            onChange={(event) => patch('transfer', { idNumber: event.target.value })}
+            disabled={!isAdmin}
+          />
+          <Input
+            label="Titular"
+            defaultValue={config.transfer?.holder ?? ''}
+            onChange={(event) => patch('transfer', { holder: event.target.value })}
+            disabled={!isAdmin}
+            containerClassName="sm:col-span-2"
+          />
+        </div>
+      </Card>
+
       {/* --- WhatsApp --- */}
       <Card>
         <CardHeader title="WhatsApp" description="Sin signos: código de país + número" />

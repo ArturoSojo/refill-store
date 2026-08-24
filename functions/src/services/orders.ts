@@ -53,6 +53,7 @@ import type {
   OrderCreatorRef,
   OrderPricing,
   OrderStatus,
+  PaymentMethod,
   UserProfile,
 } from '../types/models';
 
@@ -154,6 +155,8 @@ export function toCustomerOrder(order: Order): CustomerOrder {
 }
 
 export interface PaymentInstructions {
+  /** Con qué método se creó la orden: decide qué datos pinta la tienda. */
+  method: Order['payment']['method'];
   bank: Order['payment']['bankSnapshot'];
   amountBs: number;
   amountUsd: number;
@@ -176,6 +179,7 @@ export function toPaymentInstructions(
   config: { checkout: { referenceMinLength: number; referenceMaxLength: number } }
 ): PaymentInstructions {
   return {
+    method: order.payment.method,
     bank: order.payment.bankSnapshot,
     amountBs: order.pricing.totalBs,
     amountUsd: order.pricing.amountDueUsd ?? order.pricing.totalUsd,
@@ -203,6 +207,8 @@ export interface CreateOrderInput {
   couponCode?: string | null;
   /** Código del creador de contenido que trajo la venta. */
   creatorCode?: string | null;
+  /** Cómo va a pagar. Por defecto, Pago Móvil. */
+  paymentMethod?: PaymentMethod;
   /** Teléfono de contacto, cuando el producto manual lo pide. */
   contactPhone?: string | null;
   /** Descontar del saldo a favor lo que alcance. */
@@ -313,6 +319,13 @@ export async function createOrder(
     couponCode = evaluation.coupon.code;
   }
 
+  // El método sólo importa para saber qué datos mostrarle al cliente: ambos
+  // entran a la misma cuenta y Pabilo los verifica con la misma consulta.
+  const wantsTransfer = input.paymentMethod === 'transfer' && config.transfer.enabled;
+  if (input.paymentMethod === 'transfer' && !config.transfer.enabled) {
+    throw failedPrecondition('La transferencia bancaria no está disponible ahora mismo.');
+  }
+
   // Sólo se guarda si el producto lo pide: un teléfono suelto en órdenes que
   // no lo necesitan es un dato personal de más.
   const contactPhone =
@@ -360,6 +373,32 @@ export async function createOrder(
   }
 
   const paidWithWallet = walletAppliedUsd > 0 && amountDueUsd === 0;
+
+  const paymentMethod: PaymentMethod = paidWithWallet
+    ? 'wallet'
+    : wantsTransfer
+      ? 'transfer'
+      : 'pagomovil_bdv';
+
+  /** Congela los datos que se le muestran al cliente para este método. */
+  const bankSnapshot = () =>
+    paymentMethod === 'transfer'
+      ? {
+          code: config.transfer.code,
+          name: config.transfer.name,
+          idNumber: config.transfer.idNumber,
+          // El Pago Móvil no aplica aquí, pero el campo existe en el modelo.
+          phone: '',
+          accountNumber: config.transfer.accountNumber,
+          accountType: config.transfer.accountType,
+        }
+      : {
+          code: config.bank.code,
+          name: config.bank.name,
+          idNumber: config.bank.idNumber,
+          phone: config.bank.phone,
+        };
+
   const totalBs = usdToBs(amountDueUsd, rate, config.pricing.roundToBs);
 
   const orderRef = orders().doc();
@@ -414,18 +453,13 @@ export async function createOrder(
     contactPhone,
     emailsSent: [],
     payment: {
-      method: paidWithWallet ? 'wallet' : 'pagomovil_bdv',
+      method: paymentMethod,
       reference: null,
       reportedAmountBs: null,
       verifiedAt: paidWithWallet ? timestamp : null,
       attempts: 0,
       providerResponse: null,
-      bankSnapshot: {
-        code: config.bank.code,
-        name: config.bank.name,
-        idNumber: config.bank.idNumber,
-        phone: config.bank.phone,
-      },
+      bankSnapshot: bankSnapshot(),
     },
     dispatch: {
       // El plan se calcula ahora y se guarda en la orden: si el admin edita el

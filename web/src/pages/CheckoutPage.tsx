@@ -76,6 +76,7 @@ export function CheckoutPage() {
   // Sólo lo piden los productos manuales configurados así. Se precarga del
   // perfil para que quien ya lo dejó una vez no lo escriba otra.
   const [contactPhone, setContactPhone] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<'pagomovil_bdv' | 'transfer'>('pagomovil_bdv');
 
   const createOrder = useCreateOrder();
   const verifyPayment = useVerifyPayment(orderData?.order.id);
@@ -151,6 +152,7 @@ export function CheckoutPage() {
         // El código del creador viaja desde el enlace, no lo escribe el cliente.
         creatorCode: readCreatorCode() || null,
         contactPhone: needsPhone ? contactPhone.trim() : null,
+        paymentMethod,
         useWallet,
       },
       {
@@ -353,6 +355,9 @@ export function CheckoutPage() {
             needsPhone={needsPhone}
             contactPhone={contactPhone}
             onContactPhoneChange={setContactPhone}
+            transferEnabled={config?.transfer?.enabled ?? false}
+            paymentMethod={paymentMethod}
+            onPaymentMethodChange={setPaymentMethod}
             useWallet={useWallet}
             onUseWalletChange={setUseWallet}
             onContinue={handleCreateOrder}

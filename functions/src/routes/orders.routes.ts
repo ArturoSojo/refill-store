@@ -48,6 +48,7 @@ const createOrderSchema = z.object({
   quantity: z.coerce.number().int().min(1).max(10).default(1),
   couponCode: z.string().trim().max(32).optional().nullable(),
   creatorCode: z.string().trim().max(32).optional().nullable(),
+  paymentMethod: z.enum(['pagomovil_bdv', 'transfer']).optional(),
   contactPhone: z
     .string()
     .trim()
@@ -81,6 +82,9 @@ ordersRouter.post(
       playerFields: body.playerFields ?? body.playerId!,
       quantity: body.quantity,
       couponCode: body.couponCode ?? null,
+      creatorCode: body.creatorCode ?? null,
+      paymentMethod: body.paymentMethod,
+      contactPhone: body.contactPhone ?? null,
       useWallet: body.useWallet,
       customerNote: body.customerNote ?? null,
       ip: clientIp(req),

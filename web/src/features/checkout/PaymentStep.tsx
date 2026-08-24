@@ -40,6 +40,7 @@ export function PaymentStep({
   const { display: timeLeft, expired } = useCountdown(data.payment.expiresAt);
 
   const {
+    method,
     bank,
     amountBs,
     amountUsd,
@@ -47,6 +48,8 @@ export function PaymentStep({
     referenceMinLength,
     referenceMaxLength,
   } = data.payment;
+
+  const isTransfer = method === 'transfer';
 
   const isValidReference =
     reference.length >= referenceMinLength && reference.length <= referenceMaxLength;
@@ -97,15 +100,32 @@ export function PaymentStep({
             <Landmark className="h-4 w-4" aria-hidden />
           </span>
           <div>
-            <h3 className="text-sm font-semibold text-white">Datos del Pago Móvil</h3>
+            <h3 className="text-sm font-semibold text-white">
+              {isTransfer ? 'Datos para la transferencia' : 'Datos del Pago Móvil'}
+            </h3>
             <p className="text-xs text-slate-400">Toca cualquier dato para copiarlo</p>
           </div>
         </div>
 
         <div className="space-y-2">
           <CopyField label="Banco" value={bank.code} display={`${bank.code} · ${bank.name}`} />
-          <CopyField label="Cédula" value={bank.idNumber.replace(/[^\dVEJGvejg-]/g, '')} display={bank.idNumber} />
-          <CopyField label="Teléfono" value={onlyDigits(bank.phone)} display={bank.phone} />
+          <CopyField
+            label={isTransfer ? 'Cédula / RIF' : 'Cédula'}
+            value={bank.idNumber.replace(/[^\dVEJGvejg-]/g, '')}
+            display={bank.idNumber}
+          />
+          {/* Un Pago Móvil se hace al teléfono y una transferencia al número de
+              cuenta: mostrar los dos confunde y aumenta el riesgo de que el
+              cliente pague al dato equivocado. */}
+          {isTransfer ? (
+            <CopyField
+              label={`Cuenta ${bank.accountType === 'ahorro' ? 'de ahorro' : 'corriente'}`}
+              value={onlyDigits(bank.accountNumber ?? '')}
+              display={bank.accountNumber ?? ''}
+            />
+          ) : (
+            <CopyField label="Teléfono" value={onlyDigits(bank.phone)} display={bank.phone} />
+          )}
           <CopyField
             label="Monto"
             value={amountBs.toFixed(2)}

@@ -1290,6 +1290,19 @@ const configPatchSchema = z.object({
     })
     .partial()
     .optional(),
+  transfer: z
+    .object({
+      enabled: z.boolean(),
+      code: z.string().trim().max(8),
+      name: z.string().trim().max(60),
+      idNumber: z.string().trim().max(30),
+      holder: z.string().trim().max(60),
+      // 20 dígitos en Venezuela; se deja margen por si se escribe con espacios.
+      accountNumber: z.string().trim().max(30),
+      accountType: z.enum(['corriente', 'ahorro']),
+    })
+    .partial()
+    .optional(),
   whatsapp: z
     .object({
       adminNumber: z.string().trim().regex(/^\d{7,20}$/),
@@ -1387,6 +1400,15 @@ adminRouter.patch(
       } else {
         patch[key] = value;
       }
+    }
+
+    // Activar la transferencia sin cuenta le mostraría al cliente un método que
+    // no puede usar, y el dinero acabaría en cualquier parte menos donde toca.
+    const transferPatch = patch.transfer as { enabled?: boolean; accountNumber?: string } | undefined;
+    if (transferPatch?.enabled && !String(transferPatch.accountNumber ?? '').trim()) {
+      throw invalidArgument(
+        'Para activar la transferencia hace falta el número de cuenta.'
+      );
     }
 
     const actor = currentUser(req);
