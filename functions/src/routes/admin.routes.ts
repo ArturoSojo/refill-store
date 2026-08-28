@@ -667,6 +667,8 @@ const productSchema = z.object({
       z.object({
         packageId: z.coerce.number().int(),
         quantity: z.coerce.number().int().min(1).max(10),
+        // Permite sacar un paquete suelto de otra «tienda» del proveedor.
+        providerGameId: z.coerce.number().int().nullable().optional(),
       })
     )
     .max(10)

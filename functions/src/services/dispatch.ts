@@ -46,7 +46,7 @@ export interface DispatchOutcome {
 
 /** Construye el plan de llamadas a partir de la configuración del producto. */
 export function buildCallPlan(
-  calls: Array<{ packageId: number; quantity: number }>
+  calls: Array<{ packageId: number; quantity: number; providerGameId?: number | null }>
 ): DispatchCallResult[] {
   const plan: DispatchCallResult[] = [];
   let index = 0;
@@ -57,6 +57,9 @@ export function buildCallPlan(
     for (let i = 0; i < Math.max(1, call.quantity); i += 1) {
       plan.push({
         packageId: call.packageId,
+        // Se congela en el plan: cambiar el catálogo después no puede alterar
+        // a dónde se envía una orden que ya se cotizó.
+        providerGameId: call.providerGameId ?? null,
         index,
         status: 'pending',
         providerOrderId: null,
@@ -309,7 +312,9 @@ export async function dispatchOrder(
 
     try {
       const result = await inefable.createOrder({
-        gameId: providerGameId,
+        // La llamada puede apuntar a otra «tienda» del proveedor; si no lo
+        // hace, se usa la del juego.
+        gameId: call.providerGameId ?? providerGameId,
         packageId: call.packageId,
         playerId: order.playerId,
         playerId2: order.playerId2 ?? null,

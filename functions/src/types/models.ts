@@ -178,6 +178,15 @@ export type ProductKind = 'package' | 'combo' | 'special';
 export interface DispatchCall {
   packageId: number;
   quantity: number;
+  /**
+   * Juego del proveedor para ESTA llamada. `null` = el del juego.
+   *
+   * El proveedor vende el mismo diamante desde varias «tiendas» a precios
+   * distintos, y no siempre gana la misma: hoy «Free fire» es la más barata en
+   * todo menos en el 520, donde gana «Free fire 20%». Sin esto habría que
+   * elegir una sola para todo el juego y pagar de más en algún paquete.
+   */
+  providerGameId?: number | null;
 }
 
 export interface Product {
@@ -268,6 +277,8 @@ export type DispatchCallStatus = 'pending' | 'success' | 'error';
 
 export interface DispatchCallResult {
   packageId: number;
+  /** Juego del proveedor con el que se envió. `null` = el del juego. */
+  providerGameId?: number | null;
   index: number;
   status: DispatchCallStatus;
   /** ID de orden devuelto por el proveedor. Ojo: también viene en los fallos. */

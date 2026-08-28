@@ -107,8 +107,18 @@ function CallsEditor({
     <div>
       <p className="label-base">Llamadas al proveedor (package_id)</p>
       <p className="mb-2 text-xs text-slate-500">
-        Se ejecutan en orden. Para el combo 830+83 💎: paquete 3, luego paquete 2.
+        Se ejecutan en orden. Para el combo 830+83 💎: paquete 3, luego paquete 2. Deja el juego
+        vacío para usar el del producto; ponlo sólo si ese paquete sale más barato en otra tienda
+        del proveedor.
       </p>
+
+      <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+        <span className="w-6 shrink-0" />
+        <span className="flex-1">package_id</span>
+        <span className="w-20">Veces</span>
+        <span className="w-24">game_id</span>
+        <span className="w-8" />
+      </div>
 
       <div className="space-y-2">
         {calls.map((call, index) => (
@@ -137,6 +147,19 @@ function CallsEditor({
               }}
               className="input-base w-20 py-2"
               title="Veces seguidas"
+            />
+            <input
+              type="number"
+              value={call.providerGameId ?? ''}
+              onChange={(event) => {
+                const raw = event.target.value.trim();
+                const next = [...calls];
+                next[index] = { ...call, providerGameId: raw === '' ? null : Number(raw) };
+                onChange(next);
+              }}
+              placeholder="juego"
+              className="input-base w-24 py-2"
+              title="game_id del proveedor sólo para esta llamada. Vacío = el del producto."
             />
             <button
               type="button"
