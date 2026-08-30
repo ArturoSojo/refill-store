@@ -305,8 +305,9 @@ export async function dispatchOrder(
 
   for (const call of calls) {
     // Las llamadas ya exitosas NO se repiten: el jugador ya recibió esos
-    // diamantes y repetirlas sería regalar producto.
-    if (call.status === 'success') continue;
+    // diamantes y repetirlas sería regalar producto. Las aceptadas y en curso
+    // tampoco: el pedido ya está puesto y repetirlo lo cobraría dos veces.
+    if (call.status === 'success' || call.status === 'processing') continue;
 
     call.attempts += 1;
 
@@ -353,6 +354,23 @@ export async function dispatchOrder(
             remainingBalance: result.remainingBalance,
           },
         });
+      } else if (result.processing) {
+        // El proveedor la aceptó y la termina en unos minutos. Se deja marcada
+        // para que la tarea programada consulte el resultado: ni se reintenta
+        // ni se le dice al cliente que falló.
+        call.status = 'processing';
+        call.error = null;
+
+        await addEvent({
+          orderId,
+          type: 'dispatch_call_processing',
+          message: `El proveedor aceptó la recarga ${call.index + 1}/${calls.length} y la está procesando.`,
+          data: {
+            packageId: call.packageId,
+            providerOrderId: result.providerOrderId,
+            providerStatus: result.providerStatus,
+          },
+        });
       } else {
         call.status = 'error';
         call.error = result.message;
@@ -393,7 +411,57 @@ export async function dispatchOrder(
   }
 
   const allSucceeded = calls.every((call) => call.status === 'success');
-  const status: OrderStatus = allSucceeded ? 'completed' : 'failed';
+  const anyProcessing = calls.some((call) => call.status === 'processing');
+
+  // Mientras el proveedor tenga algo en curso la orden sigue «despachando»:
+  // marcarla fallida sería mentirle al cliente y disparar un aviso en balde.
+  const status: OrderStatus = allSucceeded
+    ? 'completed'
+    : anyProcessing
+      ? 'dispatching'
+      : 'failed';
+
+  await finalizeDispatch(order, calls, allSucceeded, {
+    failure,
+    actorUid: options.actorUid ?? null,
+    anyProcessing,
+  });
+
+  return {
+    status,
+    calls,
+    allSucceeded,
+    message: allSucceeded
+      ? 'Recarga entregada correctamente.'
+      : anyProcessing
+        ? 'El proveedor aceptó la recarga y la está procesando.'
+        : (failure ?? 'No se pudo completar el despacho.'),
+  };
+}
+
+/**
+ * Cierra una orden ya despachada: estado, correos, comisiones y avisos.
+ *
+ * Se extrajo porque el desenlace llega por dos caminos —el despacho en vivo y
+ * la tarea que resuelve las que el proveedor dejó en curso— y duplicar esto
+ * significaría que a una de las dos vías se le olvide pagar la comisión o
+ * mandar el correo.
+ */
+async function finalizeDispatch(
+  order: Order,
+  calls: DispatchCallResult[],
+  allSucceeded: boolean,
+  options: { failure?: string | null; actorUid?: string | null; anyProcessing?: boolean } = {}
+): Promise<void> {
+  const orderId = order.id;
+  const orderRef = orders().doc(orderId);
+  const failure = options.failure ?? calls.find((call) => call.error)?.error ?? null;
+  const anyProcessing = options.anyProcessing ?? calls.some((c) => c.status === 'processing');
+  const status: OrderStatus = allSucceeded
+    ? 'completed'
+    : anyProcessing
+      ? 'dispatching'
+      : 'failed';
 
   await orderRef.set(
     {
@@ -408,6 +476,20 @@ export async function dispatchOrder(
     },
     { merge: true }
   );
+
+  // Aceptada y en curso: ni correo de entrega ni de fallo. La tarea programada
+  // resolverá el estado real y disparará lo que corresponda.
+  if (anyProcessing && !allSucceeded) {
+    await notifications.notify({
+      uid: order.uid,
+      title: 'Tu recarga está en camino ⏳',
+      body: `${describeOrder(order)}: el proveedor la está procesando. Te avisamos al terminar.`,
+      type: 'order',
+      link: `/orden/${orderId}`,
+    });
+
+    return;
+  }
 
   if (allSucceeded) {
     void sendOrderEmail('delivered', orderId);
@@ -493,12 +575,116 @@ export async function dispatchOrder(
     log.error('Despacho fallido', { orderId, code: order.code, error: failure });
   }
 
-  return {
-    status,
-    calls,
-    allSucceeded,
-    message: allSucceeded
-      ? 'Recarga entregada correctamente.'
-      : (failure ?? 'No se pudo completar el despacho.'),
-  };
+}
+
+/** Tras este tiempo sin resolverse, el equipo debe mirarlo. */
+const PROCESSING_ALERT_MINUTES = 20;
+/** Y tras éste se da por perdida: el proveedor ya no la va a cerrar solo. */
+const PROCESSING_GIVE_UP_MINUTES = 120;
+
+/**
+ * Resuelve las órdenes que el proveedor aceptó pero aún no había terminado.
+ *
+ * El proveedor responde HTTP 202 y cierra la recarga minutos después; el estado
+ * real sólo se sabe preguntándole. Se consulta por `external_order_id`, que es
+ * el mismo que se envió al despachar, así que la consulta funciona aunque no
+ * haya devuelto `order_id` (pasó: una de las dos órdenes afectadas no lo trajo).
+ */
+export async function resolveProcessingOrders(): Promise<{
+  revisadas: number;
+  completadas: number;
+  fallidas: number;
+}> {
+  const snap = await orders().where('status', '==', 'dispatching').limit(50).get();
+  let completadas = 0;
+  let fallidas = 0;
+  let revisadas = 0;
+
+  for (const doc of snap.docs) {
+    const order = { id: doc.id, ...doc.data() } as Order;
+    const calls = order.dispatch?.calls ?? [];
+    if (!calls.some((call) => call.status === 'processing')) continue;
+
+    revisadas += 1;
+    const inicio = order.dispatch?.startedAt as { toMillis?: () => number } | null;
+    const iniciadaMs =
+      inicio && typeof inicio.toMillis === 'function' ? inicio.toMillis() : Date.now();
+    const minutos = (Date.now() - iniciadaMs) / 60_000;
+    let cambio = false;
+
+    for (const call of calls) {
+      if (call.status !== 'processing') continue;
+
+      const externalOrderId = `${order.code}-${call.index + 1}`;
+      const estado = await inefable.getOrderStatus(externalOrderId).catch(() => null);
+      if (!estado?.found) {
+        // Todavía no aparece: se deja para la próxima pasada.
+        continue;
+      }
+
+      const normalizado = (estado.status ?? '').toLowerCase();
+      if (inefable.isSuccessStatus(normalizado)) {
+        call.status = 'success';
+        call.error = null;
+        call.completedAt = now();
+        call.providerStatus = estado.status;
+        call.providerOrderId = estado.providerOrderId ?? call.providerOrderId;
+        call.providerReference = estado.providerReference ?? call.providerReference;
+        cambio = true;
+      } else if (inefable.isFailureStatus(normalizado)) {
+        call.status = 'error';
+        call.error = estado.error || `El proveedor marcó la recarga como ${estado.status}.`;
+        call.providerStatus = estado.status;
+        cambio = true;
+      }
+      // Sigue en curso: no se toca.
+    }
+
+    const pendientes = calls.some((call) => call.status === 'processing');
+    const todasOk = calls.every((call) => call.status === 'success');
+
+    if (cambio && !pendientes) {
+      // Se reutiliza el cierre normal del despacho para no duplicar la lógica
+      // de correos, comisiones, estadísticas y avisos.
+      await finalizeDispatch(order, calls, todasOk);
+      if (todasOk) completadas += 1;
+      else fallidas += 1;
+      continue;
+    }
+
+    if (cambio) {
+      await orders().doc(order.id).set(
+        { dispatch: { ...order.dispatch, calls }, updatedAt: now() },
+        { merge: true }
+      );
+      continue;
+    }
+
+    // Sin novedad. Si lleva demasiado, se avisa; y pasado el tope se cierra
+    // como fallida para que el equipo pueda resolverla a mano.
+    if (minutos >= PROCESSING_GIVE_UP_MINUTES) {
+      for (const call of calls) {
+        if (call.status === 'processing') {
+          call.status = 'error';
+          call.error = `El proveedor no resolvió la recarga en ${PROCESSING_GIVE_UP_MINUTES} minutos.`;
+        }
+      }
+      await finalizeDispatch(order, calls, false);
+      fallidas += 1;
+    } else if (minutos >= PROCESSING_ALERT_MINUTES) {
+      await adminAlerts.alert({
+        kind: 'dispatch_failed',
+        severity: 'warning',
+        title: `Recarga en curso hace ${Math.floor(minutos)} min · ${order.code}`,
+        body: [
+          `${describeOrder(order)} (${order.gameName}) para ${order.playerId}.`,
+          'El proveedor la aceptó pero todavía no la cierra. Revísala en su panel.',
+        ].join('\n'),
+        link: `/admin/ordenes/${order.id}`,
+        data: { code: order.code, minutos: Math.floor(minutos) },
+      });
+    }
+  }
+
+  return { revisadas, completadas, fallidas };
 }

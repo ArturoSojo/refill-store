@@ -273,7 +273,16 @@ export const TERMINAL_STATUSES: OrderStatus[] = [
   'payment_rejected',
 ];
 
-export type DispatchCallStatus = 'pending' | 'success' | 'error';
+/**
+ * Estado de una llamada al proveedor.
+ *
+ * `processing` es el caso que se pasaba por alto: el proveedor responde HTTP
+ * 202 «your request has been submited, please check transaction for status» y
+ * termina la recarga minutos después. Eso NO es un fallo, y sobre todo NO se
+ * puede reintentar: el pedido ya está puesto y repetirlo cobraría dos veces.
+ * Se resuelve consultando el estado al proveedor.
+ */
+export type DispatchCallStatus = 'pending' | 'processing' | 'success' | 'error';
 
 export interface DispatchCallResult {
   packageId: number;

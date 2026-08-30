@@ -13,8 +13,7 @@ import {
   Save,
   Undo2,
   User,
-  XCircle,
-} from 'lucide-react';
+  XCircle, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
   useAdminOrder,
@@ -335,11 +334,14 @@ export function AdminOrderDetail() {
                       <CheckCircle2 className="h-4 w-4 text-emerald-400" aria-hidden />
                     ) : call.status === 'error' ? (
                       <XCircle className="h-4 w-4 text-red-400" aria-hidden />
+                    ) : call.status === 'processing' ? (
+                      <Loader2 className="h-4 w-4 animate-spin text-amber-400" aria-hidden />
                     ) : (
                       <Circle className="h-4 w-4 text-slate-500" aria-hidden />
                     )}
                     <span className="text-sm text-white">
                       #{call.index + 1} · package_id {call.packageId}
+                      {call.providerGameId ? ` · game_id ${call.providerGameId}` : ''}
                     </span>
                   </div>
 

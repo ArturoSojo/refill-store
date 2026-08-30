@@ -64,6 +64,8 @@ export interface InefableOrderInput {
 }
 
 export interface InefableOrderResult {
+  /** Aceptado por el proveedor, todavía sin resolver. Nunca se reintenta. */
+  processing?: boolean;
   success: boolean;
   providerOrderId: string | null;
   providerStatus: string | null;
@@ -128,6 +130,15 @@ const FAILURE_STATUSES = [
 ];
 
 /** Estados en los que el proveedor aún no confirmó la entrega. */
+/** Para clasificar el estado que devuelve la consulta de una orden en curso. */
+export function isSuccessStatus(status: string): boolean {
+  return SUCCESS_STATUSES.includes(status.toLowerCase());
+}
+
+export function isFailureStatus(status: string): boolean {
+  return FAILURE_STATUSES.includes(status.toLowerCase());
+}
+
 const PENDING_STATUSES = [
   'pendiente',
   'pending',
@@ -190,6 +201,15 @@ export async function createOrder(input: InefableOrderInput): Promise<InefableOr
   const isPending = PENDING_STATUSES.includes(normalized);
   const success = response.ok && body?.ok === true && !isFailure && !isPending;
 
+  /**
+   * El proveedor aceptó el pedido pero aún no lo terminó.
+   *
+   * Se reconoce por el estado intermedio o por el 202 (`Accepted`), que es lo
+   * que devuelve cuando encola la recarga. Tratarlo como fallo hacía que el
+   * cliente viera un error por una recarga que sí iba a llegar.
+   */
+  const processing = !isFailure && (isPending || response.status === 202);
+
   // Un estado desconocido con `ok: true` se acepta como entregado (es lo seguro
   // frente a un doble cobro), pero se deja constancia para poder añadirlo a la
   // lista si el proveedor cambia el vocabulario.
@@ -229,6 +249,7 @@ export async function createOrder(input: InefableOrderInput): Promise<InefableOr
 
   return {
     success,
+    processing,
     providerOrderId,
     providerStatus: status,
     playerName: toStringOrNull(body?.player_name),

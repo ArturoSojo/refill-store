@@ -9,11 +9,19 @@
 import { setGlobalOptions } from 'firebase-functions/v2';
 import { onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
-import { API_SECRETS, PABILO_API_KEY, REGION, TELEGRAM_BOT_TOKEN } from './config/env';
+import {
+  API_SECRETS,
+  GMAIL_APP_PASSWORD,
+  INEFABLE_API_KEY,
+  PABILO_API_KEY,
+  REGION,
+  TELEGRAM_BOT_TOKEN,
+} from './config/env';
 import { createApp } from './app';
 import { log } from './lib/logger';
 import { expireStaleOrders } from './services/orders';
 import { refreshAutoRate, alertStaleRate } from './services/rate';
+import { resolveProcessingOrders } from './services/dispatch';
 import { STORE_TIMEZONE } from './services/stats';
 import { cleanupRateLimits } from './triggers/maintenance';
 
@@ -52,6 +60,29 @@ export const expireOrders = onSchedule(
     const expired = await expireStaleOrders();
     const cleaned = await cleanupRateLimits();
     log.info('Mantenimiento periódico completado', { expired, cleaned });
+  }
+);
+
+/**
+ * Cierra las recargas que el proveedor aceptó pero dejó en curso.
+ *
+ * Responde HTTP 202 y termina la entrega unos minutos después; el resultado
+ * real sólo se sabe preguntándole. Cada dos minutos para que el cliente no
+ * espere de más: medido sobre las dos órdenes afectadas, el proveedor tardó
+ * entre 3 y 4 minutos en cerrarlas.
+ */
+export const resolveDispatches = onSchedule(
+  {
+    schedule: 'every 2 minutes',
+    timeZone: STORE_TIMEZONE,
+    timeoutSeconds: 300,
+    // Los secretos se montan por función: sin declararlos aquí, la consulta al
+    // proveedor saldría sin clave y el correo de entrega no se enviaría.
+    secrets: [INEFABLE_API_KEY, TELEGRAM_BOT_TOKEN, GMAIL_APP_PASSWORD],
+  },
+  async () => {
+    const resultado = await resolveProcessingOrders();
+    if (resultado.revisadas > 0) log.info('Recargas en curso revisadas', { ...resultado });
   }
 );
 
