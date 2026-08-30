@@ -64,12 +64,11 @@ export const expireOrders = onSchedule(
 );
 
 /**
- * Cierra las recargas que el proveedor aceptó pero dejó en curso.
+ * Red de seguridad de las recargas que el proveedor dejó en curso.
  *
- * Responde HTTP 202 y termina la entrega unos minutos después; el resultado
- * real sólo se sabe preguntándole. Cada dos minutos para que el cliente no
- * espere de más: medido sobre las dos órdenes afectadas, el proveedor tardó
- * entre 3 y 4 minutos en cerrarlas.
+ * El camino normal es su webhook, que avisa en cuanto cierra la recarga. Esto
+ * sólo cubre el aviso que se pierda (un despliegue a medias, un corte de red)
+ * y el caso de que se atasque demasiado.
  */
 export const resolveDispatches = onSchedule(
   {

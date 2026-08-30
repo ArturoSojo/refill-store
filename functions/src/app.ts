@@ -14,6 +14,7 @@ import { publicRouter } from './routes/public.routes';
 import { ordersRouter } from './routes/orders.routes';
 import { meRouter } from './routes/me.routes';
 import { adminRouter } from './routes/admin.routes';
+import { webhooksRouter } from './routes/webhooks.routes';
 import { setupRouter } from './routes/setup.routes';
 
 export function createApp() {
@@ -49,7 +50,17 @@ export function createApp() {
     })
   );
 
-  app.use(express.json({ limit: '256kb' }));
+  app.use(
+    express.json({
+      limit: '256kb',
+      // El webhook del proveedor firma el cuerpo TAL CUAL lo envía: hay que
+      // guardarlo crudo antes de parsearlo, porque volver a serializar el JSON
+      // cambiaría espacios y orden de claves y la firma no cuadraría nunca.
+      verify: (req, _res, buf) => {
+        (req as express.Request & { rawBody?: Buffer }).rawBody = buf;
+      },
+    })
+  );
 
   // Adjunta el usuario si viene token; las rutas privadas lo exigen aparte.
   app.use(optionalAuth);
@@ -67,6 +78,7 @@ export function createApp() {
   mount('/me', meRouter);
   mount('/admin', adminRouter);
   mount('/setup', setupRouter);
+  mount('/webhooks', webhooksRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

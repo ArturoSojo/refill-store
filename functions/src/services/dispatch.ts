@@ -590,101 +590,136 @@ const PROCESSING_GIVE_UP_MINUTES = 120;
  * el mismo que se envió al despachar, así que la consulta funciona aunque no
  * haya devuelto `order_id` (pasó: una de las dos órdenes afectadas no lo trajo).
  */
+/**
+ * Resuelve la orden a la que pertenece un `external_order_id`.
+ *
+ * Es el camino del webhook: el proveedor avisa citando su identificador, que
+ * es el que nosotros mismos le mandamos al despachar (`RF-XXXXXX-1`), así que
+ * la orden se localiza por su código sin buscar en toda la colección.
+ */
+export async function resolveProcessingOrder(externalOrderId: string): Promise<string> {
+  // `RF-8K3M2Q-1` -> código `RF-8K3M2Q`. El sufijo es el número de llamada.
+  const code = externalOrderId.replace(/-\d+$/, '').trim();
+  if (!code) return 'identificador ilegible';
+
+  const snap = await orders().where('code', '==', code).limit(1).get();
+  if (snap.empty) return 'orden no encontrada';
+
+  const order = { id: snap.docs[0].id, ...snap.docs[0].data() } as Order;
+  if (order.status !== 'dispatching') return `la orden está en ${order.status}`;
+
+  const resuelta = await resolveOne(order);
+  return resuelta ? 'resuelta' : 'sigue en curso';
+}
+
+/**
+ * Consulta y cierra UNA orden con llamadas en curso.
+ *
+ * Devuelve `true` si quedó resuelta (entregada o fallida). El estado siempre
+ * sale de la API autenticada del proveedor, nunca de lo que llegue por fuera.
+ */
+async function resolveOne(order: Order): Promise<boolean> {
+  const calls = order.dispatch?.calls ?? [];
+  if (!calls.some((call) => call.status === 'processing')) return false;
+
+  const inicio = order.dispatch?.startedAt as { toMillis?: () => number } | null;
+  const iniciadaMs =
+    inicio && typeof inicio.toMillis === 'function' ? inicio.toMillis() : Date.now();
+  const minutos = (Date.now() - iniciadaMs) / 60_000;
+  let cambio = false;
+
+  for (const call of calls) {
+    if (call.status !== 'processing') continue;
+
+    const externalOrderId = `${order.code}-${call.index + 1}`;
+    const estado = await inefable.getOrderStatus(externalOrderId).catch(() => null);
+    if (!estado?.found) continue; // Todavía no aparece: se deja para después.
+
+    const normalizado = (estado.status ?? '').toLowerCase();
+    if (inefable.isSuccessStatus(normalizado)) {
+      call.status = 'success';
+      call.error = null;
+      call.completedAt = now();
+      call.providerStatus = estado.status;
+      call.providerOrderId = estado.providerOrderId ?? call.providerOrderId;
+      call.providerReference = estado.providerReference ?? call.providerReference;
+      cambio = true;
+    } else if (inefable.isFailureStatus(normalizado)) {
+      call.status = 'error';
+      call.error = estado.error || `El proveedor marcó la recarga como ${estado.status}.`;
+      call.providerStatus = estado.status;
+      cambio = true;
+    }
+    // Sigue en curso: no se toca.
+  }
+
+  const pendientes = calls.some((call) => call.status === 'processing');
+
+  if (cambio && !pendientes) {
+    // Se reutiliza el cierre normal del despacho para no duplicar la lógica de
+    // correos, comisiones, estadísticas y avisos.
+    await finalizeDispatch(order, calls, calls.every((call) => call.status === 'success'));
+    return true;
+  }
+
+  if (cambio) {
+    await orders()
+      .doc(order.id)
+      .set({ dispatch: { ...order.dispatch, calls }, updatedAt: now() }, { merge: true });
+    return false;
+  }
+
+  // Sin novedad. Si lleva demasiado se avisa, y pasado el tope se cierra como
+  // fallida para que el equipo pueda atenderla a mano.
+  if (minutos >= PROCESSING_GIVE_UP_MINUTES) {
+    for (const call of calls) {
+      if (call.status === 'processing') {
+        call.status = 'error';
+        call.error = `El proveedor no resolvió la recarga en ${PROCESSING_GIVE_UP_MINUTES} minutos.`;
+      }
+    }
+    await finalizeDispatch(order, calls, false);
+    return true;
+  }
+
+  if (minutos >= PROCESSING_ALERT_MINUTES) {
+    await adminAlerts.alert({
+      kind: 'dispatch_failed',
+      severity: 'warning',
+      title: `Recarga en curso hace ${Math.floor(minutos)} min · ${order.code}`,
+      body: [
+        `${describeOrder(order)} (${order.gameName}) para ${order.playerId}.`,
+        'El proveedor la aceptó pero todavía no la cierra. Revísala en su panel.',
+      ].join('\n'),
+      link: `/admin/ordenes/${order.id}`,
+      data: { code: order.code, minutos: Math.floor(minutos) },
+    });
+  }
+
+  return false;
+}
+
+/**
+ * Red de seguridad del webhook: repasa las que quedaron en curso.
+ *
+ * El aviso del proveedor es el camino rápido, pero un webhook se puede perder
+ * (un despliegue a medias, un corte de red). Esto lo cubre.
+ */
 export async function resolveProcessingOrders(): Promise<{
   revisadas: number;
-  completadas: number;
-  fallidas: number;
+  resueltas: number;
 }> {
   const snap = await orders().where('status', '==', 'dispatching').limit(50).get();
-  let completadas = 0;
-  let fallidas = 0;
   let revisadas = 0;
+  let resueltas = 0;
 
   for (const doc of snap.docs) {
     const order = { id: doc.id, ...doc.data() } as Order;
-    const calls = order.dispatch?.calls ?? [];
-    if (!calls.some((call) => call.status === 'processing')) continue;
+    if (!(order.dispatch?.calls ?? []).some((call) => call.status === 'processing')) continue;
 
     revisadas += 1;
-    const inicio = order.dispatch?.startedAt as { toMillis?: () => number } | null;
-    const iniciadaMs =
-      inicio && typeof inicio.toMillis === 'function' ? inicio.toMillis() : Date.now();
-    const minutos = (Date.now() - iniciadaMs) / 60_000;
-    let cambio = false;
-
-    for (const call of calls) {
-      if (call.status !== 'processing') continue;
-
-      const externalOrderId = `${order.code}-${call.index + 1}`;
-      const estado = await inefable.getOrderStatus(externalOrderId).catch(() => null);
-      if (!estado?.found) {
-        // Todavía no aparece: se deja para la próxima pasada.
-        continue;
-      }
-
-      const normalizado = (estado.status ?? '').toLowerCase();
-      if (inefable.isSuccessStatus(normalizado)) {
-        call.status = 'success';
-        call.error = null;
-        call.completedAt = now();
-        call.providerStatus = estado.status;
-        call.providerOrderId = estado.providerOrderId ?? call.providerOrderId;
-        call.providerReference = estado.providerReference ?? call.providerReference;
-        cambio = true;
-      } else if (inefable.isFailureStatus(normalizado)) {
-        call.status = 'error';
-        call.error = estado.error || `El proveedor marcó la recarga como ${estado.status}.`;
-        call.providerStatus = estado.status;
-        cambio = true;
-      }
-      // Sigue en curso: no se toca.
-    }
-
-    const pendientes = calls.some((call) => call.status === 'processing');
-    const todasOk = calls.every((call) => call.status === 'success');
-
-    if (cambio && !pendientes) {
-      // Se reutiliza el cierre normal del despacho para no duplicar la lógica
-      // de correos, comisiones, estadísticas y avisos.
-      await finalizeDispatch(order, calls, todasOk);
-      if (todasOk) completadas += 1;
-      else fallidas += 1;
-      continue;
-    }
-
-    if (cambio) {
-      await orders().doc(order.id).set(
-        { dispatch: { ...order.dispatch, calls }, updatedAt: now() },
-        { merge: true }
-      );
-      continue;
-    }
-
-    // Sin novedad. Si lleva demasiado, se avisa; y pasado el tope se cierra
-    // como fallida para que el equipo pueda resolverla a mano.
-    if (minutos >= PROCESSING_GIVE_UP_MINUTES) {
-      for (const call of calls) {
-        if (call.status === 'processing') {
-          call.status = 'error';
-          call.error = `El proveedor no resolvió la recarga en ${PROCESSING_GIVE_UP_MINUTES} minutos.`;
-        }
-      }
-      await finalizeDispatch(order, calls, false);
-      fallidas += 1;
-    } else if (minutos >= PROCESSING_ALERT_MINUTES) {
-      await adminAlerts.alert({
-        kind: 'dispatch_failed',
-        severity: 'warning',
-        title: `Recarga en curso hace ${Math.floor(minutos)} min · ${order.code}`,
-        body: [
-          `${describeOrder(order)} (${order.gameName}) para ${order.playerId}.`,
-          'El proveedor la aceptó pero todavía no la cierra. Revísala en su panel.',
-        ].join('\n'),
-        link: `/admin/ordenes/${order.id}`,
-        data: { code: order.code, minutos: Math.floor(minutos) },
-      });
-    }
+    if (await resolveOne(order)) resueltas += 1;
   }
 
-  return { revisadas, completadas, fallidas };
+  return { revisadas, resueltas };
 }

@@ -49,6 +49,24 @@ export const TELEGRAM_BOT_TOKEN = defineSecret('TELEGRAM_BOT_TOKEN');
  */
 export const GMAIL_APP_PASSWORD = defineSecret('GMAIL_APP_PASSWORD');
 
+/**
+ * Secreto de firma del webhook de Inefable.
+ *
+ * Lo genera su panel y sólo se muestra una vez. Sirve para validar la cabecera
+ * `X-Webhook-Signature` de cada aviso.
+ *
+ *   firebase functions:secrets:set INEFABLE_WEBHOOK_SECRET
+ */
+export const INEFABLE_WEBHOOK_SECRET = defineSecret('INEFABLE_WEBHOOK_SECRET');
+
+/**
+ * Fragmento aleatorio de la URL del webhook.
+ *
+ * No sustituye a la firma: sólo evita que cualquier escáner que encuentre el
+ * dominio nos haga trabajar. La ruta se comparte con el proveedor y nada más.
+ */
+export const INEFABLE_WEBHOOK_TOKEN = defineSecret('INEFABLE_WEBHOOK_TOKEN');
+
 /** Todos los secretos que necesita la función `api`. */
 export const API_SECRETS = [
   PABILO_API_KEY,
@@ -57,6 +75,8 @@ export const API_SECRETS = [
   SETUP_TOKEN,
   TELEGRAM_BOT_TOKEN,
   GMAIL_APP_PASSWORD,
+  INEFABLE_WEBHOOK_SECRET,
+  INEFABLE_WEBHOOK_TOKEN,
 ];
 
 // --- Configuración no secreta ----------------------------------------------
