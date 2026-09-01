@@ -50,6 +50,8 @@ export function PaymentStep({
     method,
     bank,
     amountBs,
+    paidBs,
+    totalBs,
     amountUsd,
     walletAppliedUsd,
     referenceMinLength,
@@ -57,6 +59,9 @@ export function PaymentStep({
   } = data.payment;
 
   const isTransfer = method === 'transfer';
+  // Ya abonó algo y falta la diferencia: hay que decírselo con todas las
+  // letras, o va a transferir el total otra vez.
+  const hayParcial = (paidBs ?? 0) > 0;
 
   const isValidReference =
     reference.length >= referenceMinLength && reference.length <= referenceMaxLength;
@@ -94,10 +99,23 @@ export function PaymentStep({
           )}
         </div>
 
-        <p className="mt-3 text-xs text-slate-500">
-          Transfiere el monto <strong className="text-slate-300">exacto</strong>. Si envías otra
-          cantidad, la verificación automática no lo reconocerá.
-        </p>
+        {hayParcial ? (
+          <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-relaxed text-amber-100">
+            <p>
+              Ya recibimos <strong>{formatBs(paidBs)}</strong> de los{' '}
+              <strong>{formatBs(totalBs)}</strong> de esta orden.
+            </p>
+            <p className="mt-1">
+              Transfiere sólo los <strong>{formatBs(amountBs)}</strong> que faltan y pega la
+              referencia nueva aquí mismo. No hace falta crear otra orden.
+            </p>
+          </div>
+        ) : (
+          <p className="mt-3 text-xs text-slate-500">
+            Si transfieres de menos, guardamos ese pago y te pedimos sólo la diferencia. De más,
+            te lo abonamos al saldo.
+          </p>
+        )}
       </div>
 
       {/* 2. Cómo pagar. Va aquí, pegado a los datos, y no en el paso anterior:

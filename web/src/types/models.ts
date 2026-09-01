@@ -237,6 +237,23 @@ export interface OrderPayment {
   reference: string | null;
   /** Monto real que reporta el banco; puede diferir del total por la tolerancia. */
   reportedAmountBs: number | null;
+  /**
+   * Pagos parciales ya acreditados a esta orden, en orden de llegada.
+   *
+   * Existe porque alguien que transfiere de menos no puede quedarse sin la
+   * plata ni sin la orden: en vez de rechazar y obligarle a empezar de cero
+   * —perdiendo lo transferido y la tasa a la que compró—, el pago se guarda y
+   * la orden pasa a pedir sólo lo que falta. Cuando la suma cubre el total, se
+   * despacha una sola vez.
+   */
+  partials: Array<{
+    reference: string;
+    amountBs: number;
+    verifiedAt: TimestampLike;
+  }>;
+  /** Suma de `partials`, en bolívares. Denormalizado para no recalcularlo. */
+  paidBs: number;
+
   verifiedAt: TimestampLike;
   attempts: number;
   providerResponse: Record<string, unknown> | null;
@@ -594,7 +611,11 @@ export interface GameCatalogResponse {
 export interface PaymentInstructions {
   method: PaymentMethod;
   bank: OrderPayment['bankSnapshot'];
+  /** Lo que queda por transferir, ya descontados los pagos parciales. */
   amountBs: number;
+  totalBs: number;
+  paidBs: number;
+  partials: OrderPayment['partials'];
   amountUsd: number;
   walletAppliedUsd: number;
   rate: number;

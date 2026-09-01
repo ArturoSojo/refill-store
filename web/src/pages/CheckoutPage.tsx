@@ -298,6 +298,28 @@ export function CheckoutPage() {
         const message = errorMessage(error);
         setVerifyError(message);
 
+        // Cada referencia nueva reinicia el plazo en el servidor. Sin esto el
+        // contador de la pantalla seguiría corriendo hacia el vencimiento
+        // viejo y el cliente creería que le quedan dos minutos cuando tiene
+        // quince para ir al banco a completar el pago.
+        const detalles = (error as ApiError)?.details ?? {};
+        const nuevoVencimiento = detalles.expiresAt;
+        const pagado = detalles.paidBs;
+        const pendiente = detalles.pendingBs;
+
+        if (orderData && (typeof nuevoVencimiento === 'number' || typeof pagado === 'number')) {
+          setOrderData({
+            ...orderData,
+            payment: {
+              ...orderData.payment,
+              ...(typeof nuevoVencimiento === 'number' ? { expiresAt: nuevoVencimiento } : {}),
+              // Tras un pago parcial la pantalla debe pedir sólo la diferencia.
+              ...(typeof pagado === 'number' ? { paidBs: pagado } : {}),
+              ...(typeof pendiente === 'number' ? { amountBs: pendiente } : {}),
+            },
+          });
+        }
+
         // Si el proveedor está caído no es culpa del cliente: se le dice que
         // reintente en vez de dar el pago por perdido.
         if (error instanceof ApiError && error.code === 'provider_error') {

@@ -158,7 +158,13 @@ export interface PaymentInstructions {
   /** Con qué método se creó la orden: decide qué datos pinta la tienda. */
   method: Order['payment']['method'];
   bank: Order['payment']['bankSnapshot'];
+  /** Lo que queda por transferir. Si hubo pagos parciales, ya va descontado. */
   amountBs: number;
+  /** Total de la orden, para poder decir «van X de Y». */
+  totalBs: number;
+  /** Suma de los pagos parciales ya acreditados. */
+  paidBs: number;
+  partials: Order['payment']['partials'];
   amountUsd: number;
   walletAppliedUsd: number;
   rate: number;
@@ -178,10 +184,17 @@ export function toPaymentInstructions(
   order: Order,
   config: { checkout: { referenceMinLength: number; referenceMaxLength: number } }
 ): PaymentInstructions {
+  const paidBs = round(order.payment.paidBs ?? 0, 2);
+
   return {
     method: order.payment.method,
     bank: order.payment.bankSnapshot,
-    amountBs: order.pricing.totalBs,
+    // Lo pendiente, no el total: si ya abonó algo, pedirle el total otra vez
+    // es justo lo que hacía que perdiera el dinero anterior.
+    amountBs: round(order.pricing.totalBs - paidBs, 2),
+    totalBs: order.pricing.totalBs,
+    paidBs,
+    partials: order.payment.partials ?? [],
     amountUsd: order.pricing.amountDueUsd ?? order.pricing.totalUsd,
     walletAppliedUsd: order.pricing.walletAppliedUsd ?? 0,
     rate: order.pricing.rate,
@@ -456,6 +469,8 @@ export async function createOrder(
       method: paymentMethod,
       reference: null,
       reportedAmountBs: null,
+      partials: [],
+      paidBs: 0,
       verifiedAt: paidWithWallet ? timestamp : null,
       attempts: 0,
       providerResponse: null,
@@ -665,12 +680,32 @@ export async function verifyPayment(
     );
   }
 
+  /**
+   * Cada referencia nueva reinicia el reloj.
+   *
+   * Alguien que pagó de menos tiene que volver al banco, transferir la
+   * diferencia y traer otra referencia: con el contador corriendo desde la
+   * compra, se le acababa el tiempo a mitad del trámite y perdía la orden
+   * (y con ella la tasa a la que compró). El tope sigue siendo el número de
+   * intentos, así que esto no lo deja abierto para siempre.
+   *
+   * Sólo se empuja hacia adelante: si la orden ya tenía un margen mayor —una
+   * creada cuando el plazo configurado era más largo—, se respeta.
+   */
+  const yaPagadoBs = round(order.payment.paidBs ?? 0, 2);
+  const pendienteBs = round(order.pricing.totalBs - yaPagadoBs, 2);
+
+  const propuesto = minutesFromNow(config.checkout.orderExpiryMinutes);
+  const nuevoVencimiento =
+    propuesto.toMillis() > order.expiresAt.toMillis() ? propuesto : order.expiresAt;
+
   // Marca el intento antes de nada: así un cliente no puede lanzar peticiones
   // ilimitadas contra Pabilo aunque cancele la respuesta a mitad de camino.
   await orders().doc(orderId).set(
     {
       status: 'verifying',
       payment: { reference, attempts: FieldValue.increment(1) },
+      expiresAt: nuevoVencimiento,
       updatedAt: now(),
     },
     { merge: true }
@@ -691,7 +726,8 @@ export async function verifyPayment(
     throw paymentRejected(
       lock.conflictOrderCode
         ? `Esa referencia ya se usó en la orden ${lock.conflictOrderCode}.`
-        : 'Esa referencia ya fue utilizada en otra compra.'
+        : 'Esa referencia ya fue utilizada en otra compra.',
+      { canRetry: true, expiresAt: nuevoVencimiento.toMillis() }
     );
   }
 
@@ -699,7 +735,9 @@ export async function verifyPayment(
   try {
     result = await pabilo.verifyPayment({
       bankReference: reference,
-      amountBs: order.pricing.totalBs,
+      // Lo que falta, no el total: si ya hay parciales acreditados, el pago
+      // bueno es el de la diferencia.
+      amountBs: pendienteBs,
     });
   } catch (error) {
     // El proveedor está caído: se libera el candado y se devuelve la orden a
@@ -732,7 +770,7 @@ export async function verifyPayment(
     result.reportedAmountBs === null
       ? null
       : checkAmount(
-          order.pricing.totalBs,
+          pendienteBs,
           result.reportedAmountBs,
           config.checkout.amountTolerancePercent
         );
@@ -740,6 +778,77 @@ export async function verifyPayment(
   const amountOk = result.amountVerifiedByProvider
     ? true
     : amountCheck !== null && amountCheck.ok;
+
+  /**
+   * Pago real, nuevo y con importe legible, pero que no cubre lo pendiente.
+   *
+   * Se acredita en vez de rechazarse: el cliente ya transfirió ese dinero y
+   * obligarle a crear otra orden lo dejaría sin la plata y sin la tasa a la
+   * que compró. La orden se queda esperando sólo la diferencia.
+   */
+  const esParcial =
+    result.found &&
+    result.isNew &&
+    !amountOk &&
+    amountCheck !== null &&
+    amountCheck.shortfallBs > 0 &&
+    (result.reportedAmountBs ?? 0) > 0;
+
+  if (esParcial) {
+    // El candado NO se libera: esa referencia queda consumida por esta orden.
+    const abonado = round(result.reportedAmountBs!, 2);
+    const totalPagado = round(yaPagadoBs + abonado, 2);
+    const faltanBs = round(order.pricing.totalBs - totalPagado, 2);
+
+    await orders().doc(orderId).set(
+      {
+        status: 'awaiting_payment',
+        payment: {
+          reference,
+          reportedAmountBs: result.reportedAmountBs,
+          providerResponse: result.raw,
+          paidBs: totalPagado,
+          partials: FieldValue.arrayUnion({
+            reference,
+            amountBs: abonado,
+            verifiedAt: now(),
+          }),
+        },
+        updatedAt: now(),
+      },
+      { merge: true }
+    );
+
+    const mensaje =
+      `Recibimos ${abonado.toFixed(2)} Bs de esa referencia. La orden es de ` +
+      `${order.pricing.totalBs.toFixed(2)} Bs, así que faltan ${faltanBs.toFixed(2)} Bs. ` +
+      'Transfiere esa diferencia y verifica con la nueva referencia: no crees otra orden.';
+
+    await Promise.all([
+      addEvent({
+        orderId,
+        type: 'payment_partial',
+        message: mensaje,
+        status: 'awaiting_payment',
+        data: { reference, abonadoBs: abonado, pagadoBs: totalPagado, faltanBs },
+      }),
+      notifications.notify({
+        uid: order.uid,
+        title: 'Pago parcial recibido',
+        body: `Van ${totalPagado.toFixed(2)} de ${order.pricing.totalBs.toFixed(2)} Bs. Faltan ${faltanBs.toFixed(2)} Bs.`,
+        type: 'order',
+        link: `/orden/${orderId}`,
+      }),
+    ]);
+
+    throw paymentRejected(mensaje, {
+      canRetry: true,
+      partial: true,
+      paidBs: totalPagado,
+      pendingBs: faltanBs,
+      expiresAt: nuevoVencimiento.toMillis(),
+    });
+  }
 
   if (!result.isNew || !amountOk) {
     await releaseReferenceLock(reference);
@@ -796,7 +905,10 @@ export async function verifyPayment(
       }),
     ]);
 
-    throw paymentRejected(reason, { canRetry: true });
+    throw paymentRejected(reason, {
+      canRetry: true,
+      expiresAt: nuevoVencimiento.toMillis(),
+    });
   }
 
   // --- Pago confirmado ---
@@ -898,14 +1010,33 @@ export async function verifyPayment(
  * regale el saldo dos veces.
  */
 async function refundWalletIfApplied(order: Order, reason: string): Promise<number> {
-  const applied = order.pricing?.walletAppliedUsd ?? 0;
   const alreadyRefunded = (order.pricing as { walletRefunded?: boolean })?.walletRefunded === true;
-  if (applied <= 0 || alreadyRefunded) return 0;
+  if (alreadyRefunded) return 0;
+
+  const applied = order.pricing?.walletAppliedUsd ?? 0;
+
+  /**
+   * Lo que transfirió de verdad y no llegó a cubrir la orden.
+   *
+   * Sin esto, una orden que caduca con un pago parcial se llevaba ese dinero
+   * por delante: el cliente había transferido y se quedaba sin nada. Se le
+   * acredita al saldo, que es lo que puede gastar en la próxima compra.
+   *
+   * Se convierte con la tasa de la orden, no con la del día: es la tasa a la
+   * que se cotizó lo que pagó.
+   */
+  const partialUsd =
+    order.pricing.rate > 0
+      ? round((order.payment?.paidBs ?? 0) / order.pricing.rate, 2)
+      : 0;
+
+  const total = round(applied + partialUsd, 2);
+  if (total <= 0) return 0;
 
   await usersService.moveWallet({
     uid: order.uid,
-    deltaUsd: applied,
-    reason,
+    deltaUsd: total,
+    reason: partialUsd > 0 ? `${reason} (incluye lo transferido)` : reason,
     orderId: order.id,
     orderCode: order.code,
   });
@@ -914,7 +1045,7 @@ async function refundWalletIfApplied(order: Order, reason: string): Promise<numb
     .doc(order.id)
     .set({ pricing: { walletRefunded: true }, updatedAt: now() }, { merge: true });
 
-  return applied;
+  return total;
 }
 
 /** Cierra una orden impaga y devuelve el saldo que hubiera consumido. */

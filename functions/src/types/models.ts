@@ -351,6 +351,22 @@ export interface OrderPayment {
    * entró de verdad ni de cuadrar la caja.
    */
   reportedAmountBs: number | null;
+  /**
+   * Pagos parciales ya acreditados a esta orden, en orden de llegada.
+   *
+   * Existe porque alguien que transfiere de menos no puede quedarse sin la
+   * plata ni sin la orden: en vez de rechazar y obligarle a empezar de cero
+   * —perdiendo lo transferido y la tasa a la que compró—, el pago se guarda y
+   * la orden pasa a pedir sólo lo que falta. Cuando la suma cubre el total se
+   * despacha una sola vez.
+   */
+  partials: Array<{
+    reference: string;
+    amountBs: number;
+    verifiedAt: TimestampLike;
+  }>;
+  /** Suma de `partials`, en bolívares. Denormalizado para no recalcularlo. */
+  paidBs: number;
   verifiedAt: TimestampLike | null;
   attempts: number;
   /** Eco de la respuesta relevante de Pabilo, para auditoría. */
