@@ -319,7 +319,7 @@ export function GamePage() {
         {/* Códigos. Van ANTES de los paquetes y siempre abiertos: escondidos
             tras un enlace y debajo de la lista, la gente no los veía y acababa
             pagando sin su descuento. */}
-        {config?.features.couponsEnabled && user && (
+        {config?.features.couponsEnabled && (
           <section className="mb-6">
             <div className="rounded-2xl border border-base-600 bg-base-800/70 p-3">
               <p className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-400">
@@ -338,9 +338,11 @@ export function GamePage() {
                 hint={
                   preview?.couponCode
                     ? `Cupón ${preview.couponCode} aplicado.`
-                    : selected
-                      ? undefined
-                      : 'Escríbelo ahora: se aplica al elegir tu paquete.'
+                    : !user
+                      ? 'Escríbelo ahora: se aplica al iniciar sesión para pagar.'
+                      : selected
+                        ? undefined
+                        : 'Escríbelo ahora: se aplica al elegir tu paquete.'
                 }
               />
 
