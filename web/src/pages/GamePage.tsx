@@ -66,7 +66,6 @@ export function GamePage() {
   const [couponCode, setCouponCode] = useState('');
   // Precargado desde el enlace del creador: sin esto nadie lo escribiría.
   const [creatorCode, setCreatorCode] = useState(() => readCreatorCode());
-  const [showCoupon, setShowCoupon] = useState(false);
   const [useWallet, setUseWallet] = useState(false);
   const [preview, setPreview] = useState<PricePreview | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -317,6 +316,58 @@ export function GamePage() {
           </div>
         </section>
 
+        {/* Códigos. Van ANTES de los paquetes y siempre abiertos: escondidos
+            tras un enlace y debajo de la lista, la gente no los veía y acababa
+            pagando sin su descuento. */}
+        {config?.features.couponsEnabled && user && (
+          <section className="mb-6">
+            <div className="rounded-2xl border border-base-600 bg-base-800/70 p-3">
+              <p className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-400">
+                <Tag className="h-3.5 w-3.5 text-neon-crimson" aria-hidden />
+                ¿Tienes un código?
+              </p>
+
+              <Input
+                label="Código de descuento"
+                placeholder="CODIGO"
+                value={couponCode}
+                onChange={(event) => setCouponCode(event.target.value.toUpperCase().slice(0, 24))}
+                leftIcon={<Tag className="h-4 w-4" aria-hidden />}
+                className="uppercase"
+                error={preview?.couponError ?? null}
+                hint={
+                  preview?.couponCode
+                    ? `Cupón ${preview.couponCode} aplicado.`
+                    : selected
+                      ? undefined
+                      : 'Escríbelo ahora: se aplica al elegir tu paquete.'
+                }
+              />
+
+              {config?.features.creatorsEnabled && (
+                <div className="mt-3">
+                  <Input
+                    label="Código de creador (opcional)"
+                    placeholder="CREADOR"
+                    value={creatorCode}
+                    onChange={(event) =>
+                      setCreatorCode(event.target.value.toUpperCase().slice(0, 24))
+                    }
+                    leftIcon={<Sparkles className="h-4 w-4" aria-hidden />}
+                    className="uppercase"
+                    error={preview?.creatorError ?? null}
+                    hint={
+                      preview?.creatorCode
+                        ? `Apoyando a ${preview.creatorCode}.`
+                        : 'Si viste la tienda en un vídeo, pon aquí el código.'
+                    }
+                  />
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+
         {/* Paso 3 — paquete */}
         <section>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
@@ -388,57 +439,6 @@ export function GamePage() {
             </AnimatePresence>
           )}
         </section>
-
-        {/* Cupón */}
-        {config?.features.couponsEnabled && user && selected && (
-          <section className="mt-5">
-            {showCoupon ? (
-              <div className="rounded-2xl border border-base-600 bg-base-800/70 p-3">
-                <Input
-                  label="Código de descuento"
-                  placeholder="CODIGO"
-                  value={couponCode}
-                  onChange={(event) =>
-                    setCouponCode(event.target.value.toUpperCase().slice(0, 24))
-                  }
-                  leftIcon={<Tag className="h-4 w-4" aria-hidden />}
-                  className="uppercase"
-                  error={preview?.couponError ?? null}
-                  hint={preview?.couponCode ? `Cupón ${preview.couponCode} aplicado.` : undefined}
-                />
-                {config?.features.creatorsEnabled && (
-                  <div className="mt-3">
-                    <Input
-                      label="Código de creador (opcional)"
-                      placeholder="CREADOR"
-                      value={creatorCode}
-                      onChange={(event) =>
-                        setCreatorCode(event.target.value.toUpperCase().slice(0, 24))
-                      }
-                      leftIcon={<Sparkles className="h-4 w-4" aria-hidden />}
-                      className="uppercase"
-                      error={preview?.creatorError ?? null}
-                      hint={
-                        preview?.creatorCode
-                          ? `Apoyando a ${preview.creatorCode}.`
-                          : 'Si viste la tienda en un vídeo, pon aquí el código.'
-                      }
-                    />
-                  </div>
-                )}
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setShowCoupon(true)}
-                className="inline-flex items-center gap-1.5 text-xs font-semibold text-neon-crimson hover:underline"
-              >
-                <Tag className="h-3.5 w-3.5" aria-hidden />
-                ¿Tienes un código de descuento?
-              </button>
-            )}
-          </section>
-        )}
 
         {/* Saldo a favor */}
         {preview && preview.walletEnabled && preview.walletBalanceUsd > 0 && selected && (
