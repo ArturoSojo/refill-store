@@ -5,6 +5,7 @@ import { QUERY_KEYS } from '@/lib/constants';
 import type {
   CommissionEntry,
   Creator,
+  StoreModal,
   TierDefinition,
   UserTier,
   AdminAlert,
@@ -790,6 +791,46 @@ export function usePayCreator(uid: string) {
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminCreator(uid) });
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminCreators });
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminUser(uid) });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Modales de la tienda
+// ---------------------------------------------------------------------------
+
+export function useAdminModals() {
+  return useQuery({
+    queryKey: QUERY_KEYS.adminModals,
+    queryFn: () => api.get<{ modals: StoreModal[] }>('/admin/modals'),
+    staleTime: 30_000,
+  });
+}
+
+export function useSaveModal() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, data }: { id?: string; data: Record<string, unknown> }) =>
+      id
+        ? api.patch<{ modal: StoreModal }>(`/admin/modals/${id}`, data)
+        : api.post<{ modal: StoreModal }>('/admin/modals', data),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminModals });
+      // La tienda los cachea media hora: sin esto el cambio no se vería.
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.modals });
+    },
+  });
+}
+
+export function useDeleteModal() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => api.delete<{ deleted: boolean }>(`/admin/modals/${id}`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminModals });
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.modals });
     },
   });
 }

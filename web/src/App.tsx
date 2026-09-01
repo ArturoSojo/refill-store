@@ -28,6 +28,7 @@ import { AdminSettings } from '@/pages/admin/AdminSettings';
 import { AdminSupport, AdminLogs } from '@/pages/admin/AdminSupport';
 import { AdminTicketDetail } from '@/pages/admin/AdminTicketDetail';
 import { AdminTiers } from '@/pages/admin/AdminTiers';
+import { AdminModals } from '@/pages/admin/AdminModals';
 import { AdminCreators, AdminCreatorDetail } from '@/pages/admin/AdminCreators';
 import { CreatorPage } from '@/pages/CreatorPage';
 import { AdminAlerts } from '@/pages/admin/AdminAlerts';
@@ -147,6 +148,7 @@ export function App() {
           <Route path="avisos" element={<AdminAlerts />} />
           <Route path="creadores" element={<AdminCreators />} />
           <Route path="creadores/:uid" element={<AdminCreatorDetail />} />
+          <Route path="modales" element={<AdminModals />} />
           <Route path="niveles" element={<AdminTiers />} />
           <Route path="configuracion" element={<AdminSettings />} />
           <Route path="bitacora" element={<AdminLogs />} />

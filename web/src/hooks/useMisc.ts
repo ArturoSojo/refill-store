@@ -1,3 +1,7 @@
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/lib/api';
+import { QUERY_KEYS } from '@/lib/constants';
+import type { StoreModal } from '@/types/models';
 /** Hooks pequeños de interfaz. */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { countdown } from '@/lib/format';
@@ -87,4 +91,14 @@ export function useDocumentTitle(title: string) {
       document.title = previous;
     };
   }, [title]);
+}
+
+/** Modales activos de la tienda (tutorial y avisos superpuestos). */
+export function useStoreModals() {
+  return useQuery({
+    queryKey: QUERY_KEYS.modals,
+    queryFn: () => api.get<{ modals: StoreModal[] }>('/modals', { anonymous: true }),
+    // Cambian poco y los pide cada visita: media hora de caché sobra.
+    staleTime: 30 * 60_000,
+  });
 }

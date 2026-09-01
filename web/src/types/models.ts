@@ -424,6 +424,32 @@ export interface UserNotification {
   createdAt: TimestampLike;
 }
 
+
+// ---------------------------------------------------------------------------
+// Modales de la tienda
+// ---------------------------------------------------------------------------
+
+export type ModalFrequency = 'once' | 'daily' | 'always';
+export type ModalPlacement = 'home' | 'store' | 'manual';
+
+/** Ventana superpuesta que explica algo al cliente (cómo recargar, un aviso). */
+export interface StoreModal {
+  id: string;
+  title: string;
+  /** Cuerpo en texto. Cada línea se pinta como un paso. */
+  body: string;
+  videoUrl: string;
+  imageUrl: string;
+  ctaLabel: string;
+  ctaUrl: string;
+  active: boolean;
+  frequency: ModalFrequency;
+  placement: ModalPlacement;
+  sortOrder: number;
+  createdAt: TimestampLike;
+  updatedAt: TimestampLike;
+}
+
 // ---------------------------------------------------------------------------
 // Cupones, configuración y soporte
 // ---------------------------------------------------------------------------

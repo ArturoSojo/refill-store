@@ -289,6 +289,8 @@ export function auditActionLabel(action: string): string {
     'game.updated': 'Juego actualizado',
     'game.deleted': 'Juego eliminado',
     'tiers.updated': 'Niveles actualizados',
+    'modal.saved': 'Modal guardado',
+    'modal.deleted': 'Modal eliminado',
     'creator.updated': 'Creador actualizado',
     'creator.disabled': 'Creador desactivado',
     'creator.paid': 'Comisiones pagadas',

@@ -21,6 +21,7 @@ import { BrandMark, BrandLockup } from '@/components/common/Brand';
 import { ROUTES } from '@/lib/constants';
 import { cn, initials } from '@/lib/utils';
 import { captureCreatorCodeFromUrl } from '@/lib/creatorCode';
+import { StoreModals } from '@/components/common/StoreModals';
 import { formatBs, formatUsd } from '@/lib/format';
 import { Button, ButtonLink } from '@/components/ui/Button';
 
@@ -430,6 +431,8 @@ export function StoreLayout() {
       <main className="flex-1 pb-24 md:pb-0">
         <Outlet />
       </main>
+
+      <StoreModals />
 
       <Footer />
       <BottomNav />

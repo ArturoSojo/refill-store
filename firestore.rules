@@ -140,6 +140,13 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Modales de la tienda: contenido público (el tutorial), escrito sólo
+    // desde el backend.
+    match /modals/{modalId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     // ---------- Sólo staff ----------
     match /coupons/{code} {
       allow read: if isStaff();

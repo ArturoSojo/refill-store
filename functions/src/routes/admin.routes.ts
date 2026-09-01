@@ -40,6 +40,7 @@ import * as settings from '../services/settings';
 import { seedCatalog } from '../seed/catalog.seed';
 import * as alertsService from '../services/adminAlerts';
 import * as emailService from '../services/email';
+import * as modalsService from '../services/modals';
 import { renderOrderEmail } from '../services/emailTemplates';
 import { DEFAULT_PLAYER_FIELD } from '../types/models';
 import type { Coupon, Order, Ticket, UserProfile } from '../types/models';
@@ -1974,5 +1975,93 @@ adminRouter.post(
     });
 
     ok(res, result);
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Modales de la tienda
+// ---------------------------------------------------------------------------
+
+const modalSchema = z.object({
+  title: z.string().trim().min(2).max(80),
+  body: z.string().trim().max(1200).default(''),
+  videoUrl: z.string().trim().max(300).default(''),
+  imageUrl: z.string().trim().max(500).default(''),
+  ctaLabel: z.string().trim().max(40).default(''),
+  ctaUrl: z.string().trim().max(300).default(''),
+  active: z.boolean().default(false),
+  frequency: z.enum(['once', 'daily', 'always']).default('once'),
+  placement: z.enum(['home', 'store', 'manual']).default('home'),
+  sortOrder: z.coerce.number().int().min(0).max(999).default(99),
+});
+
+adminRouter.get(
+  '/modals',
+  asyncHandler(async (_req, res) => {
+    ok(res, { modals: await modalsService.list() });
+  })
+);
+
+adminRouter.post(
+  '/modals',
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const body = parseBody(req, modalSchema);
+    const modal = await modalsService.save(undefined, body);
+
+    await audit.record({
+      action: audit.ACTIONS.MODAL_SAVED,
+      actorUid: currentUser(req).uid,
+      actorEmail: currentUser(req).email,
+      targetType: 'modal',
+      targetId: modal.id,
+      summary: `Modal creado: ${modal.title}.`,
+      ip: clientIp(req),
+    });
+
+    ok(res, { modal }, 201);
+  })
+);
+
+adminRouter.patch(
+  '/modals/:id',
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const { id } = parseParams(req, idParam);
+    const body = parseBody(req, modalSchema);
+    const modal = await modalsService.save(id, body);
+
+    await audit.record({
+      action: audit.ACTIONS.MODAL_SAVED,
+      actorUid: currentUser(req).uid,
+      actorEmail: currentUser(req).email,
+      targetType: 'modal',
+      targetId: id,
+      summary: `Modal actualizado: ${modal.title} (${modal.active ? 'activo' : 'oculto'}).`,
+      ip: clientIp(req),
+    });
+
+    ok(res, { modal });
+  })
+);
+
+adminRouter.delete(
+  '/modals/:id',
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const { id } = parseParams(req, idParam);
+    await modalsService.remove(id);
+
+    await audit.record({
+      action: audit.ACTIONS.MODAL_DELETED,
+      actorUid: currentUser(req).uid,
+      actorEmail: currentUser(req).email,
+      targetType: 'modal',
+      targetId: id,
+      summary: `Modal eliminado: ${id}.`,
+      ip: clientIp(req),
+    });
+
+    ok(res, { deleted: true });
   })
 );

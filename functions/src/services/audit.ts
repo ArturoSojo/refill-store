@@ -81,6 +81,8 @@ export const ACTIONS = {
   CONFIG_UPDATED: 'config.updated',
   RATE_UPDATED: 'rate.updated',
   TIERS_UPDATED: 'tiers.updated',
+  MODAL_SAVED: 'modal.saved',
+  MODAL_DELETED: 'modal.deleted',
   CREATOR_UPDATED: 'creator.updated',
   CREATOR_DISABLED: 'creator.disabled',
   CREATOR_PAID: 'creator.paid',

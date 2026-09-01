@@ -7,6 +7,7 @@ import type { Order } from '../types/models';
 import { usdToBs } from '../lib/money';
 import { normalizeLadder } from '../lib/tiers';
 import * as catalog from '../services/catalog';
+import * as modalsService from '../services/modals';
 import { getConfig, toPublicConfig } from '../services/settings';
 import { buildSupportUrl } from '../services/whatsapp';
 
@@ -123,6 +124,26 @@ publicRouter.get(
       usd,
       rate: config.rate.value,
       bs: usdToBs(usd, config.rate.value, config.pricing.roundToBs),
+    });
+  })
+);
+
+/**
+ * Modales activos de la tienda.
+ *
+ * Se sirve aparte de `/config` para no engordar una respuesta que pide cada
+ * página: los modales sólo hacen falta en la tienda, y el vídeo ya se resuelve
+ * aquí a su forma incrustable.
+ */
+publicRouter.get(
+  '/modals',
+  asyncHandler(async (_req, res) => {
+    const list = await modalsService.list({ onlyActive: true });
+    ok(res, {
+      modals: list.map((modal) => ({
+        ...modal,
+        videoUrl: modalsService.toEmbedUrl(modal.videoUrl),
+      })),
     });
   })
 );

@@ -665,6 +665,41 @@ export interface OrderCreatorRef {
   commissionPercent: number;
 }
 
+
+// ---------------------------------------------------------------------------
+// Modales de la tienda
+// ---------------------------------------------------------------------------
+
+/** Cuándo se le vuelve a mostrar el modal a la misma persona. */
+export type ModalFrequency = 'once' | 'daily' | 'always';
+
+/** En qué parte de la tienda aparece solo. */
+export type ModalPlacement = 'home' | 'store' | 'manual';
+
+/**
+ * Ventana superpuesta que explica algo al cliente (cómo recargar, un aviso).
+ *
+ * Se guarda en su propia colección y no en la configuración porque son varios,
+ * llevan imagen y vídeo, y el administrador los crea y borra como los cupones.
+ */
+export interface StoreModal {
+  id: string;
+  title: string;
+  /** Cuerpo en texto. Cada línea se pinta como un paso. */
+  body: string;
+  /** Vídeo de YouTube (acepta enlace normal, `youtu.be` o Short). */
+  videoUrl: string;
+  imageUrl: string;
+  ctaLabel: string;
+  ctaUrl: string;
+  active: boolean;
+  frequency: ModalFrequency;
+  placement: ModalPlacement;
+  sortOrder: number;
+  createdAt: TimestampLike;
+  updatedAt: TimestampLike;
+}
+
 // ---------------------------------------------------------------------------
 // Cupones
 // ---------------------------------------------------------------------------
