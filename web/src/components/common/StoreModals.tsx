@@ -144,9 +144,21 @@ export function StoreModals() {
 
   const all = useMemo(() => data?.modals ?? [], [data]);
 
-  /** Los que corresponden a esta pantalla. */
+  /** Los que pueden abrirse SOLOS en esta pantalla. */
   const forHere = useMemo(
     () => all.filter((modal) => modal.placement === 'store' || (isHome && modal.placement === 'home')),
+    [all, isHome]
+  );
+
+  /**
+   * Los que el botón flotante puede abrir aquí.
+   *
+   * Incluye los de «sólo con el botón», que por definición nunca se abren
+   * solos: si no entraran aquí, esa opción no tendría forma de mostrarse y
+   * sería una casilla que no hace nada.
+   */
+  const reachable = useMemo(
+    () => all.filter((modal) => modal.placement !== 'home' || isHome),
     [all, isHome]
   );
 
@@ -162,8 +174,8 @@ export function StoreModals() {
 
   const open = all.find((modal) => modal.id === openId) ?? null;
 
-  // El botón reabre el primero de esta pantalla, o el primero que haya.
-  const reopenable = forHere[0] ?? all[0] ?? null;
+  // El botón reabre el primero disponible aquí, por orden.
+  const reopenable = reachable[0] ?? null;
 
   const close = () => {
     if (open) markSeen(open);
