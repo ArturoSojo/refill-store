@@ -8,9 +8,32 @@ import { formatBs } from '../lib/money';
 import { describeOrder } from '../lib/orderItem';
 import type { Order, PlayerField } from '../types/models';
 
-/** Deja el número en el formato internacional sin símbolos que exige wa.me. */
+/**
+ * Deja el número en el formato internacional que exige `wa.me`.
+ *
+ * Quitar los símbolos no basta: el cliente escribe su teléfono como lo dice en
+ * Venezuela —`0424 274 7224`— y `wa.me/04242747224` da error, porque espera
+ * código de país y sin el cero de marcación nacional. Tiene que quedar
+ * `584242747224`.
+ *
+ * Lo que no reconoce se devuelve sólo sin símbolos, sin inventarle un país: un
+ * número extranjero ya viene con su propio código y anteponerle 58 lo rompería.
+ */
 export function normalizeWhatsappNumber(raw: string): string {
-  return raw.replace(/\D/g, '');
+  const digits = raw.replace(/\D/g, '');
+  if (!digits) return '';
+
+  // Ya viene completo: `584242747224`. Es como se guardan los números propios
+  // de la tienda en la configuración, así que este caso no debe tocarse.
+  if (digits.startsWith('58') && digits.length === 12) return digits;
+
+  // Formato nacional con el cero de marcación: `04242747224`.
+  if (digits.startsWith('0') && digits.length === 11) return `58${digits.slice(1)}`;
+
+  // Sin cero y sin país: `4242747224`. Se acepta móvil (4) y fijo (2).
+  if (digits.length === 10 && /^[24]/.test(digits)) return `58${digits}`;
+
+  return digits;
 }
 
 export interface ManualMessageInput {
