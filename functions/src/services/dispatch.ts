@@ -13,10 +13,12 @@
  *  - Los productos manuales (Categoría B) no tocan el API del proveedor: se
  *    genera el enlace de WhatsApp y la orden queda esperando gestión humana.
  */
-import { orders, games, products, now } from '../config/firebase';
+import { orders, games, products, now, providerOrders } from '../config/firebase';
+import { createHash } from 'node:crypto';
 import { log } from '../lib/logger';
 import { notFound } from '../lib/errors';
 import * as inefable from './inefable';
+import * as fazercards from './fazercards';
 import * as audit from './audit';
 import * as notifications from './notifications';
 import * as adminAlerts from './adminAlerts';
@@ -44,9 +46,23 @@ export interface DispatchOutcome {
   message: string;
 }
 
+/** Inefable mantiene sus identificadores numéricos; FazerCards no. */
+function requireInefableId(value: number | string, field: string): number {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isInteger(parsed)) {
+    throw new Error(`El ${field} de Inefable debe ser numérico; revisa el proveedor configurado en el juego.`);
+  }
+  return parsed;
+}
+
+/** Un ID externo puede contener `/`; se hashea antes de usarlo como doc ID. */
+function providerOrderIndexId(provider: string, providerOrderId: string): string {
+  return createHash('sha256').update(`${provider}:${providerOrderId}`).digest('hex');
+}
+
 /** Construye el plan de llamadas a partir de la configuración del producto. */
 export function buildCallPlan(
-  calls: Array<{ packageId: number; quantity: number; providerGameId?: number | null }>
+  calls: Array<{ packageId: number | string; quantity: number; providerGameId?: number | string | null }>
 ): DispatchCallResult[] {
   const plan: DispatchCallResult[] = [];
   let index = 0;
@@ -274,9 +290,10 @@ export async function dispatchOrder(
   // para esas se cae al catálogo. Sin este dato el proveedor no sabe a qué
   // juego pertenece el paquete y puede emparejarlo con otro.
   let providerGameId = order.providerGameId ?? null;
+  const provider = order.provider ?? 'inefable';
   if (providerGameId === null || providerGameId === undefined) {
     const gameSnap = await games().doc(order.gameId).get();
-    providerGameId = (gameSnap.data()?.apiGameId as number | undefined) ?? null;
+    providerGameId = (gameSnap.data()?.apiGameId as number | string | undefined) ?? null;
   }
 
   if (providerGameId === null) {
@@ -312,18 +329,24 @@ export async function dispatchOrder(
     call.attempts += 1;
 
     try {
-      const result = await inefable.createOrder({
-        // La llamada puede apuntar a otra «tienda» del proveedor; si no lo
-        // hace, se usa la del juego.
-        gameId: call.providerGameId ?? providerGameId,
-        packageId: call.packageId,
-        playerId: order.playerId,
-        playerId2: order.playerId2 ?? null,
-        // Estable por orden y por llamada: si la petición se corta y se
-        // reintenta, el proveedor devuelve el resultado de la original en vez
-        // de cobrar otra recarga. Un combo tiene un id distinto por parte.
-        externalOrderId: `${order.code}-${call.index + 1}`,
-      });
+      const result =
+        provider === 'fazercards'
+          ? await fazercards.createTopup({
+              categoryId: call.providerGameId ?? providerGameId,
+              offerId: call.packageId,
+              fields: order.playerFields,
+              // Igual que con Inefable: estable por orden y llamada.
+              idempotencyKey: `${order.code}-${call.index + 1}`,
+            })
+          : await inefable.createOrder({
+              // Inefable sólo admite IDs enteros. La validación explícita evita
+              // que una oferta de FazerCards se envíe por accidente al API viejo.
+              gameId: requireInefableId(call.providerGameId ?? providerGameId, 'game_id'),
+              packageId: requireInefableId(call.packageId, 'package_id'),
+              playerId: order.playerId,
+              playerId2: order.playerId2 ?? null,
+              externalOrderId: `${order.code}-${call.index + 1}`,
+            });
 
       // El saldo del proveedor viaja en cada respuesta: es el momento más
       // barato para detectar que se está agotando.
@@ -333,10 +356,35 @@ export async function dispatchOrder(
       // pista para diagnosticar después por qué una entrega no salió.
       call.providerOrderId = result.providerOrderId;
       call.providerStatus = result.providerStatus;
+      call.provider = provider;
       call.playerName = result.playerName;
       call.providerReference = result.providerReference;
       call.httpStatus = result.httpStatus;
       call.providerResponse = result.raw;
+
+      // FazerCards avisa por su propio `order_id`, no por nuestro código. Se
+      // indexa apenas responde para que el webhook resuelva en O(1), incluso
+      // cuando haya muchas órdenes simultáneas.
+      if (provider === 'fazercards' && result.providerOrderId) {
+        await providerOrders()
+          .doc(providerOrderIndexId(provider, result.providerOrderId))
+          .set({
+            provider,
+            providerOrderId: result.providerOrderId,
+            orderId,
+            callIndex: call.index,
+            createdAt: now(),
+          })
+          .catch((error) => {
+            // La recarga ya fue aceptada: una caída del índice no puede
+            // convertirla en fallo ni habilitar que se vuelva a enviar.
+            log.error('No se pudo indexar la orden de FazerCards para webhook', {
+              orderId,
+              providerOrderId: result.providerOrderId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          });
+      }
 
       if (result.success) {
         call.status = 'success';
@@ -612,6 +660,18 @@ export async function resolveProcessingOrder(externalOrderId: string): Promise<s
   return resuelta ? 'resuelta' : 'sigue en curso';
 }
 
+/** Resuelve un aviso de FazerCards, que cita el id interno de su pedido. */
+export async function resolveFazerProcessingOrder(providerOrderId: string): Promise<string> {
+  const index = await providerOrders().doc(providerOrderIndexId('fazercards', providerOrderId)).get();
+  const orderId = index.data()?.orderId as string | undefined;
+  if (!orderId) return 'orden no encontrada';
+  const snap = await orders().doc(orderId).get();
+  if (!snap.exists) return 'orden no encontrada';
+  const order = { id: snap.id, ...snap.data() } as Order;
+  if (order.status !== 'dispatching') return `la orden está en ${order.status}`;
+  return (await resolveOne(order)) ? 'resuelta' : 'sigue en curso';
+}
+
 /**
  * Consulta y cierra UNA orden con llamadas en curso.
  *
@@ -631,23 +691,35 @@ async function resolveOne(order: Order): Promise<boolean> {
   for (const call of calls) {
     if (call.status !== 'processing') continue;
 
+    const provider = call.provider ?? order.provider ?? 'inefable';
     const externalOrderId = `${order.code}-${call.index + 1}`;
-    const estado = await inefable.getOrderStatus(externalOrderId).catch(() => null);
-    if (!estado?.found) continue; // Todavía no aparece: se deja para después.
+    const fazerResult =
+      provider === 'fazercards' && call.providerOrderId
+        ? await fazercards.getOrder(call.providerOrderId).catch(() => null)
+        : null;
+    const inefableResult =
+      provider === 'inefable' ? await inefable.getOrderStatus(externalOrderId).catch(() => null) : null;
+    if (!fazerResult && !inefableResult) continue;
+    if (inefableResult && !inefableResult.found) continue;
 
-    const normalizado = (estado.status ?? '').toLowerCase();
-    if (inefable.isSuccessStatus(normalizado)) {
+    const providerStatus = fazerResult?.providerStatus ?? inefableResult?.status ?? null;
+    const normalizado = (providerStatus ?? '').toLowerCase();
+    const success = fazerResult ? fazerResult.success : inefable.isSuccessStatus(normalizado);
+    const failed = fazerResult
+      ? !fazerResult.success && !fazerResult.processing
+      : inefable.isFailureStatus(normalizado);
+    if (success) {
       call.status = 'success';
       call.error = null;
       call.completedAt = now();
-      call.providerStatus = estado.status;
-      call.providerOrderId = estado.providerOrderId ?? call.providerOrderId;
-      call.providerReference = estado.providerReference ?? call.providerReference;
+      call.providerStatus = providerStatus;
+      call.providerOrderId = fazerResult?.providerOrderId ?? inefableResult?.providerOrderId ?? call.providerOrderId;
+      call.providerReference = fazerResult?.providerReference ?? inefableResult?.providerReference ?? call.providerReference;
       cambio = true;
-    } else if (inefable.isFailureStatus(normalizado)) {
+    } else if (failed) {
       call.status = 'error';
-      call.error = estado.error || `El proveedor marcó la recarga como ${estado.status}.`;
-      call.providerStatus = estado.status;
+      call.error = inefableResult?.error || fazerResult?.message || `El proveedor marcó la recarga como ${providerStatus}.`;
+      call.providerStatus = providerStatus;
       cambio = true;
     }
     // Sigue en curso: no se toca.

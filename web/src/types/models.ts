@@ -54,8 +54,9 @@ export interface Game {
   id: string;
   name: string;
   shortName: string;
-  apiGameId: number;
+  apiGameId: number | string;
   apiGameType: string;
+  provider?: 'inefable' | 'fazercards';
   currencyLabel: string;
   currencyIcon: string;
   currencyIconUrl: string;
@@ -102,7 +103,8 @@ export type ManualFlow = 'notify' | 'whatsapp' | 'phone';
 export type ProductKind = 'package' | 'combo' | 'special';
 
 export interface DispatchCall {
-  packageId: number;
+  /** ID de oferta del proveedor. Inefable usa números; FazerCards, strings. */
+  packageId: number | string;
   quantity: number;
   /**
    * Juego del proveedor para ESTA llamada. `null` = el del juego.
@@ -112,7 +114,7 @@ export interface DispatchCall {
    * todo menos en el 520, donde gana «Free fire 20%». Sin esto habría que
    * elegir una sola para todo el juego y pagar de más en algún paquete.
    */
-  providerGameId?: number | null;
+  providerGameId?: number | string | null;
 }
 
 export interface Product {
@@ -194,9 +196,10 @@ export type OrderStatus =
 export type DispatchCallStatus = 'pending' | 'processing' | 'success' | 'error';
 
 export interface DispatchCallResult {
-  packageId: number;
+  packageId: number | string;
   /** Juego del proveedor con el que se envió. `null` = el del juego. */
-  providerGameId?: number | null;
+  providerGameId?: number | string | null;
+  provider?: 'inefable' | 'fazercards';
   index: number;
   status: DispatchCallStatus;
   /** Ojo: el proveedor también devuelve `order_id` cuando la recarga falla. */
@@ -278,6 +281,8 @@ export interface Order {
   };
   gameId: string;
   gameName: string;
+  providerGameId?: number | string | null;
+  provider?: 'inefable' | 'fazercards';
   productId: string;
   productName: string;
   productSku: string;
@@ -751,6 +756,13 @@ export interface ProvidersStatus {
     accountName: string | null;
     message: string | null;
   };
+  fazercards: {
+    configured: boolean;
+    reachable: boolean;
+    balanceUsd: number | null;
+    accountName: string | null;
+    message: string | null;
+  };
 }
 
 /** Fila del desglose: lo vendido de un juego o de un producto. */
@@ -822,4 +834,3 @@ export interface CreatorSummary {
   discountPercent: number;
   stats: Creator['stats'];
 }
-

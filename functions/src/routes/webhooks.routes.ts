@@ -21,10 +21,15 @@
  */
 import { Router } from 'express';
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { INEFABLE_WEBHOOK_SECRET, INEFABLE_WEBHOOK_TOKEN } from '../config/env';
+import {
+  FAZERCARDS_WEBHOOK_SECRET,
+  FAZERCARDS_WEBHOOK_TOKEN,
+  INEFABLE_WEBHOOK_SECRET,
+  INEFABLE_WEBHOOK_TOKEN,
+} from '../config/env';
 import { asyncHandler } from '../lib/http';
 import { log } from '../lib/logger';
-import { resolveProcessingOrder } from '../services/dispatch';
+import { resolveFazerProcessingOrder, resolveProcessingOrder } from '../services/dispatch';
 
 export const webhooksRouter = Router();
 
@@ -57,6 +62,32 @@ function signatureIsValid(rawBody: Buffer | undefined, header: string | undefine
   return equals(esperada, recibida);
 }
 
+function fazerSignatureIsValid(
+  rawBody: Buffer | undefined,
+  headers: Record<string, string | string[] | undefined>
+): boolean {
+  const secret = FAZERCARDS_WEBHOOK_SECRET.value().trim();
+  if (PLACEHOLDERS.includes(secret.toUpperCase())) return false;
+  if (!rawBody) return false;
+  const expected = createHmac('sha256', secret).update(rawBody).digest('hex');
+  const names = [
+    'x-signature',
+    'x-webhook-signature',
+    'x-hub-signature-256',
+    'x-fazer-signature',
+    'x-fazercards-signature',
+    'x-fzr-signature',
+    'signature',
+  ];
+  return names.some((name) => {
+    const value = headers[name];
+    const received = (Array.isArray(value) ? value[0] : value)?.trim().replace(/^(sha256|hmac-sha256)=?/i, '').toLowerCase();
+    if (!received) return false;
+    const hex = /^[0-9a-f]{64}$/i.test(received) ? received : Buffer.from(received, 'base64').toString('hex');
+    return equals(expected, hex);
+  });
+}
+
 interface InefableWebhookBody {
   event?: string;
   event_type?: string;
@@ -67,6 +98,46 @@ interface InefableWebhookBody {
     error?: string;
   };
 }
+
+interface FazerWebhookBody {
+  event?: string;
+  type?: string;
+  order_id?: string | number;
+  orderId?: string | number;
+  order?: { id?: string | number; order_id?: string | number; status?: string };
+  data?: { id?: string | number; order_id?: string | number; order?: { id?: string | number }; status?: string };
+}
+
+webhooksRouter.post(
+  '/fazercards/:token',
+  asyncHandler(async (req, res) => {
+    const responder = (resultado: string) => res.status(200).json({ ok: true, resultado });
+    const token = FAZERCARDS_WEBHOOK_TOKEN.value().trim();
+    if (PLACEHOLDERS.includes(token.toUpperCase()) || req.params.token !== token) {
+      log.warn('Webhook de FazerCards con token inválido');
+      return responder('token inválido');
+    }
+
+    const rawBody = (req as unknown as { rawBody?: Buffer }).rawBody;
+    if (!fazerSignatureIsValid(rawBody, req.headers)) {
+      log.warn('Webhook de FazerCards con firma inválida');
+      return responder('firma inválida');
+    }
+
+    const body = (req.body ?? {}) as FazerWebhookBody;
+    if (body.event === 'webhook.test' || body.type === 'webhook.test') {
+      // Deja una evidencia verificable de que token + HMAC pasaron, sin guardar
+      // el payload ni secretos del proveedor.
+      log.info('Webhook de prueba de FazerCards validado');
+      return responder('test');
+    }
+    const providerOrderId = body.order?.id ?? body.order?.order_id ?? body.order_id ?? body.orderId ?? body.data?.order?.id ?? body.data?.order_id ?? body.data?.id;
+    if (providerOrderId === undefined || providerOrderId === null) return responder('sin id de pedido');
+
+    log.info('Webhook de FazerCards recibido', { providerOrderId: String(providerOrderId) });
+    return responder(await resolveFazerProcessingOrder(String(providerOrderId)));
+  })
+);
 
 webhooksRouter.post(
   '/inefable/:token',

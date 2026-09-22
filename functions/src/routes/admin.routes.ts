@@ -34,6 +34,7 @@ import * as audit from '../services/audit';
 import * as notificationsService from '../services/notifications';
 import * as pabilo from '../services/pabilo';
 import * as inefable from '../services/inefable';
+import * as fazercards from '../services/fazercards';
 import { listEvents } from '../services/orderEvents';
 import { getConfig, updateConfig } from '../services/settings';
 import * as settings from '../services/settings';
@@ -107,9 +108,17 @@ adminRouter.get(
 adminRouter.get(
   '/providers/status',
   asyncHandler(async (_req, res) => {
-    const [balance, pabiloHealth] = await Promise.all([
+    const [balance, fazerBalance, pabiloHealth] = await Promise.all([
       inefable.isInefableConfigured()
         ? inefable.getBalance()
+        : Promise.resolve({
+            ok: false,
+            balanceUsd: null,
+            accountName: null,
+            message: 'Sin API key.',
+          }),
+      fazercards.isFazerCardsConfigured()
+        ? fazercards.getBalance()
         : Promise.resolve({
             ok: false,
             balanceUsd: null,
@@ -130,7 +139,25 @@ adminRouter.get(
         accountName: balance.accountName,
         message: balance.message,
       },
+      fazercards: {
+        configured: fazercards.isFazerCardsConfigured(),
+        reachable: fazerBalance.ok,
+        balanceUsd: fazerBalance.balanceUsd,
+        accountName: fazerBalance.accountName,
+        message: fazerBalance.message,
+      },
     });
+  })
+);
+
+/** Consulta de sólo lectura para copiar ofertas reales al editor de productos. */
+adminRouter.get(
+  '/providers/fazercards/offers',
+  asyncHandler(async (req, res) => {
+    const { categoryId } = parseQuery(req, z.object({ categoryId: z.string().trim().min(1).max(100) }));
+    const result = await fazercards.getTopupOffers(categoryId);
+    if (!result.ok) throw failedPrecondition(result.message ?? 'No se pudo consultar el catálogo de FazerCards.');
+    ok(res, { categoryId, offers: result.offers });
   })
 );
 
@@ -407,8 +434,9 @@ const playerFieldSchema = z.object({
 const gameSchema = z.object({
   name: z.string().trim().min(2).max(60),
   shortName: z.string().trim().min(2).max(40).optional(),
-  apiGameId: z.coerce.number().int(),
+  apiGameId: z.union([z.coerce.number().int(), z.string().trim().min(1).max(100)]),
   apiGameType: z.string().trim().min(1).max(40),
+  provider: z.enum(['inefable', 'fazercards']).optional(),
   currencyLabel: z.string().trim().min(1).max(30),
   currencyIcon: z.string().trim().max(8).optional(),
   currencyIconUrl: z.string().trim().max(500).optional(),
@@ -523,6 +551,7 @@ adminRouter.post(
       shortName: body.shortName ?? body.name,
       apiGameId: body.apiGameId,
       apiGameType: body.apiGameType,
+      provider: body.provider ?? 'inefable',
       currencyLabel: body.currencyLabel,
       currencyIcon: body.currencyIcon ?? '🎮',
       currencyIconUrl: body.currencyIconUrl ?? '',
@@ -666,10 +695,14 @@ const productSchema = z.object({
   calls: z
     .array(
       z.object({
-        packageId: z.coerce.number().int(),
+        // Inefable usa IDs numéricos; FazerCards usa IDs de oferta alfanuméricos.
+        packageId: z.union([z.coerce.number().int(), z.string().trim().min(1).max(120)]),
         quantity: z.coerce.number().int().min(1).max(10),
         // Permite sacar un paquete suelto de otra «tienda» del proveedor.
-        providerGameId: z.coerce.number().int().nullable().optional(),
+        providerGameId: z
+          .union([z.coerce.number().int(), z.string().trim().min(1).max(100)])
+          .nullable()
+          .optional(),
       })
     )
     .max(10)
@@ -686,7 +719,7 @@ const productSchema = z.object({
 /** Un producto automático sin llamadas configuradas no se puede despachar. */
 function assertCallsConsistent(input: {
   fulfillment: 'auto' | 'manual';
-  calls?: Array<{ packageId: number; quantity: number }>;
+  calls?: Array<{ packageId: number | string; quantity: number }>;
 }) {
   if (input.fulfillment === 'auto' && (!input.calls || input.calls.length === 0)) {
     throw invalidArgument(

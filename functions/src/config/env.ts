@@ -23,6 +23,13 @@ export const PABILO_API_KEY = defineSecret('PABILO_API_KEY');
 export const PABILO_USER_BANK_ID = defineSecret('PABILO_USER_BANK_ID');
 export const INEFABLE_API_KEY = defineSecret('INEFABLE_API_KEY');
 
+/** API key del revendedor FazerCards (`fc_…`). Nunca llega al navegador. */
+export const FAZERCARDS_API_KEY = defineSecret('FAZERCARDS_API_KEY');
+/** Secreto HMAC que FazerCards devuelve al registrar el webhook. */
+export const FAZERCARDS_WEBHOOK_SECRET = defineSecret('FAZERCARDS_WEBHOOK_SECRET');
+/** Fragmento aleatorio de la URL pública del webhook de FazerCards. */
+export const FAZERCARDS_WEBHOOK_TOKEN = defineSecret('FAZERCARDS_WEBHOOK_TOKEN');
+
 /**
  * Token de un solo uso para los endpoints de arranque (`/api/setup/*`), que
  * crean el primer administrador y siembran el catálogo. Sin él, esas rutas
@@ -72,6 +79,9 @@ export const API_SECRETS = [
   PABILO_API_KEY,
   PABILO_USER_BANK_ID,
   INEFABLE_API_KEY,
+  FAZERCARDS_API_KEY,
+  FAZERCARDS_WEBHOOK_SECRET,
+  FAZERCARDS_WEBHOOK_TOKEN,
   SETUP_TOKEN,
   TELEGRAM_BOT_TOKEN,
   GMAIL_APP_PASSWORD,
@@ -98,6 +108,9 @@ export const inefableBaseUrl = () =>
  */
 export const inefableRechargePath = () =>
   fromEnv('INEFABLE_RECHARGE_PATH', '/api/v1/recharge');
+
+/** Base v2 de FazerCards. */
+export const fazerBaseUrl = () => fromEnv('FAZERCARDS_BASE_URL', 'https://api.fzr.cards/api/v2');
 
 /** Fuente pública para refrescar la tasa BCV cuando `rate.source = auto`. */
 export const rateSourceUrl = () =>

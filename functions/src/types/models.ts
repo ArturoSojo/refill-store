@@ -73,9 +73,11 @@ export interface Game {
   name: string;
   shortName: string;
   /** `game_id` que espera el proveedor Inefable (Free Fire = -1, Blood Strike = 15). */
-  apiGameId: number;
+  apiGameId: number | string;
   /** `game_type` del proveedor: `freefire_id`, `dynamic`. */
   apiGameType: string;
+  /** Proveedor que entrega este juego. Se congela al crear cada orden. */
+  provider?: 'inefable' | 'fazercards';
   /** Cómo se llama la moneda del juego en la interfaz: Diamantes, Gold… */
   currencyLabel: string;
   currencyIcon: string;
@@ -176,7 +178,8 @@ export type ProductKind = 'package' | 'combo' | 'special';
  * en secuencia: 830+83 💎 = [{packageId: 3}, {packageId: 2}].
  */
 export interface DispatchCall {
-  packageId: number;
+  /** ID de oferta del proveedor. Inefable usa números; FazerCards, strings. */
+  packageId: number | string;
   quantity: number;
   /**
    * Juego del proveedor para ESTA llamada. `null` = el del juego.
@@ -186,7 +189,7 @@ export interface DispatchCall {
    * todo menos en el 520, donde gana «Free fire 20%». Sin esto habría que
    * elegir una sola para todo el juego y pagar de más en algún paquete.
    */
-  providerGameId?: number | null;
+  providerGameId?: number | string | null;
 }
 
 export interface Product {
@@ -285,9 +288,10 @@ export const TERMINAL_STATUSES: OrderStatus[] = [
 export type DispatchCallStatus = 'pending' | 'processing' | 'success' | 'error';
 
 export interface DispatchCallResult {
-  packageId: number;
+  packageId: number | string;
   /** Juego del proveedor con el que se envió. `null` = el del juego. */
-  providerGameId?: number | null;
+  providerGameId?: number | string | null;
+  provider?: 'inefable' | 'fazercards';
   index: number;
   status: DispatchCallStatus;
   /** ID de orden devuelto por el proveedor. Ojo: también viene en los fallos. */
@@ -407,7 +411,9 @@ export interface Order {
    * lee del catálogo al despachar— para que un cambio posterior en el juego no
    * altere cómo se entrega una orden que ya se cotizó.
    */
-  providerGameId: number | null;
+  providerGameId: number | string | null;
+  /** Proveedor congelado al comprar; las órdenes anteriores usan Inefable. */
+  provider?: 'inefable' | 'fazercards';
   productId: string;
   productName: string;
   productSku: string;

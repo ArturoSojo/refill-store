@@ -182,6 +182,47 @@ export function AdminSettings() {
                   : 'Sin respuesta'}
             </Badge>
           </div>
+          <div className="flex items-center justify-between rounded-xl bg-base-900/60 px-4 py-3">
+            <div>
+              <p className="text-sm font-medium text-white">FazerCards</p>
+              <p className="text-xs text-slate-400">Nuevo despacho automático</p>
+              {providers.data?.fazercards.balanceUsd !== null &&
+                providers.data?.fazercards.balanceUsd !== undefined && (
+                  <p className="mt-1 text-xs">
+                    <span className="text-slate-400">Saldo: </span>
+                    <span
+                      className={
+                        providers.data.fazercards.balanceUsd < 5
+                          ? 'font-bold text-red-400'
+                          : providers.data.fazercards.balanceUsd < 20
+                            ? 'font-bold text-amber-400'
+                            : 'font-bold text-emerald-400'
+                      }
+                    >
+                      {formatUsd(providers.data.fazercards.balanceUsd)}
+                    </span>
+                    {providers.data.fazercards.accountName && (
+                      <span className="text-slate-500"> · {providers.data.fazercards.accountName}</span>
+                    )}
+                  </p>
+                )}
+            </div>
+            <Badge
+              variant={
+                !providers.data?.fazercards.configured
+                  ? 'danger'
+                  : providers.data.fazercards.reachable
+                    ? 'success'
+                    : 'warning'
+              }
+            >
+              {!providers.data?.fazercards.configured
+                ? 'Falta clave'
+                : providers.data.fazercards.reachable
+                  ? 'Conectado'
+                  : 'Sin respuesta'}
+            </Badge>
+          </div>
         </div>
 
         {providers.data?.inefable.balanceUsd !== null &&
@@ -315,6 +356,13 @@ export function AdminSettings() {
             </ul>
           </details>
         )}
+        {providers.data?.fazercards.balanceUsd !== null &&
+          providers.data?.fazercards.balanceUsd !== undefined &&
+          providers.data.fazercards.balanceUsd < 20 && (
+            <p className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+              Saldo bajo en FazerCards. Las recargas configuradas con este proveedor fallarán al agotarse.
+            </p>
+          )}
       </Card>
 
       {/* --- Datos bancarios --- */}

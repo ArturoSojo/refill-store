@@ -20,6 +20,7 @@ interface GameFormState {
   shortName: string;
   apiGameId: string;
   apiGameType: string;
+  provider: 'inefable' | 'fazercards';
   currencyLabel: string;
   currencyIcon: string;
   currencyIconUrl: string;
@@ -89,6 +90,7 @@ const EMPTY: GameFormState = {
   shortName: '',
   apiGameId: '0',
   apiGameType: 'dynamic',
+  provider: 'inefable',
   currencyLabel: 'Monedas',
   currencyIcon: '🎮',
   currencyIconUrl: '',
@@ -122,6 +124,7 @@ function toForm(game: Game): GameFormState {
     shortName: game.shortName ?? game.name,
     apiGameId: String(game.apiGameId),
     apiGameType: game.apiGameType,
+    provider: game.provider ?? 'inefable',
     currencyLabel: game.currencyLabel,
     currencyIcon: game.currencyIcon ?? '🎮',
     currencyIconUrl: game.currencyIconUrl ?? '',
@@ -179,8 +182,9 @@ export function AdminGames() {
     const payload: Record<string, unknown> = {
       name: form.name.trim(),
       shortName: form.shortName.trim() || form.name.trim(),
-      apiGameId: Number(form.apiGameId),
+      apiGameId: form.provider === 'fazercards' ? form.apiGameId.trim() : Number(form.apiGameId),
       apiGameType: form.apiGameType.trim(),
+      provider: form.provider,
       currencyLabel: form.currencyLabel.trim(),
       currencyIcon: form.currencyIcon.trim(),
       currencyIconUrl: form.currencyIconUrl.trim(),
@@ -363,13 +367,24 @@ export function AdminGames() {
             />
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Select
+              label="Proveedor"
+              value={form.provider}
+              onChange={(event) =>
+                setForm({ ...form, provider: event.target.value as 'inefable' | 'fazercards' })
+              }
+              options={[
+                { value: 'inefable', label: 'Inefable (actual)' },
+                { value: 'fazercards', label: 'FazerCards' },
+              ]}
+            />
             <Input
-              label="game_id del proveedor"
-              type="number"
+              label={form.provider === 'fazercards' ? 'category_id de FazerCards' : 'game_id del proveedor'}
+              type={form.provider === 'fazercards' ? 'text' : 'number'}
               value={form.apiGameId}
               onChange={(event) => setForm({ ...form, apiGameId: event.target.value })}
-              hint="Free Fire = -1, Blood Strike = 15"
+              hint={form.provider === 'fazercards' ? 'La categoría de Top-ups en FazerCards.' : 'Free Fire = -1, Blood Strike = 15'}
             />
             <Input
               label="game_type"

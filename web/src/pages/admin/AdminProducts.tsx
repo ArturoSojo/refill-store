@@ -125,14 +125,15 @@ function CallsEditor({
           <div key={index} className="flex items-center gap-2">
             <span className="w-6 shrink-0 text-center text-xs text-slate-500">{index + 1}</span>
             <input
-              type="number"
+              type="text"
               value={call.packageId}
               onChange={(event) => {
                 const next = [...calls];
-                next[index] = { ...call, packageId: Number(event.target.value) };
+                const raw = event.target.value.trim();
+                next[index] = { ...call, packageId: /^\d+$/.test(raw) ? Number(raw) : raw };
                 onChange(next);
               }}
-              placeholder="package_id"
+              placeholder="offer_id"
               className="input-base flex-1 py-2"
             />
             <input
@@ -149,12 +150,15 @@ function CallsEditor({
               title="Veces seguidas"
             />
             <input
-              type="number"
+              type="text"
               value={call.providerGameId ?? ''}
               onChange={(event) => {
                 const raw = event.target.value.trim();
                 const next = [...calls];
-                next[index] = { ...call, providerGameId: raw === '' ? null : Number(raw) };
+                next[index] = {
+                  ...call,
+                  providerGameId: raw === '' ? null : /^\d+$/.test(raw) ? Number(raw) : raw,
+                };
                 onChange(next);
               }}
               placeholder="juego"

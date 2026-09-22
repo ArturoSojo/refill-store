@@ -40,6 +40,8 @@ export const COLLECTIONS = {
   /** Candado de unicidad del código: doc id = el código en mayúsculas. */
   creatorCodes: 'creatorCodes',
   modals: 'modals',
+  /** Índice de IDs externos para resolver webhooks sin recorrer órdenes. */
+  providerOrders: 'providerOrders',
 } as const;
 
 export const CONFIG_DOC_ID = 'app';
@@ -58,6 +60,7 @@ export const adminAlerts = () => db.collection(COLLECTIONS.adminAlerts);
 export const creators = () => db.collection(COLLECTIONS.creators);
 export const creatorCodes = () => db.collection(COLLECTIONS.creatorCodes);
 export const modals = () => db.collection(COLLECTIONS.modals);
+export const providerOrders = () => db.collection(COLLECTIONS.providerOrders);
 export const configDoc = () => db.collection(COLLECTIONS.config).doc(CONFIG_DOC_ID);
 export const dailyStats = () =>
   db.collection(COLLECTIONS.stats).doc('daily').collection('days');

@@ -438,6 +438,8 @@ export async function createOrder(
     gameId: game.id,
     gameName: game.name,
     providerGameId: game.apiGameId,
+    // Queda congelado: cambiar de proveedor mañana no altera una compra ya pagada.
+    provider: game.provider ?? 'inefable',
     productId: product.id,
     productName: product.name,
     productSku: product.sku,
