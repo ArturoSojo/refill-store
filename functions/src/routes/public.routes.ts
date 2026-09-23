@@ -10,6 +10,7 @@ import * as catalog from '../services/catalog';
 import * as modalsService from '../services/modals';
 import { getConfig, toPublicConfig } from '../services/settings';
 import { buildSupportUrl } from '../services/whatsapp';
+import { assertStorefrontGame, belongsToStorefront, resolveStorefront } from '../lib/storefront';
 
 export const publicRouter = Router();
 
@@ -39,9 +40,12 @@ publicRouter.get(
 /** Categorías para la portada. Las ofertas se cargan al abrir una categoría. */
 publicRouter.get(
   '/catalog',
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
     const config = await getConfig();
-    const gameList = await catalog.listGames({ onlyActive: true });
+    const storefront = resolveStorefront(req);
+    const gameList = (await catalog.listGames({ onlyActive: true })).filter((game) =>
+      belongsToStorefront(game, storefront)
+    );
 
     ok(res, {
       rate: config.rate.value,
@@ -59,6 +63,7 @@ publicRouter.get(
     const config = await getConfig();
     const product = await catalog.getProduct(productId);
     const game = await catalog.getGame(product.gameId);
+    assertStorefrontGame(req, game);
     if (!product.active || !game.active) throw new Error('Producto no disponible.');
     ok(res, {
       rate: config.rate.value,
@@ -79,6 +84,7 @@ publicRouter.get(
       catalog.getGame(gameId),
       catalog.listProducts({ gameId, onlyActive: true }),
     ]);
+    assertStorefrontGame(req, game);
 
     ok(res, {
       game: catalog.toPublicGame(game),

@@ -19,6 +19,8 @@ import * as creatorsService from '../services/creators';
 import * as catalog from '../services/catalog';
 import { listEvents } from '../services/orderEvents';
 import { getConfig } from '../services/settings';
+import { assertStorefrontGame } from '../lib/storefront';
+import { invalidArgument } from '../lib/errors';
 
 export const ordersRouter = Router();
 
@@ -70,6 +72,14 @@ ordersRouter.post(
     const user = currentUser(req);
     const body = parseBody(req, createOrderSchema);
     const profile = await usersService.ensureProfile(user);
+    const [game, product] = await Promise.all([
+      catalog.getGame(body.gameId),
+      catalog.getProduct(body.productId),
+    ]);
+    if (product.gameId !== game.id) {
+      throw invalidArgument('El paquete no corresponde al juego seleccionado.');
+    }
+    assertStorefrontGame(req, game);
 
     const order = await ordersService.createOrder(user, profile, {
       gameId: body.gameId,
@@ -231,6 +241,8 @@ ordersRouter.post(
       usersService.ensureProfile(user),
       catalog.getProduct(body.productId),
     ]);
+    const game = await catalog.getGame(product.gameId);
+    assertStorefrontGame(req, game);
 
     const subtotalUsd = Number((product.priceUsd * body.quantity).toFixed(2));
     const tierPercent = await usersService.tierDiscountPercent(profile.tier);
