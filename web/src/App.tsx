@@ -5,6 +5,7 @@ import { RequireAuth, RequireStaff, ScrollToTop } from '@/components/common/Guar
 
 import { HomePage } from '@/pages/HomePage';
 import { GamePage } from '@/pages/GamePage';
+import { FamilyPage } from '@/pages/FamilyPage';
 import { CheckoutPage } from '@/pages/CheckoutPage';
 import { OrderPage } from '@/pages/OrderPage';
 import { OrdersPage } from '@/pages/OrdersPage';
@@ -42,6 +43,7 @@ export function App() {
         {/* --- Tienda --- */}
         <Route element={<StoreLayout />}>
           <Route index element={<HomePage />} />
+          <Route path="familia/:family" element={<FamilyPage />} />
           <Route path="juego/:slug" element={<GamePage />} />
           {/* El checkout es público hasta el momento de pagar: así el usuario
               ve el precio antes de que se le pida iniciar sesión. */}

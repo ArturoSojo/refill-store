@@ -641,6 +641,10 @@ export interface CatalogResponse {
   rate: number;
   games: Game[];
   products: PublicProduct[];
+  /** Conteo por familia. En portada se usa para el enlace «Ver todos». */
+  familyCounts?: Partial<Record<'topup' | 'gift_card' | 'game_key', number>>;
+  nextCursor?: string | null;
+  total?: number;
 }
 
 export interface ProductResponse {

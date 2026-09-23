@@ -1,14 +1,98 @@
 /** Lectura y escritura del catálogo (juegos y productos). */
 import { games, products, now } from '../config/firebase';
+import { FieldPath } from 'firebase-admin/firestore';
 import { notFound, failedPrecondition } from '../lib/errors';
 import { applyMargin, round, usdToBs } from '../lib/money';
 import { DEFAULT_PLAYER_FIELD } from '../types/models';
+import { paginate, type Page } from '../lib/pagination';
 import type { Game, PlayerField, Product, PublicProduct } from '../types/models';
 
 export async function listGames(options: { onlyActive?: boolean } = {}): Promise<Game[]> {
   const snap = await games().orderBy('sortOrder', 'asc').get();
   const all = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }) as Game);
   return options.onlyActive ? all.filter((game) => game.active) : all;
+}
+
+export type FazerFamily = 'topup' | 'gift_card' | 'game_key';
+
+const HOME_PRIORITY: Partial<Record<FazerFamily, string[]>> = {
+  topup: [
+    'fz-topup-free-fire-latam',
+    'fz-topup-blood-strike',
+    'fz-topup-pubg-mobile-auto',
+    'fz-topup-mobile-legends-global',
+    'fz-topup-delta-force',
+    'fz-topup-genshin-impact-global',
+  ],
+  gift_card: [
+    'fz-gift_card-google-play-es',
+    'fz-gift_card-app-store-itunes-es',
+    'fz-gift_card-app-store-itunes-mx',
+    'fz-gift_card-steam-wallet-mx',
+  ],
+};
+
+/** Lee sólo una familia activa del catálogo grande de FazerCards. */
+export async function listFazerGamesByFamily(
+  family: FazerFamily,
+  limit?: number
+): Promise<Game[]> {
+  let query = games()
+    .where('provider', '==', 'fazercards')
+    .where('providerFamily', '==', family)
+    .where('active', '==', true)
+    .orderBy('sortOrder', 'asc')
+    .orderBy(FieldPath.documentId(), 'asc');
+  if (limit !== undefined) query = query.limit(limit);
+  const snap = await query.get();
+  return snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }) as Game);
+}
+
+/** Portada: mantiene las categorías principales visibles sin leer la familia completa. */
+export async function listFazerHomeGamesByFamily(family: FazerFamily, limit: number): Promise<Game[]> {
+  const [firstPage, ...pinned] = await Promise.all([
+    listFazerGamesByFamily(family, limit),
+    ...(HOME_PRIORITY[family] ?? []).map(async (id) => {
+      const snap = await games().doc(id).get();
+      if (!snap.exists) return null;
+      const game = { id: snap.id, ...snap.data() } as Game;
+      return game.active && game.provider === 'fazercards' && game.providerFamily === family ? game : null;
+    }),
+  ]);
+  const rank = new Map((HOME_PRIORITY[family] ?? []).map((id, index) => [id, index]));
+  const unique = new Map([...firstPage, ...pinned.filter((game): game is Game => Boolean(game))].map((game) => [game.id, game]));
+  return [...unique.values()]
+    .sort((a, b) => (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER)
+      || (a.sortOrder ?? 0) - (b.sortOrder ?? 0)
+      || a.id.localeCompare(b.id))
+    .slice(0, limit);
+}
+
+/** Cuenta categorías visibles sin leer cada documento del catálogo. */
+export async function countFazerGamesByFamily(family: FazerFamily): Promise<number> {
+  const result = await games()
+    .where('provider', '==', 'fazercards')
+    .where('providerFamily', '==', family)
+    .where('active', '==', true)
+    .count()
+    .get();
+  return result.data().count;
+}
+
+/** Lista una familia con cursor para que el catálogo grande no se lea completo. */
+export async function pageFazerGamesByFamily(
+  family: FazerFamily,
+  options: { cursor?: string; limit: number }
+): Promise<Page<Game>> {
+  const query = games()
+    .where('provider', '==', 'fazercards')
+    .where('providerFamily', '==', family)
+    .where('active', '==', true);
+  return paginate(
+    query,
+    { orderBy: 'sortOrder', direction: 'asc', cursor: options.cursor, limit: options.limit, withTotal: !options.cursor },
+    (id, data) => ({ id, ...data }) as Game
+  );
 }
 
 export async function getGame(gameId: string): Promise<Game> {

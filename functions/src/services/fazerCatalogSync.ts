@@ -42,6 +42,28 @@ function familyMeta(family: Family) {
   return { label: 'Recargas', icon: '🎮', color: '#F03030' };
 }
 
+/** Prioridad inicial de categorías en portada; las demás se ordenan después. */
+const HOME_CATEGORY_ORDER: Partial<Record<Family, Record<string, number>>> = {
+  topup: {
+    'fz-topup-free-fire-latam': 10,
+    'fz-topup-blood-strike': 20,
+    'fz-topup-pubg-mobile-auto': 30,
+    'fz-topup-mobile-legends-global': 40,
+    'fz-topup-delta-force': 50,
+    'fz-topup-genshin-impact-global': 60,
+  },
+  gift_card: {
+    'fz-gift_card-google-play-es': 10,
+    'fz-gift_card-app-store-itunes-es': 20,
+    'fz-gift_card-app-store-itunes-mx': 30,
+    'fz-gift_card-steam-wallet-mx': 40,
+  },
+};
+
+function categorySortOrder(family: Family, id: string): number {
+  return HOME_CATEGORY_ORDER[family]?.[id] ?? 100;
+}
+
 function parseAmount(name: string): number {
   const match = name.replace(/,/g, '').match(/\b(\d{1,6})\b/);
   return match ? Number(match[1]) : 1;
@@ -159,7 +181,7 @@ export async function syncFazerCatalog(input: { family: Family; offset: number; 
           accentColor: meta.color,
           accentColorSecondary: family === 'gift_card' ? '#059669' : family === 'game_key' ? '#2563EB' : '#B01B1B',
           active: true,
-          sortOrder: family === 'topup' ? 20 : family === 'gift_card' ? 200 : 300,
+          sortOrder: categorySortOrder(family, id),
           productCount: detail.offers.length,
           minPriceUsd: round(minPriceUsd, 2),
           providerSyncedAt: timestamp,

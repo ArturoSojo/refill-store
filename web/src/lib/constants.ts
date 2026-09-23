@@ -5,6 +5,7 @@ export const APP_NAME = 'Refill Store';
 /** Rutas de la tienda, centralizadas para no repetir cadenas por todo el árbol. */
 export const ROUTES = {
   home: '/',
+  family: (family: 'topup' | 'gift_card' | 'game_key') => `/familia/${family}`,
   game: (slug: string) => `/juego/${slug}`,
   checkout: (productId: string) => `/comprar/${productId}`,
   order: (orderId: string) => `/orden/${orderId}`,

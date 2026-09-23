@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -8,6 +8,8 @@ import {
   ShieldCheck,
   Sparkles,
   Wallet2,
+  Gift,
+  KeyRound,
   Zap,
 } from 'lucide-react';
 import { useCatalog } from '@/hooks/useCatalog';
@@ -26,7 +28,7 @@ import { hexToRgb } from '@/lib/utils';
 import type { Game } from '@/types/models';
 
 /** Tarjeta grande de juego, con la portada o un degradado del color propio. */
-function GameTile({
+export function GameTile({
   game,
   packageCount,
   minPriceBs,
@@ -39,6 +41,11 @@ function GameTile({
 }) {
   const accent = game.accentColor || '#F03030';
   const accentSecondary = game.accentColorSecondary || '#3018F0';
+  const deliveryLabel = game.providerFamily === 'gift_card'
+    ? 'Código digital'
+    : game.providerFamily === 'game_key'
+      ? 'Game key'
+      : 'Al instante';
 
   return (
     <motion.div
@@ -83,8 +90,14 @@ function GameTile({
           )}
 
           <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-black/55 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white backdrop-blur">
-            <Zap className="h-3 w-3 text-emerald-400" aria-hidden />
-            Instantáneo
+            {game.providerFamily === 'gift_card' ? (
+              <Gift className="h-3 w-3 text-emerald-300" aria-hidden />
+            ) : game.providerFamily === 'game_key' ? (
+              <KeyRound className="h-3 w-3 text-sky-300" aria-hidden />
+            ) : (
+              <Zap className="h-3 w-3 text-emerald-400" aria-hidden />
+            )}
+            {deliveryLabel}
           </span>
         </div>
 
@@ -274,29 +287,23 @@ function ActiveOrdersStrip() {
 export function HomePage() {
   useDocumentTitle('');
   const { data, isLoading, error, refetch } = useCatalog();
-  const [family, setFamily] = useState<'all' | 'topup' | 'gift_card' | 'game_key'>('all');
-  const [search, setSearch] = useState('');
-  const [visibleCount, setVisibleCount] = useState(36);
 
   const games = data?.games ?? [];
-  const filteredGames = useMemo(() => {
-    const term = search.trim().toLocaleLowerCase();
-    return games.filter((game) => {
-      const gameFamily = game.providerFamily ?? 'topup';
-      return (family === 'all' || gameFamily === family) &&
-        (!term || `${game.name} ${game.region ?? ''} ${game.platform ?? ''}`.toLocaleLowerCase().includes(term));
-    });
-  }, [games, family, search]);
-  const visibleGames = filteredGames.slice(0, visibleCount);
-  const statsFor = (gameId: string) => {
-    const game = games.find((item) => item.id === gameId);
-    return {
-      count: game?.productCount ?? 0,
-      minBs: game?.minPriceUsd !== null && game?.minPriceUsd !== undefined && data
-        ? game.minPriceUsd * data.rate
-        : undefined,
-    };
-  };
+  const grouped = useMemo(() => {
+    const groups = new Map<'topup' | 'gift_card' | 'game_key', Game[]>();
+    for (const game of games) {
+      const key = game.providerFamily ?? 'topup';
+      const items = groups.get(key) ?? [];
+      items.push(game);
+      groups.set(key, items);
+    }
+    return groups;
+  }, [games]);
+  const familySections = [
+    { id: 'topup' as const, label: 'Recargas de juegos', titleIcon: Zap },
+    { id: 'gift_card' as const, label: 'Gift cards', titleIcon: Gift },
+    { id: 'game_key' as const, label: 'Game keys', titleIcon: KeyRound },
+  ].filter((family) => (data?.familyCounts?.[family.id] ?? grouped.get(family.id)?.length ?? 0) > 0);
 
   return (
     <div className="space-y-10">
@@ -304,74 +311,52 @@ export function HomePage() {
       <Hero />
       <ActiveOrdersStrip />
 
-      <section id="juegos" className="mx-auto max-w-6xl scroll-mt-20 px-4">
-        <div className="mb-5">
-          <h2 className="text-2xl font-black text-white sm:text-3xl">Explora el catálogo</h2>
-          <p className="mt-1 text-sm text-slate-400">
-            Recargas, gift cards y game keys disponibles para Latinoamérica.
-          </p>
-          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex flex-wrap gap-2" role="group" aria-label="Filtrar catálogo">
-              {([
-                ['all', 'Todo'], ['topup', 'Recargas'], ['gift_card', 'Gift cards'], ['game_key', 'Game keys'],
-              ] as const).map(([key, label]) => (
-                <button key={key} type="button" onClick={() => { setFamily(key); setVisibleCount(36); }}
-                  className={`rounded-xl border px-3 py-2 text-xs font-bold transition ${family === key ? 'border-neon-red/50 bg-neon-red/15 text-white' : 'border-base-600 bg-base-800 text-slate-400 hover:text-white'}`}>
-                  {label}{key !== 'all' && <span className="ml-1.5 text-slate-500">{games.filter((game) => (game.providerFamily ?? 'topup') === key).length}</span>}
-                </button>
-              ))}
-            </div>
-            <input value={search} onChange={(event) => { setSearch(event.target.value); setVisibleCount(36); }}
-              placeholder="Buscar juego, plataforma o región…" aria-label="Buscar en el catálogo"
-              className="h-10 w-full rounded-xl border border-base-600 bg-base-800 px-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-neon-red/60 sm:max-w-xs" />
-          </div>
-        </div>
-
+      <div id="catalogo" className="scroll-mt-20 space-y-10">
         {isLoading ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {[0, 1].map((index) => (
-              <Skeleton key={index} className="h-56 rounded-2xl" />
-            ))}
-          </div>
+          (['topup', 'gift_card', 'game_key'] as const).map((family) => (
+            <section key={family} className="mx-auto max-w-6xl px-4">
+              <Skeleton className="mb-4 h-8 w-56 rounded-xl" />
+              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">
+                {Array.from({ length: 4 }, (_, index) => <Skeleton key={index} className="h-56 rounded-2xl" />)}
+              </div>
+            </section>
+          ))
         ) : error ? (
-          <ErrorState
-            message="No pudimos cargar el catálogo."
-            action={
-              <button
-                type="button"
-                onClick={() => void refetch()}
-                className="rounded-xl bg-base-700 px-4 py-2 text-sm font-semibold text-white hover:bg-base-600"
-              >
-                Reintentar
-              </button>
-            }
-          />
-        ) : filteredGames.length === 0 ? (
-          <EmptyState
-            title="No encontramos productos"
-            description="Prueba otra búsqueda o cambia el filtro de categoría."
-          />
+          <section className="mx-auto max-w-6xl px-4">
+            <ErrorState message="No pudimos cargar el catálogo." action={
+              <button type="button" onClick={() => void refetch()} className="rounded-xl bg-base-700 px-4 py-2 text-sm font-semibold text-white hover:bg-base-600">Reintentar</button>
+            } />
+          </section>
+        ) : familySections.length === 0 ? (
+          <section className="mx-auto max-w-6xl px-4"><EmptyState title="Catálogo en preparación" description="Todavía no hay productos publicados." /></section>
         ) : (
-          <>
-          <p className="mb-3 text-xs text-slate-500">Mostrando {visibleGames.length} de {filteredGames.length} categorías</p>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {visibleGames.map((game, index) => {
-              const stats = statsFor(game.id);
-              return (
-                <GameTile
-                  key={game.id}
-                  game={game}
-                  index={index}
-                  packageCount={stats.count}
-                  minPriceBs={stats.minBs}
-                />
-              );
-            })}
-          </div>
-          {visibleCount < filteredGames.length && <div className="mt-6 text-center"><button type="button" onClick={() => setVisibleCount((count) => count + 36)} className="rounded-xl border border-base-600 bg-base-800 px-5 py-3 text-sm font-bold text-white hover:border-neon-red/50">Mostrar más productos</button></div>}
-          </>
+          familySections.map((family) => (
+            <section key={family.id} className="mx-auto max-w-6xl px-4">
+              <div className="mb-4 flex items-end justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-neon-red/15 text-neon-crimson">
+                    <family.titleIcon className="h-5 w-5" aria-hidden />
+                  </span>
+                  <div>
+                    <h2 className="text-xl font-black text-white sm:text-2xl">{family.label}</h2>
+                    <p className="text-xs text-slate-400">{family.id === 'topup' ? 'Diamantes, monedas y pases directo a tu cuenta.' : family.id === 'gift_card' ? 'Códigos digitales para tus tiendas y servicios.' : 'Claves digitales de juegos para distintas plataformas.'}</p>
+                  </div>
+                </div>
+                <Link to={ROUTES.family(family.id)} className="inline-flex shrink-0 items-center gap-1 text-xs font-bold text-neon-crimson hover:underline sm:text-sm">
+                  Ver {data?.familyCounts?.[family.id] ?? grouped.get(family.id)?.length ?? 0}<ChevronRight className="h-4 w-4" aria-hidden />
+                </Link>
+              </div>
+              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">
+                {(grouped.get(family.id) ?? []).slice(0, 8).map((game, index) => (
+                  <GameTile key={game.id} game={game} index={index}
+                    packageCount={game.productCount ?? 0}
+                    minPriceBs={game.minPriceUsd != null && data ? game.minPriceUsd * data.rate : undefined} />
+                ))}
+              </div>
+            </section>
+          ))
         )}
-      </section>
+      </div>
 
       <section className="mx-auto max-w-6xl px-4">
         <div className="neon-card overflow-hidden p-0">

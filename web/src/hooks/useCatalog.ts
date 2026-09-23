@@ -1,5 +1,5 @@
 /** Consultas del catálogo público. */
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { QUERY_KEYS } from '@/lib/constants';
 import type { CatalogResponse, GameCatalogResponse, ProductResponse, PublicProduct } from '@/types/models';
@@ -24,6 +24,35 @@ export function useCatalog() {
     queryFn: () => api.get<CatalogResponse>('/catalog', { anonymous: true }),
     ...CATALOG_OPTIONS,
   });
+}
+
+/** Catálogo completo de una familia, consultado al entrar en «Ver todos». */
+export function useFamilyCatalog(family: 'topup' | 'gift_card' | 'game_key' | undefined) {
+  const query = useInfiniteQuery({
+    queryKey: ['catalog', 'family', family ?? ''],
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) => {
+      const params = new URLSearchParams({ family: family ?? '', limit: '30' });
+      if (pageParam) params.set('cursor', pageParam);
+      return api.get<CatalogResponse>(`/catalog?${params.toString()}`, {
+        anonymous: true,
+      });
+    },
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    enabled: Boolean(family),
+    ...CATALOG_OPTIONS,
+  });
+  return {
+    ...query,
+    data: query.data ? {
+      ...query.data.pages[0],
+      games: query.data.pages.flatMap((page) => page.games),
+      nextCursor: query.data.pages[query.data.pages.length - 1]?.nextCursor ?? null,
+    } : undefined,
+    loadMore: () => void query.fetchNextPage(),
+    hasMore: Boolean(query.hasNextPage),
+    isLoadingMore: query.isFetchingNextPage,
+  };
 }
 
 export function useGameCatalog(slug: string | undefined) {

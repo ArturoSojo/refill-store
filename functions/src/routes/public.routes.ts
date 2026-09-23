@@ -11,6 +11,10 @@ import * as modalsService from '../services/modals';
 import { getConfig, toPublicConfig } from '../services/settings';
 import { buildSupportUrl } from '../services/whatsapp';
 import { assertStorefrontGame, belongsToStorefront, resolveStorefront } from '../lib/storefront';
+import { PAGE_LIMIT } from '../lib/pagination';
+
+const FAZER_FAMILIES = ['topup', 'gift_card', 'game_key'] as const;
+const HOME_CATEGORIES_PER_FAMILY = 8;
 
 export const publicRouter = Router();
 
@@ -38,28 +42,61 @@ publicRouter.get(
 );
 
 /**
- * Catálogo compacto para portada y compatibilidad con clientes anteriores.
- * Inefable tiene sólo dos juegos, así que se incluyen sus paquetes activos para
- * que la versión actual de Netlify siga funcionando durante un redeploy
- * pausado. FazerCards tiene cientos de categorías y miles de ofertas: allí los
- * productos se cargan por categoría al abrirla para mantener pequeña la página.
+ * Catálogo de portada.
+ * Inefable tiene sólo dos juegos, así que incluye sus paquetes activos para
+ * compatibilidad con la versión publicada en Netlify. FazerCards devuelve sólo
+ * 8 categorías por familia y sus totales; el listado completo se consulta por
+ * familia y las ofertas sólo al abrir una categoría.
  */
 publicRouter.get(
   '/catalog',
   asyncHandler(async (req, res) => {
     const config = await getConfig();
     const storefront = resolveStorefront(req);
+    const familyQuery = z.object({
+      family: z.enum(FAZER_FAMILIES).optional(),
+      cursor: z.string().max(400).optional(),
+      limit: z.coerce.number().int().min(PAGE_LIMIT.min).max(PAGE_LIMIT.max).default(30),
+    });
+    const { family, cursor, limit } = parseQuery(req, familyQuery);
+
+    if (storefront === 'fazercards') {
+      const families = family ? [family] : [...FAZER_FAMILIES];
+      const results = await Promise.all(
+        families.map(async (currentFamily) => {
+          const [page, total] = await Promise.all([
+            family
+              ? catalog.pageFazerGamesByFamily(currentFamily, { cursor, limit })
+              : catalog.listFazerHomeGamesByFamily(currentFamily, HOME_CATEGORIES_PER_FAMILY).then((items) => ({
+                  items,
+                  nextCursor: null,
+                })),
+            family ? Promise.resolve(undefined) : catalog.countFazerGamesByFamily(currentFamily),
+          ]);
+          return { family: currentFamily, ...page, total };
+        })
+      );
+      ok(res, {
+        rate: config.rate.value,
+        games: results.flatMap((result) => result.items.map(catalog.toPublicGame)),
+        products: [],
+        familyCounts: Object.fromEntries(results.flatMap((result) =>
+          result.total === undefined ? [] : [[result.family, result.total]]
+        )),
+        nextCursor: family ? results[0]?.nextCursor ?? null : null,
+        total: family ? results[0]?.total : undefined,
+      });
+      return;
+    }
+
     const gameList = (await catalog.listGames({ onlyActive: true })).filter((game) =>
       belongsToStorefront(game, storefront)
     );
-    const productList =
-      storefront === 'inefable'
-        ? (
-            await Promise.all(
-              gameList.map((game) => catalog.listProducts({ gameId: game.id, onlyActive: true }))
-            )
-          ).flat()
-        : [];
+    const productList = (
+      await Promise.all(
+        gameList.map((game) => catalog.listProducts({ gameId: game.id, onlyActive: true }))
+      )
+    ).flat();
 
     ok(res, {
       rate: config.rate.value,
@@ -67,6 +104,7 @@ publicRouter.get(
       products: productList.map((product) =>
         catalog.toPublicProduct(product, config.rate.value, config.pricing.roundToBs)
       ),
+      familyCounts: {},
     });
   })
 );
