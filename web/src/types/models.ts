@@ -72,6 +72,8 @@ export interface Game {
   accentColor: string;
   accentColorSecondary: string;
   active: boolean;
+  /** Conteo ligero para tarjetas de portada; las ofertas se cargan al abrir. */
+  productCount?: number;
   sortOrder: number;
   createdAt: TimestampLike;
   updatedAt: TimestampLike;
@@ -822,4 +824,3 @@ export interface CreatorSummary {
   discountPercent: number;
   stats: Creator['stats'];
 }
-

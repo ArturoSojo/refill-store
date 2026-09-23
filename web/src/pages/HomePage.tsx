@@ -327,12 +327,17 @@ export function HomePage() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {games.map((game, index) => {
               const stats = statsFor(game.id);
+              // El endpoint ligero de portada no descarga todas las ofertas.
+              // Usa el contador calculado por el servidor cuando no trae la
+              // lista completa; así una tienda filtrada no muestra «0
+              // paquetes» aunque sí los tenga al abrir el juego.
+              const packageCount = stats.count || game.productCount || 0;
               return (
                 <GameTile
                   key={game.id}
                   game={game}
                   index={index}
-                  packageCount={stats.count}
+                  packageCount={packageCount}
                   minPriceBs={stats.minBs}
                 />
               );
