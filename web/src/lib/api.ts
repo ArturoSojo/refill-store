@@ -9,6 +9,20 @@ import { auth } from './firebase';
 
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
 
+/** Identidad del escaparate que se envía a la API compartida. */
+function storefront(): 'inefable' | 'fazercards' {
+  if (typeof window === 'undefined') return 'inefable';
+  const host = window.location.hostname.toLowerCase();
+  return host === 'refill-store-ve.netlify.app' || host.endsWith('--refill-store-ve.netlify.app')
+    ? 'inefable'
+    : 'fazercards';
+}
+
+function storefrontPath(path: string): string {
+  const separator = path.includes('?') ? '&' : '?';
+  return `${path}${separator}storefront=${storefront()}`;
+}
+
 export type ApiErrorCode =
   | 'unauthenticated'
   | 'forbidden'
@@ -77,7 +91,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
   let response: Response;
   try {
-    response = await fetch(`${BASE_URL}/api${path}`, {
+    response = await fetch(`${BASE_URL}/api${storefrontPath(path)}`, {
       method,
       headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -157,7 +171,7 @@ export const api = {
 /** Descarga un archivo generado por la API (CSV de órdenes). */
 export async function downloadFile(path: string, filename: string): Promise<void> {
   const headers = await authHeader();
-  const response = await fetch(`${BASE_URL}/api${path}`, { headers });
+  const response = await fetch(`${BASE_URL}/api${storefrontPath(path)}`, { headers });
   if (!response.ok) throw new ApiError('internal', 'No se pudo generar el archivo.');
 
   const blob = await response.blob();
