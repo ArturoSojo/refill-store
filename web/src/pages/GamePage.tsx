@@ -20,7 +20,7 @@ import {
   Zap,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { useGameCatalog, groupProducts } from '@/hooks/useCatalog';
+import { useCatalog, useGameCatalog, groupProducts } from '@/hooks/useCatalog';
 import { usePricePreview } from '@/hooks/useOrders';
 import { useSavedPlayerIds } from '@/hooks/useAccount';
 import { useDocumentTitle } from '@/hooks/useMisc';
@@ -56,6 +56,7 @@ export function GamePage() {
   const { config } = useConfig();
 
   const catalog = useGameCatalog(slug);
+  const storefrontCatalog = useCatalog();
   const savedIds = useSavedPlayerIds();
   const pricePreview = usePricePreview();
 
@@ -72,7 +73,19 @@ export function GamePage() {
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const game = catalog.data?.game;
-  const games = game ? [game] : [];
+  const games = useMemo(() => {
+    if (!game) return [];
+    const family = game.providerFamily ?? 'topup';
+    const candidates = (storefrontCatalog.data?.games ?? []).filter(
+      (item) => (item.providerFamily ?? 'topup') === family
+    );
+    // La portada entrega una muestra pequeña y priorizada por familia. Añade
+    // siempre el juego actual si no está en esa muestra (p. ej. una categoría
+    // profunda), sin descargar todo el catálogo sólo para el selector.
+    const unique = new Map(candidates.map((item) => [item.id, item]));
+    unique.set(game.id, game);
+    return [...unique.values()];
+  }, [game, storefrontCatalog.data?.games]);
   const selectedProductId = searchParams.get('pkg') ?? '';
 
   const products = useMemo(
