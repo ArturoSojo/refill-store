@@ -37,7 +37,13 @@ publicRouter.get(
   })
 );
 
-/** Categorías para la portada. Las ofertas se cargan al abrir una categoría. */
+/**
+ * Catálogo compacto para portada y compatibilidad con clientes anteriores.
+ * Inefable tiene sólo dos juegos, así que se incluyen sus paquetes activos para
+ * que la versión actual de Netlify siga funcionando durante un redeploy
+ * pausado. FazerCards tiene cientos de categorías y miles de ofertas: allí los
+ * productos se cargan por categoría al abrirla para mantener pequeña la página.
+ */
 publicRouter.get(
   '/catalog',
   asyncHandler(async (req, res) => {
@@ -46,11 +52,21 @@ publicRouter.get(
     const gameList = (await catalog.listGames({ onlyActive: true })).filter((game) =>
       belongsToStorefront(game, storefront)
     );
+    const productList =
+      storefront === 'inefable'
+        ? (
+            await Promise.all(
+              gameList.map((game) => catalog.listProducts({ gameId: game.id, onlyActive: true }))
+            )
+          ).flat()
+        : [];
 
     ok(res, {
       rate: config.rate.value,
       games: gameList.map(catalog.toPublicGame),
-      products: [],
+      products: productList.map((product) =>
+        catalog.toPublicProduct(product, config.rate.value, config.pricing.roundToBs)
+      ),
     });
   })
 );
