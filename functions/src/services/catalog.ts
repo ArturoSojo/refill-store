@@ -150,6 +150,7 @@ export function assertPurchasable(product: Product, game: Game): void {
  * y que un documento sin migrar rompa el checkout.
  */
 export function resolvePlayerFields(game: Game): PlayerField[] {
+  if (game.requiresPlayerData === false) return [];
   const declared = Array.isArray(game.playerFields) ? game.playerFields : [];
   if (declared.length > 0) return declared;
 
@@ -195,6 +196,9 @@ export function resolvePlayerData(
   game: Game
 ): ResolvedPlayerData {
   const fields = resolvePlayerFields(game);
+  // Gift cards y game keys se entregan como código: no piden datos de una
+  // cuenta y la orden conserva campos vacíos de forma explícita.
+  if (fields.length === 0) return { playerId: '', playerId2: null, values: {} };
   const raw =
     typeof input === 'string' ? { [fields[0]?.key ?? 'playerId']: input } : (input ?? {});
 

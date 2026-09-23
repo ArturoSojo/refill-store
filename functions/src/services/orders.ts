@@ -151,7 +151,11 @@ export function toCustomerOrder(order: Order): CustomerOrder {
     ...rest
   } = order;
   const { costUsd: _costUsd, profitUsd: _profitUsd, ...pricing } = fullPricing;
-  return { ...rest, pricing };
+  return {
+    ...rest,
+    deliveredCodes: order.status === 'completed' ? order.deliveredCodes ?? [] : [],
+    pricing,
+  };
 }
 
 export interface PaymentInstructions {
@@ -440,6 +444,7 @@ export async function createOrder(
     providerGameId: game.apiGameId,
     // Queda congelado: cambiar de proveedor mañana no altera una compra ya pagada.
     provider: game.provider ?? 'inefable',
+    providerFamily: game.providerFamily ?? 'topup',
     productId: product.id,
     productName: product.name,
     productSku: product.sku,

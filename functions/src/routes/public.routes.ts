@@ -36,22 +36,34 @@ publicRouter.get(
   })
 );
 
-/** Catálogo completo, ya convertido a bolívares con la tasa vigente. */
+/** Categorías para la portada. Las ofertas se cargan al abrir una categoría. */
 publicRouter.get(
   '/catalog',
   asyncHandler(async (_req, res) => {
     const config = await getConfig();
-    const [gameList, productList] = await Promise.all([
-      catalog.listGames({ onlyActive: true }),
-      catalog.listProducts({ onlyActive: true }),
-    ]);
+    const gameList = await catalog.listGames({ onlyActive: true });
 
     ok(res, {
       rate: config.rate.value,
       games: gameList.map(catalog.toPublicGame),
-      products: productList.map((product) =>
-        catalog.toPublicProduct(product, config.rate.value, config.pricing.roundToBs)
-      ),
+      products: [],
+    });
+  })
+);
+
+/** Producto directo para que el checkout no dependa del catálogo entero. */
+publicRouter.get(
+  '/products/:productId',
+  asyncHandler(async (req, res) => {
+    const { productId } = parseParams(req, z.object({ productId: z.string().min(1) }));
+    const config = await getConfig();
+    const product = await catalog.getProduct(productId);
+    const game = await catalog.getGame(product.gameId);
+    if (!product.active || !game.active) throw new Error('Producto no disponible.');
+    ok(res, {
+      rate: config.rate.value,
+      game: catalog.toPublicGame(game),
+      product: catalog.toPublicProduct(product, config.rate.value, config.pricing.roundToBs),
     });
   })
 );

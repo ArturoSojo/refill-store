@@ -35,6 +35,7 @@ import * as notificationsService from '../services/notifications';
 import * as pabilo from '../services/pabilo';
 import * as inefable from '../services/inefable';
 import * as fazercards from '../services/fazercards';
+import * as fazerCatalogSync from '../services/fazerCatalogSync';
 import { listEvents } from '../services/orderEvents';
 import { getConfig, updateConfig } from '../services/settings';
 import * as settings from '../services/settings';
@@ -158,6 +159,31 @@ adminRouter.get(
     const result = await fazercards.getTopupOffers(categoryId);
     if (!result.ok) throw failedPrecondition(result.message ?? 'No se pudo consultar el catálogo de FazerCards.');
     ok(res, { categoryId, offers: result.offers });
+  })
+);
+
+/** Importa el catálogo LATAM de FazerCards. Sólo administra catálogo, nunca órdenes. */
+adminRouter.post(
+  '/providers/fazercards/sync',
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const input = parseBody(req, z.object({
+      family: z.enum(['topup', 'gift_card', 'game_key']),
+      offset: z.number().int().min(0).default(0),
+      limit: z.number().int().min(1).max(4).default(4),
+    }));
+    const summary = await fazerCatalogSync.syncFazerCatalog(input);
+    await audit.record({
+      action: 'FAZERCARDS_CATALOG_SYNC',
+      actorUid: currentUser(req).uid,
+      actorEmail: currentUser(req).email,
+      targetType: 'catalog',
+      targetId: 'fazercards',
+      summary: `Catálogo FazerCards ${input.family}: ${summary.createdGames} categorías y ${summary.createdProducts} productos nuevos.`,
+      data: { ...summary },
+      ip: clientIp(req),
+    });
+    ok(res, { summary });
   })
 );
 

@@ -2,7 +2,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { QUERY_KEYS } from '@/lib/constants';
-import type { CatalogResponse, GameCatalogResponse, PublicProduct } from '@/types/models';
+import type { CatalogResponse, GameCatalogResponse, ProductResponse, PublicProduct } from '@/types/models';
 
 /**
  * El catálogo se revalida al volver a la pestaña.
@@ -41,22 +41,21 @@ export function useGameCatalog(slug: string | undefined) {
  * resolver el producto sin haber pasado por la página del juego.
  */
 export function useProduct(productId: string | undefined) {
-  const catalog = useCatalog();
-
-  const product: PublicProduct | undefined = productId
-    ? catalog.data?.products.find((item) => item.id === productId)
-    : undefined;
-
-  const game = product ? catalog.data?.games.find((item) => item.id === product.gameId) : undefined;
+  const query = useQuery({
+    queryKey: ['product', productId ?? ''],
+    queryFn: () => api.get<ProductResponse>(`/products/${encodeURIComponent(productId ?? '')}`, { anonymous: true }),
+    enabled: Boolean(productId),
+    ...CATALOG_OPTIONS,
+  });
 
   return {
-    product,
-    game,
-    rate: catalog.data?.rate ?? 0,
-    isLoading: catalog.isLoading,
-    error: catalog.error,
+    product: query.data?.product,
+    game: query.data?.game,
+    rate: query.data?.rate ?? 0,
+    isLoading: query.isLoading,
+    error: query.error,
     /** El catálogo cargó pero ese producto no existe o está inactivo. */
-    notFound: !catalog.isLoading && !catalog.error && Boolean(productId) && !product,
+    notFound: !query.isLoading && !query.error && Boolean(productId) && !query.data?.product,
   };
 }
 

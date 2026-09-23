@@ -70,12 +70,13 @@ export function PlayerIdStep({
 
   const fields = useMemo(() => gameFields(game), [game]);
   const primaryField = fields[0];
+  const requiresPlayerData = game.requiresPlayerData !== false;
 
   const gameSavedIds = (savedIds.data?.playerIds ?? []).filter(
     (saved) => saved.gameId === game.id
   );
 
-  const isValid = fieldsAreValid(fields, values);
+  const isValid = !requiresPlayerData || fieldsAreValid(fields, values);
 
   // El precio final depende del nivel del usuario, del cupón y del saldo: se
   // recalcula en el servidor para que lo que se muestra sea lo que se cobrará.
@@ -94,7 +95,7 @@ export function PlayerIdStep({
           useWallet,
           // Sólo con los datos completos: valida el cupón contra esa cuenta del
           // juego antes de crear la orden.
-          playerId: isValid ? (values[primaryField.key] ?? null) : null,
+          playerId: isValid && primaryField ? (values[primaryField.key] ?? null) : null,
         },
         { onSuccess: setPreview }
       );
@@ -130,25 +131,25 @@ export function PlayerIdStep({
           </Badge>
         </div>
 
-        <PlayerFields
+        {requiresPlayerData ? <PlayerFields
           fields={fields}
           values={values}
           onChange={onValuesChange}
           showErrors={touched}
           onBlur={() => setTouched(true)}
           idPrefix="checkout"
-        />
+        /> : <p className="text-sm text-slate-400">Este producto se entrega como código digital. No necesitamos datos de una cuenta.</p>}
 
-        <button
+        {requiresPlayerData && <button
           type="button"
           onClick={() => setHelpOpen(true)}
           className="mt-3 inline-flex items-center gap-1 text-xs text-neon-crimson hover:underline"
         >
           <HelpCircle className="h-3 w-3" aria-hidden />
           ¿Dónde encuentro mis datos?
-        </button>
+        </button>}
 
-        {game.validatesPlayerId === false && (
+        {requiresPlayerData && game.validatesPlayerId === false && (
           <p className="mt-3 flex items-start gap-1.5 rounded-xl bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
             <span>
@@ -158,7 +159,7 @@ export function PlayerIdStep({
           </p>
         )}
 
-        {gameSavedIds.length > 0 && (
+        {requiresPlayerData && primaryField && gameSavedIds.length > 0 && (
           <div className="mt-4">
             <p className="mb-2 text-xs font-medium text-slate-400">Tus accesos guardados</p>
             <div className="flex flex-wrap gap-2">

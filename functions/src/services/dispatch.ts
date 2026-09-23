@@ -331,13 +331,7 @@ export async function dispatchOrder(
     try {
       const result =
         provider === 'fazercards'
-          ? await fazercards.createTopup({
-              categoryId: call.providerGameId ?? providerGameId,
-              offerId: call.packageId,
-              fields: order.playerFields,
-              // Igual que con Inefable: estable por orden y llamada.
-              idempotencyKey: `${order.code}-${call.index + 1}`,
-            })
+          ? await dispatchFazerCall(order, call, providerGameId)
           : await inefable.createOrder({
               // Inefable sólo admite IDs enteros. La validación explícita evita
               // que una oferta de FazerCards se envíe por accidente al API viejo.
@@ -347,6 +341,19 @@ export async function dispatchOrder(
               playerId2: order.playerId2 ?? null,
               externalOrderId: `${order.code}-${call.index + 1}`,
             });
+
+      // Una compra de saldo digital no se puede marcar entregada sin que el
+      // proveedor haya devuelto el PIN/clave; se mantiene en seguimiento.
+      if (
+        provider === 'fazercards' &&
+        (order.providerFamily === 'gift_card' || order.providerFamily === 'game_key') &&
+        result.success &&
+        (!('codes' in result) || !Array.isArray(result.codes) || result.codes.length === 0)
+      ) {
+        result.success = false;
+        result.processing = true;
+        result.message = 'Compra aceptada; esperando los códigos digitales del proveedor.';
+      }
 
       // El saldo del proveedor viaja en cada respuesta: es el momento más
       // barato para detectar que se está agotando.
@@ -361,6 +368,9 @@ export async function dispatchOrder(
       call.providerReference = result.providerReference;
       call.httpStatus = result.httpStatus;
       call.providerResponse = result.raw;
+      if ('codes' in result && Array.isArray(result.codes) && result.codes.length) {
+        call.deliveredCodes = result.codes as string[];
+      }
 
       // FazerCards avisa por su propio `order_id`, no por nuestro código. Se
       // indexa apenas responde para que el webhook resuelva en O(1), incluso
@@ -487,6 +497,32 @@ export async function dispatchOrder(
   };
 }
 
+/** Rutea la llamada FazerCards según la familia congelada en el juego. */
+async function dispatchFazerCall(
+  order: Order,
+  call: DispatchCallResult,
+  providerGameId: number | string
+) {
+  const categoryId = call.providerGameId ?? providerGameId;
+  const idempotencyKey = `${order.code}-${call.index + 1}`;
+  const family = order.providerFamily ?? 'topup';
+  if (family === 'gift_card' || family === 'game_key') {
+    return fazercards.createStockOrder({
+      family,
+      categoryId,
+      offerId: call.packageId,
+      quantity: 1,
+      idempotencyKey,
+    });
+  }
+  return fazercards.createTopup({
+    categoryId,
+    offerId: call.packageId,
+    fields: order.playerFields,
+    idempotencyKey,
+  });
+}
+
 /**
  * Cierra una orden ya despachada: estado, correos, comisiones y avisos.
  *
@@ -520,6 +556,9 @@ async function finalizeDispatch(
         completedAt: allSucceeded ? now() : null,
         lastError: allSucceeded ? null : failure,
       },
+      deliveredCodes: allSucceeded
+        ? calls.flatMap((call) => call.deliveredCodes ?? [])
+        : order.deliveredCodes ?? [],
       updatedAt: now(),
     },
     { merge: true }
@@ -704,11 +743,15 @@ async function resolveOne(order: Order): Promise<boolean> {
 
     const providerStatus = fazerResult?.providerStatus ?? inefableResult?.status ?? null;
     const normalizado = (providerStatus ?? '').toLowerCase();
-    const success = fazerResult ? fazerResult.success : inefable.isSuccessStatus(normalizado);
+    const requiresCode = order.providerFamily === 'gift_card' || order.providerFamily === 'game_key';
+    const success = fazerResult
+      ? fazerResult.success && (!requiresCode || Boolean(fazerResult.codes?.length))
+      : inefable.isSuccessStatus(normalizado);
     const failed = fazerResult
       ? !fazerResult.success && !fazerResult.processing
       : inefable.isFailureStatus(normalizado);
     if (success) {
+      if (fazerResult?.codes?.length) call.deliveredCodes = fazerResult.codes;
       call.status = 'success';
       call.error = null;
       call.completedAt = now();

@@ -55,6 +55,32 @@ export function useProvidersStatus() {
   });
 }
 
+export interface FazerCatalogBatch {
+  summary: {
+    createdGames: number;
+    updatedGames: number;
+    createdProducts: number;
+    updatedProducts: number;
+    skipped: number;
+    errors: string[];
+    family: 'topup' | 'gift_card' | 'game_key';
+    nextOffset: number;
+    totalCategories: number;
+    done: boolean;
+  };
+}
+
+export function useSyncFazerCatalogBatch() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { family: FazerCatalogBatch['summary']['family']; offset: number; limit?: number }) =>
+      api.post<FazerCatalogBatch>('/admin/providers/fazercards/sync', input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.catalog });
+    },
+  });
+}
+
 // --- Órdenes ---------------------------------------------------------------
 
 export interface AdminOrderFilters {

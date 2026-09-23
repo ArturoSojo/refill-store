@@ -26,6 +26,7 @@ import {
   useTelegramChats,
   useTestAlert,
   useTestEmail,
+  useSyncFazerCatalogBatch,
 } from '@/hooks/useAdmin';
 import { useAuth } from '@/providers/AuthProvider';
 import { useDocumentTitle } from '@/hooks/useMisc';
@@ -51,6 +52,8 @@ export function AdminSettings() {
   const telegramChats = useTelegramChats();
   const emailStatus = useEmailStatus();
   const testEmail = useTestEmail();
+  const syncFazerBatch = useSyncFazerCatalogBatch();
+  const [catalogProgress, setCatalogProgress] = useState('');
 
   const [rateValue, setRateValue] = useState('');
   const [form, setForm] = useState<Record<string, unknown>>({});
@@ -93,6 +96,37 @@ export function AdminSettings() {
   };
 
   const dirty = Object.keys(form).length > 0;
+
+  const syncFazerCatalog = async () => {
+    const families = [
+      ['topup', 'Recargas'],
+      ['gift_card', 'Gift cards'],
+      ['game_key', 'Game keys'],
+    ] as const;
+    let added = 0;
+    let updated = 0;
+    try {
+      for (const [family, label] of families) {
+        let offset = 0;
+        let done = false;
+        while (!done) {
+          setCatalogProgress(`${label}: categoría ${offset + 1}…`);
+          const { summary } = await syncFazerBatch.mutateAsync({ family, offset, limit: 4 });
+          added += summary.createdProducts;
+          updated += summary.updatedProducts;
+          if (summary.errors.length) console.warn('FazerCards catalog import:', summary.errors);
+          offset = summary.nextOffset;
+          done = summary.done;
+          if (summary.totalCategories === 0 && !done) throw new Error(`FazerCards no devolvió categorías de ${label}.`);
+        }
+      }
+      toast.success(`Catálogo actualizado: ${added} productos nuevos y ${updated} actualizados.`);
+    } catch (error) {
+      toast.error(`La importación se detuvo. Puedes reintentar: ${errorMessage(error)}`);
+    } finally {
+      setCatalogProgress('');
+    }
+  };
 
   return (
     <div className="space-y-4 pb-24">
@@ -139,7 +173,7 @@ export function AdminSettings() {
                   : 'Con problema'}
             </Badge>
           </div>
-          <div className="flex items-center justify-between rounded-xl bg-base-900/60 px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-base-900/60 px-4 py-3">
             <div>
               <p className="text-sm font-medium text-white">Inefable</p>
               <p className="text-xs text-slate-400">Despacho automático</p>
@@ -182,7 +216,7 @@ export function AdminSettings() {
                   : 'Sin respuesta'}
             </Badge>
           </div>
-          <div className="flex items-center justify-between rounded-xl bg-base-900/60 px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-base-900/60 px-4 py-3">
             <div>
               <p className="text-sm font-medium text-white">FazerCards</p>
               <p className="text-xs text-slate-400">Nuevo despacho automático</p>
@@ -222,6 +256,14 @@ export function AdminSettings() {
                   ? 'Conectado'
                   : 'Sin respuesta'}
             </Badge>
+            <Button
+              variant="secondary"
+              loading={syncFazerBatch.isPending || Boolean(catalogProgress)}
+              disabled={!isAdmin || !providers.data?.fazercards.configured || Boolean(catalogProgress)}
+              onClick={() => void syncFazerCatalog()}
+            >
+              {catalogProgress || 'Sincronizar catálogo LATAM'}
+            </Button>
           </div>
         </div>
 

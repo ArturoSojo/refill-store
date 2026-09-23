@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -150,7 +151,7 @@ function Hero() {
 
           <p className="mt-4 max-w-lg text-base text-slate-400 sm:text-lg">
             {config?.tagline ??
-              'Diamantes de Free Fire y Gold de Blood Strike con Pago Móvil verificado al instante.'}
+              'Recargas de juegos, gift cards y game keys para Latinoamérica, con pago verificado y entrega digital.'}
           </p>
 
           <div className="mt-7 flex flex-wrap items-center gap-3">
@@ -273,15 +274,27 @@ function ActiveOrdersStrip() {
 export function HomePage() {
   useDocumentTitle('');
   const { data, isLoading, error, refetch } = useCatalog();
+  const [family, setFamily] = useState<'all' | 'topup' | 'gift_card' | 'game_key'>('all');
+  const [search, setSearch] = useState('');
+  const [visibleCount, setVisibleCount] = useState(36);
 
   const games = data?.games ?? [];
-  const products = data?.products ?? [];
-
+  const filteredGames = useMemo(() => {
+    const term = search.trim().toLocaleLowerCase();
+    return games.filter((game) => {
+      const gameFamily = game.providerFamily ?? 'topup';
+      return (family === 'all' || gameFamily === family) &&
+        (!term || `${game.name} ${game.region ?? ''} ${game.platform ?? ''}`.toLocaleLowerCase().includes(term));
+    });
+  }, [games, family, search]);
+  const visibleGames = filteredGames.slice(0, visibleCount);
   const statsFor = (gameId: string) => {
-    const list = products.filter((product) => product.gameId === gameId);
+    const game = games.find((item) => item.id === gameId);
     return {
-      count: list.length,
-      minBs: list.length ? Math.min(...list.map((product) => product.priceBs)) : undefined,
+      count: game?.productCount ?? 0,
+      minBs: game?.minPriceUsd !== null && game?.minPriceUsd !== undefined && data
+        ? game.minPriceUsd * data.rate
+        : undefined,
     };
   };
 
@@ -293,10 +306,25 @@ export function HomePage() {
 
       <section id="juegos" className="mx-auto max-w-6xl scroll-mt-20 px-4">
         <div className="mb-5">
-          <h2 className="text-2xl font-black text-white sm:text-3xl">Elige tu juego</h2>
+          <h2 className="text-2xl font-black text-white sm:text-3xl">Explora el catálogo</h2>
           <p className="mt-1 text-sm text-slate-400">
-            Todo el proceso en una sola pantalla: juego, ID y paquete.
+            Recargas, gift cards y game keys disponibles para Latinoamérica.
           </p>
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Filtrar catálogo">
+              {([
+                ['all', 'Todo'], ['topup', 'Recargas'], ['gift_card', 'Gift cards'], ['game_key', 'Game keys'],
+              ] as const).map(([key, label]) => (
+                <button key={key} type="button" onClick={() => { setFamily(key); setVisibleCount(36); }}
+                  className={`rounded-xl border px-3 py-2 text-xs font-bold transition ${family === key ? 'border-neon-red/50 bg-neon-red/15 text-white' : 'border-base-600 bg-base-800 text-slate-400 hover:text-white'}`}>
+                  {label}{key !== 'all' && <span className="ml-1.5 text-slate-500">{games.filter((game) => (game.providerFamily ?? 'topup') === key).length}</span>}
+                </button>
+              ))}
+            </div>
+            <input value={search} onChange={(event) => { setSearch(event.target.value); setVisibleCount(36); }}
+              placeholder="Buscar juego, plataforma o región…" aria-label="Buscar en el catálogo"
+              className="h-10 w-full rounded-xl border border-base-600 bg-base-800 px-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-neon-red/60 sm:max-w-xs" />
+          </div>
         </div>
 
         {isLoading ? (
@@ -318,14 +346,16 @@ export function HomePage() {
               </button>
             }
           />
-        ) : games.length === 0 ? (
+        ) : filteredGames.length === 0 ? (
           <EmptyState
-            title="Catálogo vacío"
-            description="Todavía no hay juegos publicados. Si eres el administrador, siembra el catálogo desde el panel."
+            title="No encontramos productos"
+            description="Prueba otra búsqueda o cambia el filtro de categoría."
           />
         ) : (
+          <>
+          <p className="mb-3 text-xs text-slate-500">Mostrando {visibleGames.length} de {filteredGames.length} categorías</p>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {games.map((game, index) => {
+            {visibleGames.map((game, index) => {
               const stats = statsFor(game.id);
               return (
                 <GameTile
@@ -338,6 +368,8 @@ export function HomePage() {
               );
             })}
           </div>
+          {visibleCount < filteredGames.length && <div className="mt-6 text-center"><button type="button" onClick={() => setVisibleCount((count) => count + 36)} className="rounded-xl border border-base-600 bg-base-800 px-5 py-3 text-sm font-bold text-white hover:border-neon-red/50">Mostrar más productos</button></div>}
+          </>
         )}
       </section>
 
@@ -345,10 +377,10 @@ export function HomePage() {
         <div className="neon-card overflow-hidden p-0">
           <div className="grid gap-0 sm:grid-cols-4">
             {[
-              { step: '01', title: 'Elige el juego', text: 'Free Fire o Blood Strike.' },
-              { step: '02', title: 'Pon tu ID', text: 'El ID numérico de tu cuenta.' },
+              { step: '01', title: 'Elige un producto', text: 'Recarga, gift card o game key.' },
+              { step: '02', title: 'Completa los datos', text: 'ID del juego o datos de entrega solicitados.' },
               { step: '03', title: 'Paga y pega la referencia', text: 'Pago Móvil BDV, monto exacto.' },
-              { step: '04', title: 'Recibe al instante', text: 'La recarga entra automáticamente.' },
+              { step: '04', title: 'Recibe digitalmente', text: 'Seguimiento y entrega desde tu cuenta.' },
             ].map((item, index) => (
               <motion.div
                 key={item.step}

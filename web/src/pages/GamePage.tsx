@@ -20,7 +20,7 @@ import {
   Zap,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { useCatalog, groupProducts } from '@/hooks/useCatalog';
+import { useGameCatalog, groupProducts } from '@/hooks/useCatalog';
 import { usePricePreview } from '@/hooks/useOrders';
 import { useSavedPlayerIds } from '@/hooks/useAccount';
 import { useDocumentTitle } from '@/hooks/useMisc';
@@ -55,7 +55,7 @@ export function GamePage() {
   const { user } = useAuth();
   const { config } = useConfig();
 
-  const catalog = useCatalog();
+  const catalog = useGameCatalog(slug);
   const savedIds = useSavedPlayerIds();
   const pricePreview = usePricePreview();
 
@@ -71,13 +71,13 @@ export function GamePage() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const games = catalog.data?.games ?? [];
-  const game = games.find((item) => item.id === slug) ?? games[0];
+  const game = catalog.data?.game;
+  const games = game ? [game] : [];
   const selectedProductId = searchParams.get('pkg') ?? '';
 
   const products = useMemo(
-    () => (catalog.data?.products ?? []).filter((item) => item.gameId === game?.id),
-    [catalog.data, game?.id]
+    () => catalog.data?.products ?? [],
+    [catalog.data]
   );
 
   const { automatic, manual } = groupProducts(products);
@@ -87,7 +87,8 @@ export function GamePage() {
   useDocumentTitle(game ? `Recargar ${game.name}` : 'Recargar');
 
   const fields = useMemo(() => gameFields(game), [game]);
-  const idIsValid = fieldsAreValid(fields, playerValues);
+  const requiresPlayerData = game?.requiresPlayerData !== false;
+  const idIsValid = !requiresPlayerData || fieldsAreValid(fields, playerValues);
   const primaryField = fields[0];
 
   const gameSavedIds = (savedIds.data?.playerIds ?? []).filter(
@@ -133,7 +134,7 @@ export function GamePage() {
           useWallet,
           // Sólo cuando el ID está completo: así el cupón se valida contra esa
           // cuenta del juego antes de llegar al pago.
-          playerId: idIsValid ? (playerValues[primaryField.key] ?? null) : null,
+          playerId: idIsValid && primaryField ? (playerValues[primaryField.key] ?? null) : null,
         },
         { onSuccess: setPreview }
       );
@@ -172,7 +173,7 @@ export function GamePage() {
   const disabledReason = !selected
     ? undefined
     : !idIsValid
-      ? `Completa ${missingLabel || primaryField.label} para continuar`
+      ? `Completa ${missingLabel || primaryField?.label || 'los datos solicitados'} para continuar`
       : undefined;
 
   const startCheckout = () => {
@@ -205,7 +206,7 @@ export function GamePage() {
 
     // El proveedor de estos juegos acepta cualquier número y cobra igual: un
     // dígito mal escrito se pierde. Por eso se pide confirmar antes de cobrar.
-    if (game.validatesPlayerId === false) {
+    if (requiresPlayerData && game.validatesPlayerId === false) {
       setConfirmOpen(true);
       return;
     }
@@ -238,8 +239,8 @@ export function GamePage() {
           <GameSelector games={games} selectedId={game.id} onSelect={selectGame} />
         </section>
 
-        {/* Paso 2 — ID de jugador */}
-        <section className="mb-6">
+        {/* Paso 2 — datos de la cuenta. Las gift cards y keys no los piden. */}
+        {requiresPlayerData && primaryField && <section className="mb-6">
           <h2 className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400">
             <span className="flex h-5 w-5 items-center justify-center rounded-md bg-brand-gradient text-[10px] font-black text-white">
               2
@@ -314,7 +315,7 @@ export function GamePage() {
               </p>
             )}
           </div>
-        </section>
+        </section>}
 
         {/* Códigos. Van ANTES de los paquetes y siempre abiertos: escondidos
             tras un enlace y debajo de la lista, la gente no los veía y acababa

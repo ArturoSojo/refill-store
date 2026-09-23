@@ -10,7 +10,6 @@ import {
   parseQuery,
   userAgent,
 } from '../lib/http';
-import { invalidArgument } from '../lib/errors';
 import { requireAuth, currentUser } from '../middleware/auth';
 import { rateLimit } from '../middleware/rateLimit';
 import * as ordersService from '../services/orders';
@@ -72,14 +71,10 @@ ordersRouter.post(
     const body = parseBody(req, createOrderSchema);
     const profile = await usersService.ensureProfile(user);
 
-    if (!body.playerFields && !body.playerId) {
-      throw invalidArgument('Faltan los datos de la cuenta a recargar.');
-    }
-
     const order = await ordersService.createOrder(user, profile, {
       gameId: body.gameId,
       productId: body.productId,
-      playerFields: body.playerFields ?? body.playerId!,
+      playerFields: body.playerFields ?? body.playerId ?? {},
       quantity: body.quantity,
       couponCode: body.couponCode ?? null,
       creatorCode: body.creatorCode ?? null,

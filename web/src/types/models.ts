@@ -57,6 +57,12 @@ export interface Game {
   apiGameId: number | string;
   apiGameType: string;
   provider?: 'inefable' | 'fazercards';
+  providerFamily?: 'topup' | 'gift_card' | 'game_key';
+  requiresPlayerData?: boolean;
+  region?: string | null;
+  platform?: string | null;
+  productCount?: number;
+  minPriceUsd?: number | null;
   currencyLabel: string;
   currencyIcon: string;
   currencyIconUrl: string;
@@ -139,6 +145,7 @@ export interface Product {
   sortOrder: number;
   stock: number | null;
   deliveryEtaMinutes: number;
+  providerOfferId?: string | null;
   createdAt: TimestampLike;
   updatedAt: TimestampLike;
 }
@@ -200,6 +207,7 @@ export interface DispatchCallResult {
   /** Juego del proveedor con el que se envió. `null` = el del juego. */
   providerGameId?: number | string | null;
   provider?: 'inefable' | 'fazercards';
+  deliveredCodes?: string[];
   index: number;
   status: DispatchCallStatus;
   /** Ojo: el proveedor también devuelve `order_id` cuando la recarga falla. */
@@ -283,6 +291,7 @@ export interface Order {
   gameName: string;
   providerGameId?: number | string | null;
   provider?: 'inefable' | 'fazercards';
+  providerFamily?: 'topup' | 'gift_card' | 'game_key';
   productId: string;
   productName: string;
   productSku: string;
@@ -299,6 +308,7 @@ export interface Order {
     completedAt: TimestampLike;
     lastError: string | null;
   };
+  deliveredCodes?: string[];
   whatsappUrl: string | null;
   contactPhone: string | null;
   status: OrderStatus;
@@ -631,6 +641,12 @@ export interface CatalogResponse {
   rate: number;
   games: Game[];
   products: PublicProduct[];
+}
+
+export interface ProductResponse {
+  rate: number;
+  game: Game;
+  product: PublicProduct;
 }
 
 export interface GameCatalogResponse {

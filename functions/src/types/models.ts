@@ -78,6 +78,16 @@ export interface Game {
   apiGameType: string;
   /** Proveedor que entrega este juego. Se congela al crear cada orden. */
   provider?: 'inefable' | 'fazercards';
+  /** Familia de FazerCards que define cómo se entrega el producto. */
+  providerFamily?: 'topup' | 'gift_card' | 'game_key';
+  /** Las gift cards y keys se compran sin ID de jugador. */
+  requiresPlayerData?: boolean;
+  /** Región/plataforma informadas por FazerCards para mostrarlas al cliente. */
+  region?: string | null;
+  platform?: string | null;
+  /** Resumen precalculado para que la portada no lea miles de productos. */
+  productCount?: number;
+  minPriceUsd?: number | null;
   /** Cómo se llama la moneda del juego en la interfaz: Diamantes, Gold… */
   currencyLabel: string;
   currencyIcon: string;
@@ -223,6 +233,8 @@ export interface Product {
   /** `null` = stock ilimitado. */
   stock: number | null;
   deliveryEtaMinutes: number;
+  /** Identificador del catálogo de FazerCards, útil para conciliación. */
+  providerOfferId?: string | null;
   createdAt: TimestampLike;
   updatedAt: TimestampLike;
 }
@@ -292,6 +304,8 @@ export interface DispatchCallResult {
   /** Juego del proveedor con el que se envió. `null` = el del juego. */
   providerGameId?: number | string | null;
   provider?: 'inefable' | 'fazercards';
+  /** Códigos digitales devueltos para ESTA llamada; se preservan al cliente al finalizar. */
+  deliveredCodes?: string[];
   index: number;
   status: DispatchCallStatus;
   /** ID de orden devuelto por el proveedor. Ojo: también viene en los fallos. */
@@ -414,6 +428,7 @@ export interface Order {
   providerGameId: number | string | null;
   /** Proveedor congelado al comprar; las órdenes anteriores usan Inefable. */
   provider?: 'inefable' | 'fazercards';
+  providerFamily?: 'topup' | 'gift_card' | 'game_key';
   productId: string;
   productName: string;
   productSku: string;
@@ -455,6 +470,8 @@ export interface Order {
     completedAt: TimestampLike | null;
     lastError: string | null;
   };
+  /** Gift cards / keys listas para mostrar al comprador al completar la orden. */
+  deliveredCodes?: string[];
   /** Enlace precargado de WhatsApp para productos manuales. */
   /** Enlace al chat, sólo cuando el producto usa el flujo `whatsapp`. */
   whatsappUrl: string | null;
