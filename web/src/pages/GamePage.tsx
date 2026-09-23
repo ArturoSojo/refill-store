@@ -20,7 +20,7 @@ import {
   Zap,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { useCatalog, groupProducts } from '@/hooks/useCatalog';
+import { useCatalog, useGameCatalog, groupProducts } from '@/hooks/useCatalog';
 import { usePricePreview } from '@/hooks/useOrders';
 import { useSavedPlayerIds } from '@/hooks/useAccount';
 import { useDocumentTitle } from '@/hooks/useMisc';
@@ -56,6 +56,7 @@ export function GamePage() {
   const { config } = useConfig();
 
   const catalog = useCatalog();
+  const gameCatalog = useGameCatalog(slug);
   const savedIds = useSavedPlayerIds();
   const pricePreview = usePricePreview();
 
@@ -76,8 +77,8 @@ export function GamePage() {
   const selectedProductId = searchParams.get('pkg') ?? '';
 
   const products = useMemo(
-    () => (catalog.data?.products ?? []).filter((item) => item.gameId === game?.id),
-    [catalog.data, game?.id]
+    () => gameCatalog.data?.products ?? [],
+    [gameCatalog.data]
   );
 
   const { automatic, manual } = groupProducts(products);
@@ -143,9 +144,11 @@ export function GamePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, selected?.id, quantity, couponCode, creatorCode, useWallet, idIsValid, playerValues]);
 
-  if (catalog.isLoading) return <FullPageLoader label="Cargando el catálogo…" />;
+  if (catalog.isLoading || gameCatalog.isLoading) {
+    return <FullPageLoader label="Cargando el catálogo…" />;
+  }
 
-  if (catalog.error || !game) {
+  if (catalog.error || gameCatalog.error || !game) {
     return (
       <div className="mx-auto max-w-lg px-4 py-16">
         <ErrorState
