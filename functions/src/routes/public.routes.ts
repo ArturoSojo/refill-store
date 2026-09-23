@@ -70,10 +70,11 @@ publicRouter.get(
               : catalog.listFazerHomeGamesByFamily(currentFamily, HOME_CATEGORIES_PER_FAMILY).then((items) => ({
                   items,
                   nextCursor: null,
+                  total: undefined,
                 })),
             family ? Promise.resolve(undefined) : catalog.countFazerGamesByFamily(currentFamily),
           ]);
-          return { family: currentFamily, ...page, total };
+          return { family: currentFamily, ...page, categoryTotal: total };
         })
       );
       ok(res, {
@@ -81,7 +82,7 @@ publicRouter.get(
         games: results.flatMap((result) => result.items.map(catalog.toPublicGame)),
         products: [],
         familyCounts: Object.fromEntries(results.flatMap((result) =>
-          result.total === undefined ? [] : [[result.family, result.total]]
+          result.categoryTotal === undefined ? [] : [[result.family, result.categoryTotal]]
         )),
         nextCursor: family ? results[0]?.nextCursor ?? null : null,
         total: family ? results[0]?.total : undefined,
