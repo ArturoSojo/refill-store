@@ -207,6 +207,7 @@ export function AdminProducts() {
   const [repriceOpen, setRepriceOpen] = useState(false);
   const [margin, setMargin] = useState('25');
   const [seedOpen, setSeedOpen] = useState(false);
+  const [iconUploading, setIconUploading] = useState(false);
 
   const games = useAdminGames();
   const products = useAdminProducts(gameFilter || undefined);
@@ -404,14 +405,14 @@ export function AdminProducts() {
       {/* --- Formulario --- */}
       <Modal
         open={formOpen}
-        onClose={() => setFormOpen(false)}
+        onClose={() => { if (!iconUploading) setFormOpen(false); }}
         title={editing ? `Editar ${editing.name}` : 'Nuevo producto'}
         size="lg"
         footer={
           <Button
             fullWidth
             loading={saveProduct.isPending}
-            disabled={!form.gameId || form.sku.length < 2 || form.name.length < 2}
+            disabled={iconUploading || !form.gameId || form.sku.length < 2 || form.name.length < 2}
             onClick={submit}
           >
             {editing ? 'Guardar cambios' : 'Crear producto'}
@@ -593,6 +594,7 @@ export function AdminProducts() {
             label="Icono del producto"
             value={form.imageUrl}
             onChange={(imageUrl) => setForm({ ...form, imageUrl })}
+            onUploadingChange={setIconUploading}
             folder="productos"
             hint="Si lo dejas vacío se usa el ícono de la moneda del juego. Para pases y tarjetas conviene poner uno propio."
           />

@@ -9,6 +9,7 @@ import { applyMargin, round } from '../lib/money';
 import { slugify } from '../lib/ids';
 import { getConfig } from './settings';
 import * as fazercards from './fazercards';
+import { FAZER_FREE_FIRE_ID } from '../lib/storefront';
 import type { PlayerField } from '../types/models';
 
 type Family = 'topup' | 'gift_card' | 'game_key';
@@ -64,9 +65,9 @@ function categorySortOrder(family: Family, id: string): number {
   return HOME_CATEGORY_ORDER[family]?.[id] ?? 100;
 }
 
-function parseAmount(name: string): number {
+function parseAmount(name: string): number | null {
   const match = name.replace(/,/g, '').match(/\b(\d{1,6})\b/);
-  return match ? Number(match[1]) : 1;
+  return match ? Number(match[1]) : null;
 }
 
 function fieldsFromProvider(raw: Record<string, unknown>[]): PlayerField[] {
@@ -136,6 +137,12 @@ export async function syncFazerCatalog(input: { family: Family; offset: number; 
   summary.done = summary.nextOffset >= listed.items.length;
 
   await Promise.all(selected.map(async (category) => {
+      // En el .com Free Fire se vende mediante el catálogo de Inefable.
+      // Una sincronización posterior no debe reactivar su duplicado FazerCards.
+      if (family === 'topup' && gameId(family, category.categoryId) === FAZER_FREE_FIRE_ID) {
+        summary.skipped += 1;
+        return;
+      }
       if (!visibleInLatam(category.name, category.note, category.region)) {
         summary.skipped += 1;
         return;
@@ -150,6 +157,7 @@ export async function syncFazerCatalog(input: { family: Family; offset: number; 
 
       const id = gameId(family, category.categoryId);
       const existingGame = await games().doc(id).get();
+      const previousGame = existingGame.data();
       const meta = familyMeta(family);
       const playerFields = family === 'topup' ? fieldsFromProvider(detail.fields) : [];
       const minPriceUsd = Math.min(
@@ -168,8 +176,8 @@ export async function syncFazerCatalog(input: { family: Family; offset: number; 
           region: category.region,
           platform: category.platform,
           currencyLabel: meta.label,
-          currencyIcon: meta.icon,
-          currencyIconUrl: '',
+          currencyIcon: previousGame?.currencyIcon ?? meta.icon,
+          currencyIconUrl: previousGame?.currencyIconUrl ?? '',
           playerFields,
           validatesPlayerId: false,
           playerIdLabel: playerFields[0]?.label ?? '',
@@ -196,6 +204,12 @@ export async function syncFazerCatalog(input: { family: Family; offset: number; 
       for (const offer of detail.offers) {
         const pid = productId(id, offer.offerId);
         const existingProduct = await products().doc(pid).get();
+        const previousImage = existingProduct.data()?.imageUrl as string | undefined;
+        const providerImage = detail.imageUrl || category.imageUrl || '';
+        const customImage = previousImage && previousImage !== previousGame?.coverUrl && previousImage !== previousGame?.logoUrl;
+        const amount = parseAmount(offer.name);
+        const isPass = /\b(?:season|battle|monthly|weekly|elite|premium)\s+pass\b|\b(?:pase|membres[ií]a|suscripci[oó]n)\b/i.test(offer.name);
+        const isSpecial = family === 'topup' && (amount === null || isPass);
         const priceUsd = applyMargin(offer.priceUsd, config.pricing.defaultMarginPercent, config.pricing.roundToUsd);
         await products().doc(pid).set(
           {
@@ -210,19 +224,19 @@ export async function syncFazerCatalog(input: { family: Family; offset: number; 
                   : `Recarga automática de ${detail.name || category.name}.`,
             fulfillment: 'auto',
             manualFlow: 'notify',
-            kind: family === 'topup' ? 'package' : 'special',
-            amount: family === 'topup' ? parseAmount(offer.name) : 1,
+            kind: family === 'topup' && !isSpecial ? 'package' : 'special',
+            amount: family === 'topup' ? amount ?? 0 : 1,
             bonus: 0,
             costUsd: offer.priceUsd,
             priceUsd,
             compareAtUsd: null,
             calls: [{ packageId: offer.offerId, quantity: 1 }],
             providerOfferId: offer.offerId,
-            imageUrl: detail.imageUrl || category.imageUrl || '',
+            imageUrl: customImage ? previousImage : family === 'topup' ? '' : providerImage,
             badge: family === 'gift_card' ? 'GIFT CARD' : family === 'game_key' ? 'KEY' : null,
             active: offer.stock === null || offer.stock > 0,
             featured: false,
-            sortOrder: family === 'topup' ? parseAmount(offer.name) : 99,
+            sortOrder: family === 'topup' ? amount ?? 99 : 99,
             stock: offer.stock,
             deliveryEtaMinutes: family === 'topup' ? 2 : 5,
             providerSyncedAt: timestamp,

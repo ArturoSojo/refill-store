@@ -59,6 +59,7 @@ interface ImageUploadProps {
   label: string;
   value: string;
   onChange: (url: string) => void;
+  onUploadingChange?: (uploading: boolean) => void;
   /** Carpeta dentro de `catalog/`: `productos`, `juegos`, `monedas`… */
   folder: string;
   hint?: string;
@@ -69,6 +70,7 @@ export function ImageUpload({
   label,
   value,
   onChange,
+  onUploadingChange,
   folder,
   hint,
   disabled,
@@ -83,6 +85,7 @@ export function ImageUpload({
     }
 
     setUploading(true);
+    onUploadingChange?.(true);
     try {
       const blob = await shrink(file);
       const extension = blob.type === 'image/webp' ? 'webp' : file.name.split('.').pop() || 'png';
@@ -99,6 +102,7 @@ export function ImageUpload({
       toast.error(errorMessage(error, 'No se pudo subir la imagen.'));
     } finally {
       setUploading(false);
+      onUploadingChange?.(false);
       if (input.current) input.current.value = '';
     }
   };

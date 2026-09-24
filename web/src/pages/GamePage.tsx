@@ -20,7 +20,7 @@ import {
   Zap,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { useCatalog, useGameCatalog, groupProducts } from '@/hooks/useCatalog';
+import { useCatalog, useFamilyCatalog, useGameCatalog, groupProducts } from '@/hooks/useCatalog';
 import { usePricePreview } from '@/hooks/useOrders';
 import { useSavedPlayerIds } from '@/hooks/useAccount';
 import { useDocumentTitle } from '@/hooks/useMisc';
@@ -57,6 +57,9 @@ export function GamePage() {
 
   const catalog = useGameCatalog(slug);
   const storefrontCatalog = useCatalog();
+  const [carouselStarted, setCarouselStarted] = useState(false);
+  const family = catalog.data?.game?.providerFamily ?? 'topup';
+  const familyCatalog = useFamilyCatalog(catalog.data?.game ? family : undefined, 12, carouselStarted);
   const savedIds = useSavedPlayerIds();
   const pricePreview = usePricePreview();
 
@@ -76,7 +79,7 @@ export function GamePage() {
   const games = useMemo(() => {
     if (!game) return [];
     const family = game.providerFamily ?? 'topup';
-    const candidates = (storefrontCatalog.data?.games ?? []).filter(
+    const candidates = [...(storefrontCatalog.data?.games ?? []), ...(familyCatalog.data?.games ?? [])].filter(
       (item) => (item.providerFamily ?? 'topup') === family
     );
     // La portada entrega una muestra pequeña y priorizada por familia. Añade
@@ -85,7 +88,17 @@ export function GamePage() {
     const unique = new Map(candidates.map((item) => [item.id, item]));
     unique.set(game.id, game);
     return [...unique.values()];
-  }, [game, storefrontCatalog.data?.games]);
+  }, [game, storefrontCatalog.data?.games, familyCatalog.data?.games]);
+
+  const loadMoreGames = () => {
+    if (!carouselStarted) {
+      setCarouselStarted(true);
+    } else if (familyCatalog.error) {
+      void familyCatalog.refetch();
+    } else if (familyCatalog.hasMore && !familyCatalog.isFetching) {
+      familyCatalog.loadMore();
+    }
+  };
   const selectedProductId = searchParams.get('pkg') ?? '';
 
   const products = useMemo(
@@ -157,7 +170,7 @@ export function GamePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, selected?.id, quantity, couponCode, creatorCode, useWallet, idIsValid, playerValues]);
 
-  if (catalog.isLoading) return <FullPageLoader label="Cargando el catálogo…" />;
+  if (catalog.isLoading || storefrontCatalog.isLoading) return <FullPageLoader label="Cargando el catálogo…" />;
 
   if (catalog.error || !game) {
     return (
@@ -249,7 +262,10 @@ export function GamePage() {
             </span>
             Selecciona el juego
           </h2>
-          <GameSelector games={games} selectedId={game.id} onSelect={selectGame} />
+          <GameSelector games={games} selectedId={game.id} onSelect={selectGame}
+            onEnd={loadMoreGames}
+            hasMore={!carouselStarted || familyCatalog.hasMore || Boolean(familyCatalog.error)}
+            isLoadingMore={carouselStarted && familyCatalog.isFetching} />
         </section>
 
         {/* Paso 2 — datos de la cuenta. Las gift cards y keys no los piden. */}

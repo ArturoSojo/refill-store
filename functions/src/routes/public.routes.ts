@@ -10,7 +10,7 @@ import * as catalog from '../services/catalog';
 import * as modalsService from '../services/modals';
 import { getConfig, toPublicConfig } from '../services/settings';
 import { buildSupportUrl } from '../services/whatsapp';
-import { assertStorefrontGame, belongsToStorefront, resolveStorefront } from '../lib/storefront';
+import { assertStorefrontGame, belongsToStorefront, resolveStorefront, INEFABLE_FREE_FIRE_ID } from '../lib/storefront';
 import { PAGE_LIMIT } from '../lib/pagination';
 
 const FAZER_FAMILIES = ['topup', 'gift_card', 'game_key'] as const;
@@ -74,6 +74,13 @@ publicRouter.get(
                 })),
             family ? Promise.resolve(undefined) : catalog.countFazerGamesByFamily(currentFamily),
           ]);
+          if (currentFamily === 'topup' && family && !cursor) {
+            const freeFire = await catalog.getGame(INEFABLE_FREE_FIRE_ID).catch(() => null);
+            if (freeFire?.active && freeFire.provider === 'inefable') {
+              page.items.unshift(freeFire);
+              if (page.total !== undefined) page.total += 1;
+            }
+          }
           return { family: currentFamily, ...page, categoryTotal: total };
         })
       );
@@ -82,7 +89,8 @@ publicRouter.get(
         games: results.flatMap((result) => result.items.map(catalog.toPublicGame)),
         products: [],
         familyCounts: Object.fromEntries(results.flatMap((result) =>
-          result.categoryTotal === undefined ? [] : [[result.family, result.categoryTotal]]
+          result.categoryTotal === undefined ? [] : [[result.family, result.categoryTotal +
+            Number(result.family === 'topup' && result.items.some((game) => game.id === INEFABLE_FREE_FIRE_ID))]]
         )),
         nextCursor: family ? results[0]?.nextCursor ?? null : null,
         total: family ? results[0]?.total : undefined,

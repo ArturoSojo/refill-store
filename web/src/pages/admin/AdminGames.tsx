@@ -149,6 +149,7 @@ export function AdminGames() {
   const deleteGame = useDeleteGame();
 
   const [formOpen, setFormOpen] = useState(false);
+  const [iconUploading, setIconUploading] = useState(false);
   const [editing, setEditing] = useState<Game | null>(null);
   const [form, setForm] = useState<GameFormState>(EMPTY);
   const [toDelete, setToDelete] = useState<Game | null>(null);
@@ -328,14 +329,14 @@ export function AdminGames() {
 
       <Modal
         open={formOpen}
-        onClose={() => setFormOpen(false)}
+        onClose={() => { if (!iconUploading) setFormOpen(false); }}
         title={editing ? `Editar ${editing.name}` : 'Nuevo juego'}
         size="lg"
         footer={
           <Button
             fullWidth
             loading={saveGame.isPending}
-            disabled={form.name.trim().length < 2}
+            disabled={iconUploading || form.name.trim().length < 2}
             onClick={submit}
           >
             {editing ? 'Guardar cambios' : 'Crear juego'}
@@ -414,6 +415,7 @@ export function AdminGames() {
             label="Imagen de la moneda"
             value={form.currencyIconUrl}
             onChange={(currencyIconUrl) => setForm({ ...form, currencyIconUrl })}
+            onUploadingChange={setIconUploading}
             folder="monedas"
             hint="Manda sobre el emoji. Se ve junto a la cantidad en cada paquete."
           />

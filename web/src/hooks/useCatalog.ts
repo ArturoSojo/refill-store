@@ -27,19 +27,23 @@ export function useCatalog() {
 }
 
 /** Catálogo completo de una familia, consultado al entrar en «Ver todos». */
-export function useFamilyCatalog(family: 'topup' | 'gift_card' | 'game_key' | undefined) {
+export function useFamilyCatalog(
+  family: 'topup' | 'gift_card' | 'game_key' | undefined,
+  pageSize = 30,
+  enabled = true
+) {
   const query = useInfiniteQuery({
-    queryKey: ['catalog', 'family', family ?? ''],
+    queryKey: ['catalog', 'family', family ?? '', pageSize],
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) => {
-      const params = new URLSearchParams({ family: family ?? '', limit: '30' });
+      const params = new URLSearchParams({ family: family ?? '', limit: String(pageSize) });
       if (pageParam) params.set('cursor', pageParam);
       return api.get<CatalogResponse>(`/catalog?${params.toString()}`, {
         anonymous: true,
       });
     },
     getNextPageParam: (last) => last.nextCursor ?? undefined,
-    enabled: Boolean(family),
+    enabled: Boolean(family && enabled),
     ...CATALOG_OPTIONS,
   });
   return {

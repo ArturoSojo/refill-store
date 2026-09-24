@@ -2,8 +2,8 @@
  * Separa los dos escaparates que comparten API y Firestore.
  *
  * Netlify conserva la tienda original, que sólo vende el catálogo de
- * Inefable. Firebase Hosting sirve `recargasrefillstore.com`, reservado para
- * FazerCards. La selección se hace en el servidor para que un enlace directo
+ * Inefable. En `recargasrefillstore.com`, Free Fire usa Inefable y las demás
+ * categorías usan FazerCards. La selección se hace en el servidor para que un enlace directo
  * a un producto no permita saltarse el filtro visual de la portada.
  */
 import type { Request } from 'express';
@@ -11,6 +11,9 @@ import { notFound } from './errors';
 import type { Game } from '../types/models';
 
 export type Storefront = 'inefable' | 'fazercards';
+
+export const INEFABLE_FREE_FIRE_ID = 'free-fire';
+export const FAZER_FREE_FIRE_ID = 'fz-topup-free-fire-latam';
 
 const NETLIFY_HOST = 'refill-store-ve.netlify.app';
 const FAZER_HOSTS = new Set([
@@ -61,7 +64,10 @@ export function resolveStorefront(req: Request): Storefront {
 }
 
 export function belongsToStorefront(game: Game, storefront: Storefront): boolean {
-  return (game.provider ?? 'inefable') === storefront;
+  if (storefront === 'inefable') return (game.provider ?? 'inefable') === 'inefable';
+  if (game.id === INEFABLE_FREE_FIRE_ID) return (game.provider ?? 'inefable') === 'inefable';
+  if (game.id === FAZER_FREE_FIRE_ID) return false;
+  return game.provider === 'fazercards';
 }
 
 export function assertStorefrontGame(req: Request, game: Game): void {

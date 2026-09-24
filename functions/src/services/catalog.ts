@@ -5,6 +5,7 @@ import { notFound, failedPrecondition } from '../lib/errors';
 import { applyMargin, round, usdToBs } from '../lib/money';
 import { DEFAULT_PLAYER_FIELD } from '../types/models';
 import { paginate, type Page } from '../lib/pagination';
+import { FAZER_FREE_FIRE_ID, INEFABLE_FREE_FIRE_ID } from '../lib/storefront';
 import type { Game, PlayerField, Product, PublicProduct } from '../types/models';
 
 export async function listGames(options: { onlyActive?: boolean } = {}): Promise<Game[]> {
@@ -17,7 +18,7 @@ export type FazerFamily = 'topup' | 'gift_card' | 'game_key';
 
 const HOME_PRIORITY: Partial<Record<FazerFamily, string[]>> = {
   topup: [
-    'fz-topup-free-fire-latam',
+    INEFABLE_FREE_FIRE_ID,
     'fz-topup-blood-strike',
     'fz-topup-pubg-mobile-auto',
     'fz-topup-mobile-legends-global',
@@ -56,11 +57,14 @@ export async function listFazerHomeGamesByFamily(family: FazerFamily, limit: num
       const snap = await games().doc(id).get();
       if (!snap.exists) return null;
       const game = { id: snap.id, ...snap.data() } as Game;
-      return game.active && game.provider === 'fazercards' && game.providerFamily === family ? game : null;
+      const accepted = id === INEFABLE_FREE_FIRE_ID
+        ? family === 'topup' && game.provider === 'inefable'
+        : game.provider === 'fazercards' && game.providerFamily === family;
+      return game.active && accepted ? game : null;
     }),
   ]);
   const rank = new Map((HOME_PRIORITY[family] ?? []).map((id, index) => [id, index]));
-  const unique = new Map([...firstPage, ...pinned.filter((game): game is Game => Boolean(game))].map((game) => [game.id, game]));
+  const unique = new Map([...firstPage.filter((game) => game.id !== FAZER_FREE_FIRE_ID), ...pinned.filter((game): game is Game => Boolean(game))].map((game) => [game.id, game]));
   return [...unique.values()]
     .sort((a, b) => (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER)
       || (a.sortOrder ?? 0) - (b.sortOrder ?? 0)
@@ -70,13 +74,12 @@ export async function listFazerHomeGamesByFamily(family: FazerFamily, limit: num
 
 /** Cuenta categorías visibles sin leer cada documento del catálogo. */
 export async function countFazerGamesByFamily(family: FazerFamily): Promise<number> {
-  const result = await games()
-    .where('provider', '==', 'fazercards')
-    .where('providerFamily', '==', family)
-    .where('active', '==', true)
-    .count()
-    .get();
-  return result.data().count;
+  const [result, hidden] = await Promise.all([
+    games().where('provider', '==', 'fazercards').where('providerFamily', '==', family)
+      .where('active', '==', true).count().get(),
+    family === 'topup' ? games().doc(FAZER_FREE_FIRE_ID).get() : Promise.resolve(null),
+  ]);
+  return result.data().count - Number(hidden?.get('active') === true);
 }
 
 /** Lista una familia con cursor para que el catálogo grande no se lea completo. */
@@ -88,11 +91,18 @@ export async function pageFazerGamesByFamily(
     .where('provider', '==', 'fazercards')
     .where('providerFamily', '==', family)
     .where('active', '==', true);
-  return paginate(
+  const page = await paginate(
     query,
     { orderBy: 'sortOrder', direction: 'asc', cursor: options.cursor, limit: options.limit, withTotal: !options.cursor },
     (id, data) => ({ id, ...data }) as Game
   );
+  if (family !== 'topup') return page;
+  const hidden = !options.cursor ? await games().doc(FAZER_FREE_FIRE_ID).get() : null;
+  return {
+    ...page,
+    items: page.items.filter((game) => game.id !== FAZER_FREE_FIRE_ID),
+    ...(page.total === undefined ? {} : { total: page.total - Number(hidden?.get('active') === true) }),
+  };
 }
 
 export async function getGame(gameId: string): Promise<Game> {
@@ -200,10 +210,21 @@ export function toPublicProduct(product: Product, rate: number, roundToBs: numbe
  * juegos que se crearon cuando sólo existía un campo de ID.
  */
 export function toPublicGame(game: Game): Game {
+  const knownCurrency: Record<string, { label: string; iconUrl: string }> = {
+    [INEFABLE_FREE_FIRE_ID]: { label: 'Diamantes', iconUrl: '/coins/diamante-freefire.svg' },
+    'fz-topup-blood-strike': { label: 'Oro', iconUrl: '/coins/gold-bloodstrike.svg' },
+    'fz-topup-mobile-legends-global': { label: 'Diamantes', iconUrl: '/coins/diamante-mlbb.svg' },
+    'fz-topup-honor-of-kings': { label: 'Tokens', iconUrl: '/coins/token-hok.svg' },
+    'fz-topup-marvel-rivals': { label: 'Lattice', iconUrl: '/coins/lattice-marvel.svg' },
+  };
+  const known = knownCurrency[game.id];
+  const currentIconUrl = game.currencyIconUrl?.trim() ?? '';
+  const expiredCanvaIcon = game.id === INEFABLE_FREE_FIRE_ID && currentIconUrl.includes('media.canva.com');
   return {
     ...game,
     playerFields: resolvePlayerFields(game),
-    currencyIconUrl: game.currencyIconUrl ?? '',
+    currencyLabel: game.currencyLabel === 'Recargas' && known ? known.label : game.currencyLabel,
+    currencyIconUrl: expiredCanvaIcon ? known?.iconUrl ?? '' : currentIconUrl || known?.iconUrl || '',
     validatesPlayerId: game.validatesPlayerId ?? false,
   };
 }
