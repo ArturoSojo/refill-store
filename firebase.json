@@ -28,6 +28,7 @@
     }
   ],
   "hosting": {
+    "site": "refill-e254f",
     "public": "web/dist",
     "ignore": [
       "firebase.json",
