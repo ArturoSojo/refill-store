@@ -2,7 +2,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { orders } from '../config/firebase';
-import { asyncHandler, ok, parseParams, parseQuery } from '../lib/http';
+import { asyncHandler, ok, parseBody, parseParams, parseQuery } from '../lib/http';
 import type { Order } from '../types/models';
 import { usdToBs } from '../lib/money';
 import { normalizeLadder } from '../lib/tiers';
@@ -12,6 +12,9 @@ import { getConfig, toPublicConfig } from '../services/settings';
 import { buildSupportUrl } from '../services/whatsapp';
 import { assertStorefrontGame, belongsToStorefront, resolveStorefront, INEFABLE_FREE_FIRE_ID } from '../lib/storefront';
 import { PAGE_LIMIT } from '../lib/pagination';
+import { rateLimit } from '../middleware/rateLimit';
+import * as fazerCards from '../services/fazercards';
+import { failedPrecondition, providerError } from '../lib/errors';
 
 const FAZER_FAMILIES = ['topup', 'gift_card', 'game_key'] as const;
 const HOME_CATEGORIES_PER_FAMILY = 8;
@@ -156,6 +159,34 @@ publicRouter.get(
         catalog.toPublicProduct(product, config.rate.value, config.pricing.roundToBs)
       ),
     });
+  })
+);
+
+/** Valida Free Fire en FazerCards. Esta consulta no crea una orden; el despacho
+ * de las recargas de Free Fire sigue usando Inefable. */
+publicRouter.post(
+  '/games/:gameId/validate-player',
+  rateLimit({
+    name: 'free_fire_player_validation',
+    max: 8,
+    windowSeconds: 300,
+    message: 'Hiciste varias verificaciones seguidas. Espera unos minutos.',
+  }),
+  asyncHandler(async (req, res) => {
+    const { gameId } = parseParams(req, z.object({ gameId: z.string().min(1) }));
+    const body = parseBody(req, z.object({ playerId: z.string().trim().regex(/^\d{8,12}$/) }));
+    if (resolveStorefront(req) !== 'fazercards' || gameId !== INEFABLE_FREE_FIRE_ID) {
+      throw failedPrecondition('La verificación de Free Fire no está disponible en esta tienda.');
+    }
+
+    let result: Awaited<ReturnType<typeof fazerCards.validateFreeFirePlayerId>>;
+    try {
+      result = await fazerCards.validateFreeFirePlayerId(body.playerId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo verificar el ID con FazerCards.';
+      throw providerError(message);
+    }
+    ok(res, result);
   })
 );
 

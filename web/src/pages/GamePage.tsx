@@ -12,6 +12,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import {
   AlertTriangle,
+  BadgeCheck,
   ChevronLeft,
   HelpCircle,
   Loader2,
@@ -20,6 +21,7 @@ import {
   Zap,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { api, isFazerCardsStorefront } from '@/lib/api';
 import { useCatalog, useFamilyCatalog, useGameCatalog, groupProducts } from '@/hooks/useCatalog';
 import { usePricePreview } from '@/hooks/useOrders';
 import { useSavedPlayerIds } from '@/hooks/useAccount';
@@ -39,7 +41,7 @@ import { AnimatedBackground } from '@/components/common/Decor';
 import { Input, Switch } from '@/components/ui/Field';
 import { Modal, ConfirmDialog } from '@/components/ui/Modal';
 import { ErrorState, FullPageLoader, EmptyState } from '@/components/ui/Feedback';
-import { ButtonLink } from '@/components/ui/Button';
+import { Button, ButtonLink } from '@/components/ui/Button';
 import { ROUTES } from '@/lib/constants';
 import { readCreatorCode } from '@/lib/creatorCode';
 import { formatUsd } from '@/lib/format';
@@ -74,6 +76,12 @@ export function GamePage() {
   const [preview, setPreview] = useState<PricePreview | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [playerValidation, setPlayerValidation] = useState<{
+    playerId: string;
+    playerName: string | null;
+    region: string | null;
+  } | null>(null);
+  const [validatingPlayer, setValidatingPlayer] = useState(false);
 
   const game = catalog.data?.game;
   const games = useMemo(() => {
@@ -116,6 +124,11 @@ export function GamePage() {
   const requiresPlayerData = game?.requiresPlayerData !== false;
   const idIsValid = !requiresPlayerData || fieldsAreValid(fields, playerValues);
   const primaryField = fields[0];
+  const requiresFazerValidation = game?.id === 'free-fire' && isFazerCardsStorefront();
+  const currentPlayerId = primaryField ? (playerValues[primaryField.key] ?? '').trim() : '';
+  const playerIdVerified = Boolean(
+    requiresFazerValidation && playerValidation?.playerId === currentPlayerId
+  );
 
   const gameSavedIds = (savedIds.data?.playerIds ?? []).filter(
     (saved) => saved.gameId === game?.id
@@ -130,6 +143,7 @@ export function GamePage() {
     setPreview(null);
     setTab('auto');
     setPlayerValues({});
+    setPlayerValidation(null);
     setTouched(false);
     navigate(ROUTES.game(gameId));
   };
@@ -195,11 +209,13 @@ export function GamePage() {
     .map((field) => field.label)
     .join(' y ');
 
-  const continueDisabled = !selected || !idIsValid;
+  const continueDisabled = !selected || !idIsValid || (requiresFazerValidation && !playerIdVerified);
   const disabledReason = !selected
     ? undefined
     : !idIsValid
       ? `Completa ${missingLabel || primaryField?.label || 'los datos solicitados'} para continuar`
+      : requiresFazerValidation && !playerIdVerified
+        ? 'Verifica tu ID de Free Fire para continuar'
       : undefined;
 
   const startCheckout = () => {
@@ -209,6 +225,7 @@ export function GamePage() {
     navigate(ROUTES.checkout(selected.id), {
       state: {
         playerFields: cleanValues(fields, playerValues),
+        playerIdVerified: requiresFazerValidation && playerIdVerified,
         quantity,
         couponCode: couponCode.trim() || null,
         creatorCode: creatorCode.trim() || null,
@@ -232,12 +249,42 @@ export function GamePage() {
 
     // El proveedor de estos juegos acepta cualquier número y cobra igual: un
     // dígito mal escrito se pierde. Por eso se pide confirmar antes de cobrar.
-    if (requiresPlayerData && game.validatesPlayerId === false) {
+    if (requiresPlayerData && game.validatesPlayerId === false && !requiresFazerValidation) {
       setConfirmOpen(true);
       return;
     }
 
     startCheckout();
+  };
+
+  const verifyFreeFireId = async () => {
+    if (!idIsValid || !currentPlayerId || validatingPlayer) {
+      setTouched(true);
+      return;
+    }
+    setValidatingPlayer(true);
+    setPlayerValidation(null);
+    try {
+      const result = await api.post<{
+        valid: boolean;
+        playerName: string | null;
+        region: string | null;
+      }>(`/games/${encodeURIComponent(game!.id)}/validate-player`, { playerId: currentPlayerId });
+      if (!result.valid) {
+        toast.error('FazerCards no encontró una cuenta de Free Fire con ese ID. Revísalo e intenta otra vez.');
+        return;
+      }
+      setPlayerValidation({
+        playerId: currentPlayerId,
+        playerName: result.playerName,
+        region: result.region,
+      });
+      toast.success('ID de Free Fire verificado.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'No se pudo verificar el ID. Intenta de nuevo.');
+    } finally {
+      setValidatingPlayer(false);
+    }
   };
 
   return (
@@ -289,11 +336,36 @@ export function GamePage() {
             <PlayerFields
               fields={fields}
               values={playerValues}
-              onChange={setPlayerValues}
+              onChange={(next) => {
+                setPlayerValues(next);
+                if (next[primaryField.key] !== playerValidation?.playerId) setPlayerValidation(null);
+              }}
               showErrors={touched}
               onBlur={() => setTouched(true)}
               idPrefix="compra"
             />
+
+            {requiresFazerValidation && (
+              <div className="mt-3 space-y-2">
+                <Button
+                  variant={playerIdVerified ? 'success' : 'secondary'}
+                  size="sm"
+                  type="button"
+                  onClick={verifyFreeFireId}
+                  disabled={!idIsValid || validatingPlayer}
+                >
+                  {validatingPlayer ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <BadgeCheck className="h-4 w-4" aria-hidden />}
+                  {validatingPlayer ? 'Verificando ID…' : playerIdVerified ? 'ID verificado' : 'Verificar ID'}
+                </Button>
+                {playerIdVerified && (
+                  <p className="flex items-center gap-1.5 text-xs text-emerald-300" role="status">
+                    <BadgeCheck className="h-4 w-4" aria-hidden />
+                    Cuenta verificada{playerValidation?.playerName ? `: ${playerValidation.playerName}` : ''}
+                    {playerValidation?.region ? ` · ${playerValidation.region}` : ''}
+                  </p>
+                )}
+              </div>
+            )}
 
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <button
@@ -334,7 +406,7 @@ export function GamePage() {
               )}
             </div>
 
-            {game.validatesPlayerId === false && (
+            {game.validatesPlayerId === false && !requiresFazerValidation && (
               <p className="mt-3 flex items-start gap-1.5 rounded-xl bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
                 <span>
