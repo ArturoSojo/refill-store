@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   ArrowRight,
@@ -129,10 +129,6 @@ export function GameTile({
 
 function Hero() {
   const { config } = useConfig();
-  const navigate = useNavigate();
-  const { data } = useCatalog();
-
-  const firstGame = data?.games[0];
 
   return (
     <section className="relative overflow-hidden">
@@ -170,10 +166,12 @@ function Hero() {
           <div className="mt-7 flex flex-wrap items-center gap-3">
             <button
               type="button"
-              onClick={() => navigate(firstGame ? ROUTES.game(firstGame.id) : '#juegos')}
+              onClick={() => {
+                document.getElementById('catalogo')?.scrollIntoView({ behavior: 'smooth' });
+              }}
               className="group inline-flex h-14 items-center gap-2.5 rounded-2xl bg-brand-gradient px-7 text-base font-black text-white shadow-glow transition active:scale-[0.98]"
             >
-              Recargar ahora
+              Ver catálogo
               <ArrowRight
                 className="h-5 w-5 transition-transform group-hover:translate-x-1"
                 aria-hidden
