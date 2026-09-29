@@ -39,6 +39,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     accountNumber: '',
     accountType: 'corriente',
   },
+  binancePay: { enabled: false, payId: '916942742' },
   whatsapp: {
     adminNumber: '584122686326',
     supportNumber: '584122686326',
@@ -183,6 +184,9 @@ export function toPublicConfig(config: AppConfig): PublicConfig {
     transfer: config.transfer.enabled
       ? config.transfer
       : { ...config.transfer, accountNumber: '', enabled: false },
+    binancePay: config.binancePay.enabled
+      ? config.binancePay
+      : { ...config.binancePay, payId: '', enabled: false },
     whatsapp: { supportNumber: config.whatsapp.supportNumber },
     // `alerts` NO va aquí: contiene el chat de Telegram y la URL del webhook
     // del equipo, que no tienen por qué ser públicos.

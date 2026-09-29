@@ -1365,6 +1365,7 @@ const configPatchSchema = z.object({
     })
     .partial()
     .optional(),
+  binancePay: z.object({ enabled: z.boolean(), payId: z.string().trim().max(80) }).partial().optional(),
   whatsapp: z
     .object({
       adminNumber: z.string().trim().regex(/^\d{7,20}$/),
@@ -1471,6 +1472,11 @@ adminRouter.patch(
       throw invalidArgument(
         'Para activar la transferencia hace falta el número de cuenta.'
       );
+    }
+
+    const binancePatch = patch.binancePay as { enabled?: boolean; payId?: string } | undefined;
+    if (binancePatch?.enabled && !String(binancePatch.payId ?? '').trim()) {
+      throw invalidArgument('Para activar Binance Pay hace falta el ID de recepción.');
     }
 
     const actor = currentUser(req);

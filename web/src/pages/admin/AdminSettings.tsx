@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   AlertTriangle,
   BellRing,
+  Coins,
   Landmark,
   Mail,
   Megaphone,
@@ -508,6 +509,31 @@ export function AdminSettings() {
             onChange={(event) => patch('transfer', { holder: event.target.value })}
             disabled={!isAdmin}
             containerClassName="sm:col-span-2"
+          />
+        </div>
+      </Card>
+
+      {/* --- Binance Pay --- */}
+      <Card>
+        <CardHeader
+          title="Binance Pay"
+          description="El pago se verifica con la cuenta Binance registrada en Pabilo."
+          icon={<Coins className="h-4 w-4" aria-hidden />}
+        />
+        <Switch
+          checked={sectionValue('binancePay', 'enabled', config.binancePay?.enabled ?? false)}
+          onChange={(enabled) => patch('binancePay', { enabled })}
+          label="Ofrecer Binance Pay en el checkout"
+          description="Actívalo cuando confirmes que Pabilo ya recibe los movimientos de esta cuenta."
+          disabled={!isAdmin}
+        />
+        <div className="mt-4 border-t border-base-600 pt-4">
+          <Input
+            label="ID de Binance Pay"
+            value={sectionValue('binancePay', 'payId', config.binancePay?.payId ?? '')}
+            onChange={(event) => patch('binancePay', { payId: event.target.value })}
+            hint="Este identificador se mostrará al cliente para que envíe el pago."
+            disabled={!isAdmin}
           />
         </div>
       </Card>

@@ -52,8 +52,8 @@ export function generateToken(bytes = 24): string {
  * Normaliza una referencia bancaria: sólo dígitos.
  * Los clientes suelen pegarla con espacios, guiones o el prefijo "Ref.".
  */
-export function normalizeReference(raw: string): string {
-  return raw.replace(/\D/g, '');
+export function normalizeReference(raw: string, allowLetters = false): string {
+  return allowLetters ? raw.toUpperCase().replace(/[^A-Z0-9]/g, '') : raw.replace(/\D/g, '');
 }
 
 /** Slug apto para ID de documento. */

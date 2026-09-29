@@ -142,7 +142,7 @@ export interface Game {
  * disponible para esta cuenta: la API lo rechaza). Guardar cuál usó el cliente
  * sirve para saber qué datos se le mostraron, no para verificar distinto.
  */
-export type PaymentMethod = 'pagomovil_bdv' | 'transfer' | 'wallet';
+export type PaymentMethod = 'pagomovil_bdv' | 'transfer' | 'binance_pay' | 'wallet';
 
 /** Datos de una cuenta para recibir pagos, tal como se le muestran al cliente. */
 export interface BankAccountInfo {
@@ -403,6 +403,7 @@ export interface OrderPayment {
     phone: string;
     accountNumber?: string;
     accountType?: 'corriente' | 'ahorro';
+    binancePayId?: string;
   };
 }
 
@@ -789,6 +790,7 @@ export interface AppConfig {
     accountNumber: string;
     accountType: 'corriente' | 'ahorro';
   };
+  binancePay: { enabled: boolean; payId: string };
   whatsapp: {
     adminNumber: string;
     supportNumber: string;
@@ -920,6 +922,7 @@ export interface PublicConfig {
   rate: number;
   bank: AppConfig['bank'];
   transfer: AppConfig['transfer'];
+  binancePay: AppConfig['binancePay'];
   whatsapp: { supportNumber: string };
   checkout: AppConfig['checkout'];
   features: Pick<

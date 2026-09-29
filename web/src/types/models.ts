@@ -84,7 +84,7 @@ export interface Game {
   updatedAt: TimestampLike;
 }
 
-export type PaymentMethod = 'pagomovil_bdv' | 'transfer' | 'wallet';
+export type PaymentMethod = 'pagomovil_bdv' | 'transfer' | 'binance_pay' | 'wallet';
 
 export type FulfillmentType = 'auto' | 'manual';
 
@@ -275,6 +275,7 @@ export interface OrderPayment {
     phone: string;
     accountNumber?: string;
     accountType?: 'corriente' | 'ahorro';
+    binancePayId?: string;
   };
 }
 
@@ -510,6 +511,7 @@ export interface PublicConfig {
     accountNumber: string;
     accountType: 'corriente' | 'ahorro';
   };
+  binancePay: { enabled: boolean; payId: string };
   whatsapp: { supportNumber: string };
   checkout: {
     referenceMinLength: number;

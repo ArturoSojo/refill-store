@@ -21,6 +21,8 @@ import { defineSecret } from 'firebase-functions/params';
 
 export const PABILO_API_KEY = defineSecret('PABILO_API_KEY');
 export const PABILO_USER_BANK_ID = defineSecret('PABILO_USER_BANK_ID');
+/** Cuenta de Pabilo asociada a Binance Pay; se usa sólo al verificar ese método. */
+export const PABILO_BINANCE_USER_BANK_ID = defineSecret('PABILO_BINANCE_USER_BANK_ID');
 export const INEFABLE_API_KEY = defineSecret('INEFABLE_API_KEY');
 
 /** API key del revendedor FazerCards (`fc_…`). Nunca llega al navegador. */
@@ -78,6 +80,7 @@ export const INEFABLE_WEBHOOK_TOKEN = defineSecret('INEFABLE_WEBHOOK_TOKEN');
 export const API_SECRETS = [
   PABILO_API_KEY,
   PABILO_USER_BANK_ID,
+  PABILO_BINANCE_USER_BANK_ID,
   INEFABLE_API_KEY,
   FAZERCARDS_API_KEY,
   FAZERCARDS_WEBHOOK_SECRET,

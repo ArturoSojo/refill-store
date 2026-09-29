@@ -49,7 +49,7 @@ const createOrderSchema = z.object({
   quantity: z.coerce.number().int().min(1).max(10).default(1),
   couponCode: z.string().trim().max(32).optional().nullable(),
   creatorCode: z.string().trim().max(32).optional().nullable(),
-  paymentMethod: z.enum(['pagomovil_bdv', 'transfer']).optional(),
+  paymentMethod: z.enum(['pagomovil_bdv', 'transfer', 'binance_pay']).optional(),
   contactPhone: z
     .string()
     .trim()
@@ -335,7 +335,7 @@ ordersRouter.patch(
     const { orderId } = parseParams(req, z.object({ orderId: z.string().min(1) }));
     const { method } = parseBody(
       req,
-      z.object({ method: z.enum(['pagomovil_bdv', 'transfer']) })
+      z.object({ method: z.enum(['pagomovil_bdv', 'transfer', 'binance_pay']) })
     );
 
     const order = await ordersService.setPaymentMethod(currentUser(req), orderId, method);

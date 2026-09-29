@@ -393,6 +393,7 @@ export function CheckoutPage() {
         <PaymentStep
           data={orderData}
           transferEnabled={config?.transfer?.enabled ?? false}
+          binancePayEnabled={config?.binancePay?.enabled ?? false}
           switchingMethod={setPaymentMethod.isPending}
           onMethodChange={(method) =>
             setPaymentMethod.mutate(method, {

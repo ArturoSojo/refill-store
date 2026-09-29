@@ -336,11 +336,14 @@ export async function createOrder(
     couponCode = evaluation.coupon.code;
   }
 
-  // El método sólo importa para saber qué datos mostrarle al cliente: ambos
-  // entran a la misma cuenta y Pabilo los verifica con la misma consulta.
+  // Cada método muestra y verifica su propia cuenta receptora.
   const wantsTransfer = input.paymentMethod === 'transfer' && config.transfer.enabled;
+  const wantsBinancePay = input.paymentMethod === 'binance_pay' && config.binancePay.enabled;
   if (input.paymentMethod === 'transfer' && !config.transfer.enabled) {
     throw failedPrecondition('La transferencia bancaria no está disponible ahora mismo.');
+  }
+  if (input.paymentMethod === 'binance_pay' && !config.binancePay.enabled) {
+    throw failedPrecondition('Binance Pay no está disponible ahora mismo.');
   }
 
   // Sólo se guarda si el producto lo pide: un teléfono suelto en órdenes que
@@ -395,7 +398,9 @@ export async function createOrder(
     ? 'wallet'
     : wantsTransfer
       ? 'transfer'
-      : 'pagomovil_bdv';
+      : wantsBinancePay
+        ? 'binance_pay'
+        : 'pagomovil_bdv';
 
   /** Congela los datos que se le muestran al cliente para este método. */
   const bankSnapshot = () =>
@@ -409,7 +414,9 @@ export async function createOrder(
           accountNumber: config.transfer.accountNumber,
           accountType: config.transfer.accountType,
         }
-      : {
+      : paymentMethod === 'binance_pay'
+        ? { code: '', name: 'Binance Pay', idNumber: '', phone: '', binancePayId: config.binancePay.payId }
+        : {
           code: config.bank.code,
           name: config.bank.name,
           idNumber: config.bank.idNumber,
@@ -677,13 +684,13 @@ export async function verifyPayment(
     );
   }
 
-  const reference = normalizeReference(rawReference);
+  const reference = normalizeReference(rawReference, order.payment.method === 'binance_pay');
   if (
     reference.length < config.checkout.referenceMinLength ||
     reference.length > config.checkout.referenceMaxLength
   ) {
     throw invalidArgument(
-      `La referencia debe tener entre ${config.checkout.referenceMinLength} y ${config.checkout.referenceMaxLength} dígitos.`
+      `El código de pago debe tener entre ${config.checkout.referenceMinLength} y ${config.checkout.referenceMaxLength} caracteres.`
     );
   }
 
@@ -742,6 +749,7 @@ export async function verifyPayment(
   try {
     result = await pabilo.verifyPayment({
       bankReference: reference,
+      account: order.payment.method === 'binance_pay' ? 'binance' : 'bdv',
       // Lo que falta, no el total: si ya hay parciales acreditados, el pago
       // bueno es el de la diferencia.
       amountBs: pendienteBs,
@@ -1085,7 +1093,7 @@ async function expireOrder(order: Order): Promise<void> {
 export async function setPaymentMethod(
   user: AuthUser,
   orderId: string,
-  method: 'pagomovil_bdv' | 'transfer'
+  method: 'pagomovil_bdv' | 'transfer' | 'binance_pay'
 ): Promise<Order> {
   const order = await getOrderFor(orderId, user);
   const config = await getConfig();
@@ -1096,8 +1104,16 @@ export async function setPaymentMethod(
   if (order.payment.method === 'wallet') {
     throw failedPrecondition('Esta orden se pagó con saldo.');
   }
+  if ((order.payment.paidBs ?? 0) > 0 && method !== order.payment.method) {
+    throw failedPrecondition(
+      'Esta orden ya tiene un pago parcial. Continúa con el mismo método para no separar los movimientos entre cuentas.'
+    );
+  }
   if (method === 'transfer' && !config.transfer.enabled) {
     throw failedPrecondition('La transferencia bancaria no está disponible ahora mismo.');
+  }
+  if (method === 'binance_pay' && !config.binancePay.enabled) {
+    throw failedPrecondition('Binance Pay no está disponible ahora mismo.');
   }
 
   const bankSnapshot =
@@ -1110,7 +1126,9 @@ export async function setPaymentMethod(
           accountNumber: config.transfer.accountNumber,
           accountType: config.transfer.accountType,
         }
-      : {
+      : method === 'binance_pay'
+        ? { code: '', name: 'Binance Pay', idNumber: '', phone: '', binancePayId: config.binancePay.payId }
+        : {
           code: config.bank.code,
           name: config.bank.name,
           idNumber: config.bank.idNumber,

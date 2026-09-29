@@ -293,7 +293,7 @@ export function OrderPage() {
               <div className="flex justify-between gap-3">
                 <dt className="text-slate-500">Método</dt>
                 <dd className="text-slate-300">
-                  {order.payment.method === 'transfer' ? 'Transferencia' : 'Pago Móvil'}
+                  {order.payment.method === 'transfer' ? 'Transferencia' : order.payment.method === 'binance_pay' ? 'Binance Pay' : 'Pago Móvil'}
                 </dd>
               </div>
             )}

@@ -37,7 +37,12 @@
  * el monto real es OBLIGATORIO: si no se puede leer, se rechaza. Si no, pagar
  * 1 Bs valdría por una orden de 3.000.
  */
-import { PABILO_API_KEY, PABILO_USER_BANK_ID, pabiloBaseUrl } from '../config/env';
+import {
+  PABILO_API_KEY,
+  PABILO_BINANCE_USER_BANK_ID,
+  PABILO_USER_BANK_ID,
+  pabiloBaseUrl,
+} from '../config/env';
 import { fetchJson } from '../lib/fetchJson';
 import { log } from '../lib/logger';
 import { providerError } from '../lib/errors';
@@ -47,6 +52,7 @@ export interface PabiloVerifyInput {
   bankReference: string;
   /** Monto exacto esperado en bolívares. */
   amountBs: number;
+  account?: 'bdv' | 'binance';
 }
 
 export interface PabiloVerifyResult {
@@ -184,7 +190,9 @@ function isNotFound(response: { status: number; data: PabiloRawResponse | null }
  * o responde algo que no se puede interpretar.
  */
 export async function verifyPayment(input: PabiloVerifyInput): Promise<PabiloVerifyResult> {
-  const bankId = PABILO_USER_BANK_ID.value();
+  const bankId = input.account === 'binance'
+    ? PABILO_BINANCE_USER_BANK_ID.value()
+    : PABILO_USER_BANK_ID.value();
   const apiKey = PABILO_API_KEY.value();
 
   if (!bankId || !apiKey) {
