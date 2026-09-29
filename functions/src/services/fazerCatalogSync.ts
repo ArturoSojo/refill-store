@@ -21,8 +21,14 @@ const LATAM = new Set([
 
 const FOREIGN_REGION = /\b(?:CIS|MENA|ASIA|SEA|EU|UK|US|CA|RU|UA|TR|IN|ID|MY|PH|TH|KR|JP|CN|TW|HK|AU|NZ|AFRICA|AE|SA)\b/i;
 
-function visibleInLatam(name: string, note: string | null, region: string | null): boolean {
+function visibleInLatam(family: Family, name: string, note: string | null, region: string | null): boolean {
   const source = `${region ?? ''} ${(name ?? '')} ${note ?? ''}`.toUpperCase();
+  // Las gift cards estadounidenses se venden explícitamente desde el catálogo
+  // del .com; las recargas y keys siguen limitadas a regiones compatibles con
+  // Latinoamérica.
+  if (family === 'gift_card' && /\b(?:US|USA|UNITED STATES|ESTADOS UNIDOS)\b/i.test(source)) {
+    return true;
+  }
   const tokens = source.match(/\b[A-Z]{2,12}\b/g) ?? [];
   if (tokens.some((token) => LATAM.has(token))) return true;
   // Sin región declarada es común en recargas globales; se mantiene visible.
@@ -143,7 +149,7 @@ export async function syncFazerCatalog(input: { family: Family; offset: number; 
         summary.skipped += 1;
         return;
       }
-      if (!visibleInLatam(category.name, category.note, category.region)) {
+      if (!visibleInLatam(family, category.name, category.note, category.region)) {
         summary.skipped += 1;
         return;
       }

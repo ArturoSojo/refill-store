@@ -123,6 +123,38 @@ function Header({ onOpenMenu }: { onOpenMenu: () => void }) {
   );
 }
 
+function CategoryNav() {
+  const links = [
+    { to: ROUTES.family('topup'), label: 'Juegos' },
+    { to: ROUTES.family('gift_card'), label: 'Gift cards' },
+    { to: ROUTES.family('game_key'), label: 'Game key' },
+  ];
+
+  return (
+    <nav
+      className="sticky top-14 z-30 border-b border-base-600/60 bg-base-900/90 px-4 py-2 backdrop-blur-lg"
+      aria-label="Catálogo"
+    >
+      <div className="mx-auto flex max-w-6xl gap-2 overflow-x-auto no-scrollbar">
+        {links.map((link) => (
+          <NavLink
+            key={link.to}
+            to={link.to}
+            className={({ isActive }) => cn(
+              'shrink-0 rounded-full border px-4 py-1.5 text-xs font-bold transition',
+              isActive
+                ? 'border-neon-red bg-neon-red/15 text-white'
+                : 'border-base-600 bg-base-800/70 text-slate-300 hover:border-neon-red/50 hover:text-white'
+            )}
+          >
+            {link.label}
+          </NavLink>
+        ))}
+      </div>
+    </nav>
+  );
+}
+
 function AccountDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { user, me, isStaff, signOut } = useAuth();
   const { config } = useConfig();
@@ -425,6 +457,7 @@ export function StoreLayout() {
   return (
     <div className="flex min-h-dvh flex-col">
       <Header onOpenMenu={() => setMenuOpen(true)} />
+      <CategoryNav />
       <AnnouncementBar />
 
       {/* pb-24 deja aire para la navegación inferior en móvil. */}

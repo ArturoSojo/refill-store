@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { AlertTriangle, Gamepad2, Pencil, Plus, Trash2 } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { AlertTriangle, Gamepad2, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAdminGames, useSaveGame, useDeleteGame } from '@/hooks/useAdmin';
 import { useAuth } from '@/providers/AuthProvider';
@@ -153,6 +153,7 @@ export function AdminGames() {
   const [editing, setEditing] = useState<Game | null>(null);
   const [form, setForm] = useState<GameFormState>(EMPTY);
   const [toDelete, setToDelete] = useState<Game | null>(null);
+  const [search, setSearch] = useState('');
 
   /** Cambia una propiedad de un campo sin tocar los demás. */
   const patchField = (index: number, patch: Partial<PlayerField>) => {
@@ -226,6 +227,13 @@ export function AdminGames() {
   };
 
   const list = games.data?.games ?? [];
+  const filteredGames = useMemo(() => {
+    const term = search.trim().toLocaleLowerCase();
+    if (!term) return list;
+    return list.filter((game) =>
+      `${game.name} ${game.shortName} ${game.id} ${game.apiGameId}`.toLocaleLowerCase().includes(term)
+    );
+  }, [list, search]);
 
   return (
     <div className="space-y-4">
@@ -252,21 +260,32 @@ export function AdminGames() {
         )}
       </div>
 
+      <label className="flex h-11 max-w-xl items-center gap-2 rounded-xl border border-base-600 bg-base-800 px-3 focus-within:border-neon-red/60">
+        <Search className="h-4 w-4 text-slate-500" aria-hidden />
+        <input
+          value={search}
+          onChange={(event) => setSearch(event.target.value.slice(0, 80))}
+          placeholder="Buscar juego por nombre…"
+          className="w-full bg-transparent text-sm text-white outline-none placeholder:text-slate-500"
+          aria-label="Buscar juego"
+        />
+      </label>
+
       {games.isLoading ? (
         <div className="space-y-2">
           {[0, 1].map((index) => (
             <Skeleton key={index} className="h-24 rounded-2xl" />
           ))}
         </div>
-      ) : list.length === 0 ? (
+      ) : filteredGames.length === 0 ? (
         <EmptyState
           icon={<Gamepad2 className="h-7 w-7" aria-hidden />}
-          title="Sin juegos"
-          description="Siembra el catálogo desde la sección de Productos o crea un juego manualmente."
+          title={list.length === 0 ? 'Sin juegos' : 'No encontramos ese juego'}
+          description={list.length === 0 ? 'Siembra el catálogo desde la sección de Productos o crea un juego manualmente.' : 'Prueba con otro nombre o identificador.'}
         />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
-          {list.map((game) => (
+          {filteredGames.map((game) => (
             <Card key={game.id}>
               <div className="flex items-start gap-3">
                 <span
