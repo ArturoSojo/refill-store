@@ -670,6 +670,7 @@ export interface PaymentInstructions {
   paidBs: number;
   partials: OrderPayment['partials'];
   amountUsd: number;
+  totalUsd: number;
   walletAppliedUsd: number;
   rate: number;
   expiresAt: number;

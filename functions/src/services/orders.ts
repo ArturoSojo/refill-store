@@ -170,6 +170,8 @@ export interface PaymentInstructions {
   paidBs: number;
   partials: Order['payment']['partials'];
   amountUsd: number;
+  /** Total pendiente tras aplicar saldo, en USD (Binance lo cobra en USDT). */
+  totalUsd: number;
   walletAppliedUsd: number;
   rate: number;
   expiresAt: number;
@@ -189,6 +191,8 @@ export function toPaymentInstructions(
   config: { checkout: { referenceMinLength: number; referenceMaxLength: number } }
 ): PaymentInstructions {
   const paidBs = round(order.payment.paidBs ?? 0, 2);
+  const totalUsd = order.pricing.amountDueUsd ?? order.pricing.totalUsd;
+  const paidUsd = order.pricing.rate > 0 ? round(paidBs / order.pricing.rate, 2) : 0;
 
   return {
     method: order.payment.method,
@@ -199,7 +203,8 @@ export function toPaymentInstructions(
     totalBs: order.pricing.totalBs,
     paidBs,
     partials: order.payment.partials ?? [],
-    amountUsd: order.pricing.amountDueUsd ?? order.pricing.totalUsd,
+    amountUsd: round(Math.max(0, totalUsd - paidUsd), 2),
+    totalUsd,
     walletAppliedUsd: order.pricing.walletAppliedUsd ?? 0,
     rate: order.pricing.rate,
     expiresAt: order.expiresAt.toMillis(),
@@ -708,6 +713,13 @@ export async function verifyPayment(
    */
   const yaPagadoBs = round(order.payment.paidBs ?? 0, 2);
   const pendienteBs = round(order.pricing.totalBs - yaPagadoBs, 2);
+  const esBinancePay = order.payment.method === 'binance_pay';
+  // Pabilo reports Binance collections in USDT, while internal order
+  // accounting stays in Bs. Compare in the payment currency and convert any
+  // partial or surplus back to Bs at the order's frozen rate.
+  const pendienteMoneda = esBinancePay
+    ? round(Math.max(0, order.pricing.amountDueUsd - yaPagadoBs / order.pricing.rate), 2)
+    : pendienteBs;
 
   const propuesto = minutesFromNow(config.checkout.orderExpiryMinutes);
   const nuevoVencimiento =
@@ -752,7 +764,7 @@ export async function verifyPayment(
       account: order.payment.method === 'binance_pay' ? 'binance' : 'bdv',
       // Lo que falta, no el total: si ya hay parciales acreditados, el pago
       // bueno es el de la diferencia.
-      amountBs: pendienteBs,
+      amount: pendienteMoneda,
     });
   } catch (error) {
     // El proveedor está caído: se libera el candado y se devuelve la orden a
@@ -782,13 +794,22 @@ export async function verifyPayment(
   //    caso el monto real es imprescindible; sin él no hay nada que comparar y
   //    se rechaza, porque aceptar a ciegas dejaría pasar cualquier importe.
   const amountCheck =
-    result.reportedAmountBs === null
+    result.reportedAmount === null
       ? null
       : checkAmount(
-          pendienteBs,
-          result.reportedAmountBs,
+          pendienteMoneda,
+          result.reportedAmount,
           config.checkout.amountTolerancePercent
         );
+
+  const reportedAmountBs = result.reportedAmount === null
+    ? null
+    : esBinancePay
+      ? round(result.reportedAmount * order.pricing.rate, 2)
+      : result.reportedAmount;
+  const shortfallBs = amountCheck
+    ? round(amountCheck.shortfallBs * (esBinancePay ? order.pricing.rate : 1), 2)
+    : null;
 
   const amountOk = result.amountVerifiedByProvider
     ? true
@@ -807,11 +828,11 @@ export async function verifyPayment(
     !amountOk &&
     amountCheck !== null &&
     amountCheck.shortfallBs > 0 &&
-    (result.reportedAmountBs ?? 0) > 0;
+    (result.reportedAmount ?? 0) > 0;
 
   if (esParcial) {
     // El candado NO se libera: esa referencia queda consumida por esta orden.
-    const abonado = round(result.reportedAmountBs!, 2);
+    const abonado = reportedAmountBs!;
     const totalPagado = round(yaPagadoBs + abonado, 2);
     const faltanBs = round(order.pricing.totalBs - totalPagado, 2);
 
@@ -820,7 +841,7 @@ export async function verifyPayment(
         status: 'awaiting_payment',
         payment: {
           reference,
-          reportedAmountBs: result.reportedAmountBs,
+          reportedAmountBs,
           providerResponse: result.raw,
           paidBs: totalPagado,
           partials: FieldValue.arrayUnion({
@@ -835,9 +856,9 @@ export async function verifyPayment(
     );
 
     const mensaje =
-      `Recibimos ${abonado.toFixed(2)} Bs de esa referencia. La orden es de ` +
+      `Recibimos ${esBinancePay ? `${result.reportedAmount!.toFixed(2)} USDT` : `${abonado.toFixed(2)} Bs`} de esa referencia. La orden es de ` +
       `${order.pricing.totalBs.toFixed(2)} Bs, así que faltan ${faltanBs.toFixed(2)} Bs. ` +
-      'Transfiere esa diferencia y verifica con la nueva referencia: no crees otra orden.';
+      'Paga esa diferencia y verifica con la nueva referencia: no crees otra orden.';
 
     await Promise.all([
       addEvent({
@@ -874,9 +895,9 @@ export async function verifyPayment(
         ? 'Esa referencia ya fue utilizada en otra compra.'
         : amountCheck === null
           ? 'No pudimos leer el monto de ese pago. Escríbenos por WhatsApp y lo revisamos.'
-          : `Ese pago es de ${result.reportedAmountBs!.toFixed(2)} Bs y la orden es de ` +
-            `${order.pricing.totalBs.toFixed(2)} Bs: faltan ` +
-            `${amountCheck.shortfallBs.toFixed(2)} Bs. Transfiere el monto exacto y ` +
+      : `Ese pago es de ${esBinancePay ? `${result.reportedAmount!.toFixed(2)} USDT` : `${result.reportedAmount!.toFixed(2)} Bs`} y la orden es de ` +
+            `${esBinancePay ? `${order.pricing.amountDueUsd.toFixed(2)} USDT` : `${order.pricing.totalBs.toFixed(2)} Bs`}: faltan ` +
+            `${esBinancePay ? `${amountCheck.shortfallBs.toFixed(2)} USDT` : `${shortfallBs!.toFixed(2)} Bs`}. Paga el monto exacto y ` +
             'verifica con esa nueva referencia.';
 
     await orders().doc(orderId).set(
@@ -898,7 +919,7 @@ export async function verifyPayment(
         type: 'payment_rejected',
         message: reason,
         status: 'payment_rejected',
-        data: { reportedAmountBs: result.reportedAmountBs },
+        data: { reportedAmountBs },
       }),
       stats.trackEvent({ type: 'payment_rejected', order }),
       audit.record({
@@ -934,7 +955,7 @@ export async function verifyPayment(
       // a cero.
       payment: {
         reference,
-        reportedAmountBs: result.reportedAmountBs,
+        reportedAmountBs,
         verifiedAt: now(),
         providerResponse: result.raw,
       },
@@ -946,8 +967,9 @@ export async function verifyPayment(
   // Pagó de más: la orden se acepta igual (está cubierta), pero el excedente no
   // se queda callado. Es dinero del cliente y el equipo decide si se lo abona al
   // saldo o se lo devuelve.
-  const surplusBs = amountCheck?.surplusBs ?? 0;
-  const surplusIsRelevant = surplusBs > (amountCheck?.alertAboveBs ?? 0);
+  const surplusBs = round((amountCheck?.surplusBs ?? 0) * (esBinancePay ? order.pricing.rate : 1), 2);
+  const surplusThresholdBs = (amountCheck?.alertAboveBs ?? 0) * (esBinancePay ? order.pricing.rate : 1);
+  const surplusIsRelevant = surplusBs > surplusThresholdBs;
 
   await Promise.all([
     addEvent({
@@ -957,7 +979,7 @@ export async function verifyPayment(
         ? `Pago verificado. Transferiste ${surplusBs.toFixed(2)} Bs de más; ya lo estamos revisando.`
         : 'Pago verificado correctamente.',
       status: 'paid',
-      data: { reportedAmountBs: result.reportedAmountBs, surplusBs },
+      data: { reportedAmountBs, surplusBs },
     }),
     audit.record({
       action: audit.ACTIONS.ORDER_PAYMENT_VERIFIED,
@@ -966,7 +988,7 @@ export async function verifyPayment(
       targetType: 'order',
       targetId: orderId,
       summary: `Pago verificado en la orden ${order.code} (${order.pricing.totalBs} Bs).`,
-      data: { reportedAmountBs: result.reportedAmountBs, surplusBs },
+      data: { reportedAmountBs, surplusBs },
       ip,
     }),
     catalog.decrementStock(order.productId, order.pricing.quantity),
@@ -979,12 +1001,12 @@ export async function verifyPayment(
           severity: 'info',
           title: `Pagaron de más · ${order.code}`,
           body: [
-            `${order.user.email ?? 'Un cliente'} transfirió ${result.reportedAmountBs?.toFixed(2)} Bs`,
+            `${order.user.email ?? 'Un cliente'} pagó ${reportedAmountBs?.toFixed(2)} ${esBinancePay ? 'USDT' : 'Bs'}`,
             `para una orden de ${order.pricing.totalBs.toFixed(2)} Bs.`,
             `Sobran ${surplusBs.toFixed(2)} Bs: puedes abonárselos al saldo desde su ficha.`,
           ].join(' '),
           link: `/admin/ordenes/${orderId}`,
-          data: { code: order.code, surplusBs, reportedAmountBs: result.reportedAmountBs },
+          data: { code: order.code, surplusBs, reportedAmountBs },
         })
       : Promise.resolve(),
   ]);

@@ -55,6 +55,7 @@ export function PaymentStep({
     paidBs,
     totalBs,
     amountUsd,
+    totalUsd,
     walletAppliedUsd,
     referenceMinLength,
     referenceMaxLength,
@@ -77,9 +78,11 @@ export function PaymentStep({
         <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
           Monto exacto a pagar
         </p>
-        <p className="mt-2 text-4xl font-extrabold tabular text-white">{formatBs(amountBs)}</p>
+        <p className="mt-2 text-4xl font-extrabold tabular text-white">
+          {isBinancePay ? `${formatUsd(amountUsd)} USDT` : `${formatBs(amountBs)} Bs`}
+        </p>
         <p className="mt-1 text-sm tabular text-slate-400">
-          {formatUsd(amountUsd)} · Tasa {formatBs(data.payment.rate)}
+          {isBinancePay ? 'Importe en Tether (USDT)' : `${formatUsd(amountUsd)} · Tasa ${formatBs(data.payment.rate)}`}
         </p>
 
         {walletAppliedUsd > 0 && (
@@ -106,11 +109,11 @@ export function PaymentStep({
         {hayParcial ? (
           <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-relaxed text-amber-100">
             <p>
-              Ya recibimos <strong>{formatBs(paidBs)}</strong> de los{' '}
-              <strong>{formatBs(totalBs)}</strong> de esta orden.
+              Ya recibimos <strong>{isBinancePay ? `${formatUsd(Math.max(0, totalUsd - amountUsd))} USDT` : formatBs(paidBs)}</strong> de los{' '}
+              <strong>{isBinancePay ? `${formatUsd(totalUsd)} USDT` : formatBs(totalBs)}</strong> de esta orden.
             </p>
             <p className="mt-1">
-              Paga sólo los <strong>{formatBs(amountBs)}</strong> que faltan y pega la
+              Paga sólo los <strong>{isBinancePay ? `${formatUsd(amountUsd)} USDT` : formatBs(amountBs)}</strong> que faltan y pega la
               referencia nueva aquí mismo. No hace falta crear otra orden.
             </p>
           </div>
@@ -198,12 +201,11 @@ export function PaymentStep({
             <CopyField label="Teléfono" value={onlyDigits(bank.phone)} display={bank.phone} />
           )}
           </>}
-          <CopyField
-            label="Monto"
-            value={amountBs.toFixed(2)}
-            display={formatBs(amountBs)}
-            emphasis
-          />
+          {isBinancePay ? (
+            <CopyField label="Monto a enviar" value={amountUsd.toFixed(2)} display={`${formatUsd(amountUsd)} USDT`} emphasis />
+          ) : (
+            <CopyField label="Monto" value={amountBs.toFixed(2)} display={`${formatBs(amountBs)} Bs`} emphasis />
+          )}
         </div>
       </div>
 
