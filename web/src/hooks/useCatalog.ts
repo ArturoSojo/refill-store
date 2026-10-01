@@ -30,13 +30,15 @@ export function useCatalog() {
 export function useFamilyCatalog(
   family: 'topup' | 'gift_card' | 'game_key' | undefined,
   pageSize = 30,
-  enabled = true
+  enabled = true,
+  search = ''
 ) {
   const query = useInfiniteQuery({
-    queryKey: ['catalog', 'family', family ?? '', pageSize],
+    queryKey: ['catalog', 'family', family ?? '', pageSize, search],
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) => {
       const params = new URLSearchParams({ family: family ?? '', limit: String(pageSize) });
+      if (search.length >= 2) params.set('search', search);
       if (pageParam) params.set('cursor', pageParam);
       return api.get<CatalogResponse>(`/catalog?${params.toString()}`, {
         anonymous: true,

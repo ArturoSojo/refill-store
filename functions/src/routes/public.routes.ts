@@ -58,10 +58,11 @@ publicRouter.get(
     const storefront = resolveStorefront(req);
     const familyQuery = z.object({
       family: z.enum(FAZER_FAMILIES).optional(),
+      search: z.string().trim().min(2).max(60).optional(),
       cursor: z.string().max(400).optional(),
       limit: z.coerce.number().int().min(PAGE_LIMIT.min).max(PAGE_LIMIT.max).default(30),
     });
-    const { family, cursor, limit } = parseQuery(req, familyQuery);
+    const { family, search, cursor, limit } = parseQuery(req, familyQuery);
 
     if (storefront === 'fazercards') {
       const families = family ? [family] : [...FAZER_FAMILIES];
@@ -69,7 +70,9 @@ publicRouter.get(
         families.map(async (currentFamily) => {
           const [page, total] = await Promise.all([
             family
-              ? catalog.pageFazerGamesByFamily(currentFamily, { cursor, limit })
+              ? search
+                ? catalog.searchFazerGamesByFamily(currentFamily, search, { cursor, limit })
+                : catalog.pageFazerGamesByFamily(currentFamily, { cursor, limit })
               : catalog.listFazerHomeGamesByFamily(currentFamily, HOME_CATEGORIES_PER_FAMILY).then((items) => ({
                   items,
                   nextCursor: null,
@@ -77,7 +80,7 @@ publicRouter.get(
                 })),
             family ? Promise.resolve(undefined) : catalog.countFazerGamesByFamily(currentFamily),
           ]);
-          if (currentFamily === 'topup' && family && !cursor) {
+          if (currentFamily === 'topup' && family && !cursor && (!search || 'free-fire'.startsWith(search.toLowerCase()))) {
             const freeFire = await catalog.getGame(INEFABLE_FREE_FIRE_ID).catch(() => null);
             if (freeFire?.active && freeFire.provider === 'inefable') {
               page.items.unshift(freeFire);

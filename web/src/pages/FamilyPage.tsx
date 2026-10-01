@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, Gamepad2, Gift, KeyRound, Search } from 'lucide-react';
 import { useFamilyCatalog } from '@/hooks/useCatalog';
@@ -7,7 +7,6 @@ import { AnimatedBackground } from '@/components/common/Decor';
 import { ErrorState, EmptyState, Skeleton } from '@/components/ui/Feedback';
 import { GameTile } from '@/pages/HomePage';
 import { ROUTES } from '@/lib/constants';
-import type { Game } from '@/types/models';
 
 const FAMILIES = {
   topup: {
@@ -33,24 +32,18 @@ function isFamily(value: string | undefined): value is FamilyId {
   return Boolean(value && value in FAMILIES);
 }
 
-function normalize(value: string) {
-  return value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-}
-
 export function FamilyPage() {
   const { family: familyParam } = useParams<{ family: string }>();
   const family = isFamily(familyParam) ? familyParam : undefined;
   const meta = family ? FAMILIES[family] : undefined;
-  const catalog = useFamilyCatalog(family);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+  const catalog = useFamilyCatalog(family, 30, true, debouncedSearch.length >= 2 ? debouncedSearch : '');
   const games = catalog.data?.games ?? [];
-  const filtered = useMemo(() => {
-    const term = normalize(search.trim());
-    if (!term) return games;
-    return games.filter((game: Game) =>
-      normalize(`${game.name} ${game.shortName} ${game.region ?? ''} ${game.platform ?? ''}`).includes(term)
-    );
-  }, [games, search]);
   const Icon = meta?.icon;
 
   useDocumentTitle(meta?.title ?? 'Catálogo');
@@ -80,13 +73,13 @@ export function FamilyPage() {
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">{Array.from({ length: 8 }, (_, i) => <Skeleton key={i} className="h-56 rounded-2xl" />)}</div>
         ) : catalog.error ? (
           <ErrorState message="No pudimos cargar esta categoría." action={<button onClick={() => void catalog.refetch()} className="rounded-xl bg-base-700 px-4 py-2 text-sm font-semibold text-white">Reintentar</button>} />
-        ) : filtered.length === 0 ? (
+        ) : games.length === 0 ? (
           <EmptyState title="No encontramos productos" description="Prueba con otro nombre, plataforma o región." />
         ) : (
           <>
-            <p className="mb-3 text-xs text-slate-500">Mostrando {filtered.length}{catalog.data?.total != null ? ` de ${catalog.data.total}` : ''} categorías</p>
+            <p className="mb-3 text-xs text-slate-500">Mostrando {games.length}{catalog.data?.total != null ? ` de ${catalog.data.total}` : ''} categorías</p>
             <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">
-              {filtered.map((game, index) => (
+              {games.map((game, index) => (
                 <GameTile key={game.id} game={game} index={index} packageCount={game.productCount ?? 0}
                   minPriceBs={game.minPriceUsd != null && catalog.data ? game.minPriceUsd * catalog.data.rate : undefined} />
               ))}

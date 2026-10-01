@@ -6,6 +6,7 @@ import { applyMargin, round, usdToBs } from '../lib/money';
 import { DEFAULT_PLAYER_FIELD } from '../types/models';
 import { paginate, type Page } from '../lib/pagination';
 import { FAZER_FREE_FIRE_ID, INEFABLE_FREE_FIRE_ID } from '../lib/storefront';
+import { slugify } from '../lib/ids';
 import type { Game, PlayerField, Product, PublicProduct } from '../types/models';
 
 export async function listGames(options: { onlyActive?: boolean } = {}): Promise<Game[]> {
@@ -30,8 +31,47 @@ const HOME_PRIORITY: Partial<Record<FazerFamily, string[]>> = {
     'fz-gift_card-app-store-itunes-es',
     'fz-gift_card-app-store-itunes-mx',
     'fz-gift_card-steam-wallet-mx',
+    'fz-gift_card-roblox-global',
+    'fz-gift_card-roblox-mx',
   ],
 };
+
+/** Busca categorías por el ID normalizado que genera la sincronización.
+ * Firestore recorre únicamente el prefijo solicitado; no descarga el catálogo
+ * completo para buscarlo en el teléfono. */
+export async function searchFazerGamesByFamily(
+  family: FazerFamily,
+  search: string,
+  options: { cursor?: string; limit: number }
+): Promise<Page<Game>> {
+  const prefix = `fz-${family}-${slugify(search)}`;
+  const items: Game[] = [];
+  let after = options.cursor?.startsWith(prefix) ? options.cursor : undefined;
+  let exhausted = false;
+
+  while (items.length <= options.limit && !exhausted) {
+    let query = games()
+      .orderBy(FieldPath.documentId())
+      .endAt(`${prefix}\uf8ff`)
+      .limit(Math.max(options.limit + 1, 30));
+    query = after ? query.startAfter(after) : query.startAt(prefix);
+    const snap = await query.get();
+    exhausted = snap.empty || snap.size < Math.max(options.limit + 1, 30);
+    for (const doc of snap.docs) {
+      after = doc.id;
+      const game = { id: doc.id, ...doc.data() } as Game;
+      if (game.active && game.provider === 'fazercards' && game.providerFamily === family) {
+        items.push(game);
+        if (items.length > options.limit) break;
+      }
+    }
+  }
+
+  return {
+    items: items.slice(0, options.limit),
+    nextCursor: items.length > options.limit ? items[options.limit - 1].id : null,
+  };
+}
 
 /** Lee sólo una familia activa del catálogo grande de FazerCards. */
 export async function listFazerGamesByFamily(
