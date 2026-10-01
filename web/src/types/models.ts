@@ -411,6 +411,7 @@ export interface AdminAlert {
     | 'new_ticket'
     | 'ticket_reply'
     | 'payment_rejected'
+    | 'payment_review'
     | 'low_balance'
     | 'rate_stale'
     | 'provider_down'

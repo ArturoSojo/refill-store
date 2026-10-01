@@ -574,34 +574,70 @@ export async function createOrder(
 // Verificación de pago
 // ---------------------------------------------------------------------------
 
-interface ReferenceLock {
-  acquired: boolean;
-  conflictOrderCode?: string;
-}
+type VerificationClaim =
+  | { kind: 'claimed' }
+  | { kind: 'in_progress' | 'already_paid'; order: Order }
+  | { kind: 'conflict'; conflictOrderCode: string; sameOrder: boolean };
 
 /**
- * Toma un candado exclusivo sobre la referencia bancaria.
- * Sólo una orden en todo el sistema puede tener una referencia dada.
+ * Reserva la orden y la referencia en una sola transacción. Dos peticiones de
+ * la misma orden nunca deben consultar a Pabilo a la vez: la segunda recibiría
+ * is_new=false aunque la primera acabara de verificar el pago correctamente.
  */
-async function acquireReferenceLock(
+async function claimPaymentVerification(
   reference: string,
-  orderId: string,
-  uid: string
-): Promise<ReferenceLock> {
-  const ref = paymentRefs().doc(reference);
+  order: Order,
+  expiresAt: Order['expiresAt'],
+  maxAttempts: number
+): Promise<VerificationClaim> {
+  const orderRef = orders().doc(order.id);
+  const referenceRef = paymentRefs().doc(reference);
 
   return db.runTransaction(async (tx) => {
-    const snap = await tx.get(ref);
+    const [orderSnap, referenceSnap] = await Promise.all([
+      tx.get(orderRef),
+      tx.get(referenceRef),
+    ]);
+    if (!orderSnap.exists) throw notFound('Orden no encontrada.');
+    const current = { id: orderSnap.id, ...orderSnap.data() } as Order;
+    if (current.uid !== order.uid) throw forbidden('Esa orden no es tuya.');
 
-    if (snap.exists) {
-      const data = snap.data() as { orderId?: string; orderCode?: string } | undefined;
-      if (data?.orderId && data.orderId !== orderId) {
-        return { acquired: false, conflictOrderCode: data.orderCode ?? '' };
-      }
+    if (PAID_STATES.includes(current.status)) return { kind: 'already_paid', order: current };
+    if (current.status === 'verifying') return { kind: 'in_progress', order: current };
+    if (!['awaiting_payment', 'payment_rejected'].includes(current.status)) {
+      throw failedPrecondition('Esta orden ya no admite verificación de pago.');
+    }
+    if (current.expiresAt.toMillis() < Date.now()) {
+      throw failedPrecondition('Esta orden expiró. Crea una nueva con la tasa vigente.');
+    }
+    if ((current.payment.attempts ?? 0) >= maxAttempts) {
+      throw failedPrecondition('Alcanzaste el máximo de intentos de verificación. Contacta al soporte.');
     }
 
-    tx.set(ref, { orderId, uid, reference, createdAt: now() }, { merge: true });
-    return { acquired: true };
+    if (referenceSnap.exists) {
+      const data = referenceSnap.data() as { orderId?: string; orderCode?: string } | undefined;
+      return {
+        kind: 'conflict',
+        conflictOrderCode: data?.orderCode ?? '',
+        sameOrder: data?.orderId === order.id,
+      };
+    }
+
+    tx.create(referenceRef, {
+      orderId: order.id,
+      orderCode: order.code,
+      uid: order.uid,
+      reference,
+      createdAt: now(),
+    });
+    tx.update(orderRef, {
+      status: 'verifying',
+      'payment.reference': reference,
+      'payment.attempts': FieldValue.increment(1),
+      expiresAt: expiresAt.toMillis() > current.expiresAt.toMillis() ? expiresAt : current.expiresAt,
+      updatedAt: now(),
+    });
+    return { kind: 'claimed' };
   });
 }
 
@@ -629,7 +665,6 @@ export interface VerifyPaymentResult {
  * bien: el pago está hecho y lo único que falta —si falta algo— es la entrega.
  */
 const PAID_STATES: OrderStatus[] = [
-  'verifying',
   'paid',
   'dispatching',
   'awaiting_manual',
@@ -647,6 +682,14 @@ export async function verifyPayment(
   const order = await getOrderFor(orderId, user);
 
   if (order.uid !== user.uid) throw forbidden('Esa orden no es tuya.');
+
+  if (order.status === 'verifying') {
+    return {
+      order,
+      verified: false,
+      message: 'Estamos consultando el banco. La orden se actualizará en unos segundos.',
+    };
+  }
 
   // Reintentar la verificación cuando el pago YA entró no es un error del
   // cliente: es lo que hace cualquiera cuando la petición anterior se le cortó
@@ -725,36 +768,43 @@ export async function verifyPayment(
   const nuevoVencimiento =
     propuesto.toMillis() > order.expiresAt.toMillis() ? propuesto : order.expiresAt;
 
-  // Marca el intento antes de nada: así un cliente no puede lanzar peticiones
-  // ilimitadas contra Pabilo aunque cancele la respuesta a mitad de camino.
-  await orders().doc(orderId).set(
-    {
-      status: 'verifying',
-      payment: { reference, attempts: FieldValue.increment(1) },
-      expiresAt: nuevoVencimiento,
-      updatedAt: now(),
-    },
-    { merge: true }
+  const claim = await claimPaymentVerification(
+    reference,
+    order,
+    nuevoVencimiento,
+    config.checkout.maxVerifyAttempts
   );
-
-  const lock = await acquireReferenceLock(reference, orderId, user.uid);
-  if (!lock.acquired) {
+  if (claim.kind === 'in_progress') {
+    return {
+      order: claim.order,
+      verified: false,
+      message: 'Estamos consultando el banco. La orden se actualizará en unos segundos.',
+    };
+  }
+  if (claim.kind === 'already_paid') {
+    return {
+      order: claim.order,
+      verified: true,
+      message: 'Tu pago ya estaba verificado. Estamos procesando la entrega.',
+    };
+  }
+  if (claim.kind === 'conflict') {
     await orders().doc(orderId).set(
-      { status: 'payment_rejected', updatedAt: now() },
+      { status: 'payment_rejected', payment: { reference }, updatedAt: now() },
       { merge: true }
     );
+    const reason = claim.sameOrder
+      ? 'Esta referencia ya se registró en tu orden. Si pagaste la diferencia, usa la referencia nueva.'
+      : claim.conflictOrderCode
+        ? `Esa referencia ya se usó en la orden ${claim.conflictOrderCode}.`
+        : 'Esa referencia ya está asociada a otra orden.';
     await addEvent({
       orderId,
       type: 'payment_duplicate',
-      message: 'Esa referencia ya está asociada a otra orden.',
+      message: reason,
       status: 'payment_rejected',
     });
-    throw paymentRejected(
-      lock.conflictOrderCode
-        ? `Esa referencia ya se usó en la orden ${lock.conflictOrderCode}.`
-        : 'Esa referencia ya fue utilizada en otra compra.',
-      { canRetry: true, expiresAt: nuevoVencimiento.toMillis() }
-    );
+    throw paymentRejected(reason, { canRetry: true, expiresAt: nuevoVencimiento.toMillis() });
   }
 
   let result: Awaited<ReturnType<typeof pabilo.verifyPayment>>;
@@ -892,7 +942,7 @@ export async function verifyPayment(
     const reason = !result.found
       ? 'No encontramos ningún pago con esa referencia. Revisa que la hayas copiado completa.'
       : !result.isNew
-        ? 'Esa referencia ya fue utilizada en otra compra.'
+        ? 'Pabilo encontró el pago, pero indica que esa referencia ya había sido verificada. No podemos atribuirla automáticamente a esta orden. No pagues de nuevo: contacta al soporte para revisarla.'
         : amountCheck === null
           ? 'No pudimos leer el monto de ese pago. Escríbenos por WhatsApp y lo revisamos.'
       : `Ese pago es de ${esBinancePay ? `${result.reportedAmount!.toFixed(2)} USDT` : `${result.reportedAmount!.toFixed(2)} Bs`} y la orden es de ` +
@@ -932,9 +982,11 @@ export async function verifyPayment(
         ip,
       }),
       adminAlerts.alert({
-        kind: 'payment_rejected',
-        severity: 'info',
-        title: `Pago rechazado · ${order.code}`,
+        kind: result.found && !result.isNew ? 'payment_review' : 'payment_rejected',
+        severity: result.found && !result.isNew ? 'warning' : 'info',
+        title: result.found && !result.isNew
+          ? `Revisar pago registrado en Pabilo · ${order.code}`
+          : `Pago rechazado · ${order.code}`,
         body: `${order.user.email ?? 'Un cliente'} intentó pagar ${describeOrder(order)}. ${reason}`,
         link: `/admin/ordenes/${orderId}`,
         data: { code: order.code, reference: `***${reference.slice(-4)}` },

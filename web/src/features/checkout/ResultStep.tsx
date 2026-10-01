@@ -35,6 +35,8 @@ export function ResultStep({ order, game, supportUrl }: ResultStepProps) {
 
   const isProcessing = ['paid', 'dispatching', 'verifying'].includes(order.status);
   const isDone = order.status === 'completed';
+  const canRetryPayment = ['awaiting_payment', 'payment_rejected'].includes(order.status);
+  const paymentConfirmed = ['paid', 'dispatching', 'awaiting_manual', 'completed', 'failed'].includes(order.status);
   const needsWhatsapp = order.status === 'awaiting_manual' && Boolean(order.whatsappUrl);
   // Manual sin chat: el equipo lo entrega y avisa. El cliente no tiene que
   // hacer nada, y decírselo así evita que escriba preguntando.
@@ -99,7 +101,7 @@ export function ResultStep({ order, game, supportUrl }: ResultStepProps) {
             <dd className="tabular text-white">{order.playerId}</dd>
           </div>}
           <div className="flex justify-between">
-            <dt className="text-slate-400">Pagado</dt>
+            <dt className="text-slate-400">{paymentConfirmed ? 'Pagado' : 'Total de la orden'}</dt>
             <dd className="tabular text-white">{formatBs(order.pricing.totalBs)}</dd>
           </div>
         </dl>
@@ -200,8 +202,12 @@ export function ResultStep({ order, game, supportUrl }: ResultStepProps) {
         <ButtonLink to={ROUTES.order(order.id)} variant="secondary" fullWidth>
           Ver detalle de la orden
         </ButtonLink>
-        <ButtonLink to={ROUTES.game(order.gameId)} variant="primary" fullWidth>
-          Comprar otra recarga
+        <ButtonLink
+          to={canRetryPayment ? `${ROUTES.checkout(order.productId)}?orden=${order.id}` : ROUTES.game(order.gameId)}
+          variant="primary"
+          fullWidth
+        >
+          {canRetryPayment ? 'Volver a esta orden' : 'Comprar otra recarga'}
         </ButtonLink>
       </div>
 

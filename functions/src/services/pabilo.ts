@@ -164,7 +164,11 @@ async function query(
       ...(amount === null ? {} : { amount: Number(amount.toFixed(2)) }),
     },
     timeoutMs: 25_000,
-    retries: 2,
+    // Betaserio registra el pago en Pabilo. Si la respuesta se pierde después
+    // del registro, repetir el POST devuelve is_new=false y parece que otra
+    // compra consumió la referencia. Un fallo incierto se concilia, no se
+    // reintenta automáticamente.
+    retries: 0,
   });
 
   log.info('Respuesta de Pabilo', {
@@ -274,7 +278,10 @@ export async function verifyPayment(input: PabiloVerifyInput): Promise<PabiloVer
     };
   }
 
-  const isNew = data?.is_new === true;
+  if (typeof data?.is_new !== 'boolean') {
+    throw providerError('Pabilo devolvió un pago sin estado de verificación. Intenta más tarde.');
+  }
+  const isNew = data.is_new;
 
   return {
     isNew,

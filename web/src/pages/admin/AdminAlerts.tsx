@@ -41,6 +41,7 @@ const ICONS: Record<AdminAlert['kind'], typeof BellRing> = {
   new_ticket: MessageSquare,
   ticket_reply: MessageSquare,
   payment_rejected: ShieldAlert,
+  payment_review: ShieldAlert,
   low_balance: Wallet,
   rate_stale: TrendingUp,
   provider_down: ShieldAlert,
