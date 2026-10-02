@@ -24,6 +24,14 @@
   # quiere en producción.
   NPM_FLAGS = "--include=dev"
 
+# La tienda oficial se sirve en Firebase Hosting. Conservamos la ruta y los
+# parámetros al abandonar Netlify; esta regla debe preceder al proxy y la SPA.
+[[redirects]]
+  from = "/*"
+  to = "https://recargasrefillstore.com/:splat"
+  status = 301
+  force = true
+
 # --- API ---------------------------------------------------------------------
 # `status = 200` hace un proxy (reescritura), no una redirección: el navegador
 # nunca ve la URL de Cloud Functions. `force = true` es necesario para que gane
