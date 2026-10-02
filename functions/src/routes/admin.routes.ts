@@ -2057,6 +2057,7 @@ const modalSchema = z.object({
   active: z.boolean().default(false),
   frequency: z.enum(['once', 'daily', 'always']).default('once'),
   placement: z.enum(['home', 'store', 'manual']).default('home'),
+  audience: z.enum(['web', 'app', 'both']).default('both'),
   sortOrder: z.coerce.number().int().min(0).max(999).default(99),
 });
 

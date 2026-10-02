@@ -33,6 +33,7 @@ const VACIO = {
   active: false,
   frequency: 'once' as StoreModal['frequency'],
   placement: 'home' as StoreModal['placement'],
+  audience: 'both' as NonNullable<StoreModal['audience']>,
   sortOrder: '10',
 };
 
@@ -92,6 +93,7 @@ export function AdminModals() {
       active: editing.active,
       frequency: editing.frequency,
       placement: editing.placement,
+      audience: editing.audience ?? 'both',
       sortOrder: String(editing.sortOrder),
     });
   }, [editing]);
@@ -182,7 +184,7 @@ export function AdminModals() {
                   {modal.videoUrl && <Badge variant="info">Con vídeo</Badge>}
                 </div>
                 <p className="mt-0.5 text-xs text-slate-400">
-                  {UBICACION[modal.placement]} · {FRECUENCIA[modal.frequency]} · orden{' '}
+                  {UBICACION[modal.placement]} · {FRECUENCIA[modal.frequency]} · {modal.audience === 'web' ? 'Web' : modal.audience === 'app' ? 'App' : 'Web y app'} · orden{' '}
                   {modal.sortOrder}
                 </p>
               </div>
@@ -272,6 +274,12 @@ export function AdminModals() {
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3">
+            <Select
+              label="Mostrar en"
+              value={form.audience}
+              onChange={(e) => setForm({ ...form, audience: e.target.value as Formulario['audience'] })}
+              options={[{ value: 'both', label: 'Web y app' }, { value: 'web', label: 'Sólo web' }, { value: 'app', label: 'Sólo app' }]}
+            />
             <Select
               label="Dónde aparece"
               value={form.placement}

@@ -448,6 +448,7 @@ export interface UserNotification {
 
 export type ModalFrequency = 'once' | 'daily' | 'always';
 export type ModalPlacement = 'home' | 'store' | 'manual';
+export type ModalAudience = 'web' | 'app' | 'both';
 
 /** Ventana superpuesta que explica algo al cliente (cómo recargar, un aviso). */
 export interface StoreModal {
@@ -462,6 +463,7 @@ export interface StoreModal {
   active: boolean;
   frequency: ModalFrequency;
   placement: ModalPlacement;
+  audience?: ModalAudience;
   sortOrder: number;
   createdAt: TimestampLike;
   updatedAt: TimestampLike;

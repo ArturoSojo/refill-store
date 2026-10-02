@@ -699,6 +699,7 @@ export type ModalFrequency = 'once' | 'daily' | 'always';
 
 /** En qué parte de la tienda aparece solo. */
 export type ModalPlacement = 'home' | 'store' | 'manual';
+export type ModalAudience = 'web' | 'app' | 'both';
 
 /**
  * Ventana superpuesta que explica algo al cliente (cómo recargar, un aviso).
@@ -719,6 +720,7 @@ export interface StoreModal {
   active: boolean;
   frequency: ModalFrequency;
   placement: ModalPlacement;
+  audience: ModalAudience;
   sortOrder: number;
   createdAt: TimestampLike;
   updatedAt: TimestampLike;
