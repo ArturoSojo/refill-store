@@ -1445,6 +1445,15 @@ const configPatchSchema = z.object({
     })
     .partial()
     .optional(),
+  chatbot: z
+    .object({
+      enabled: z.boolean(),
+      name: z.string().trim().max(60),
+      avatarUrl: z.string().trim().max(500),
+      welcomeMessage: z.string().trim().max(500),
+    })
+    .partial()
+    .optional(),
 });
 
 adminRouter.patch(

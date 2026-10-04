@@ -60,7 +60,7 @@ export function ChatWindow({ bot, onClose }: ChatWindowProps) {
         </button>
       </header>
 
-      <ChatMessageList messages={bot.messages} isTyping={bot.isTyping} onSelectOption={bot.sendText} />
+      <ChatMessageList messages={bot.messages} isTyping={bot.isTyping} onSelectOption={bot.selectOption} />
 
       <form onSubmit={handleSubmit} className="safe-bottom flex items-end gap-2 border-t border-base-600 bg-base-800 p-3">
         <input
