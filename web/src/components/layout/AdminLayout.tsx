@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Link, NavLink, Outlet } from 'react-router-dom';
 import {
   BellRing,
+  Bot,
   Gamepad2,
   Gem,
   GraduationCap,
@@ -37,6 +38,7 @@ const NAV = [
   { to: ROUTES.adminCreators, label: 'Creadores', icon: Sparkles, end: false },
   { to: ROUTES.adminModals, label: 'Modales', icon: GraduationCap, end: false },
   { to: ROUTES.adminTiers, label: 'Niveles', icon: Gem, end: false },
+  { to: ROUTES.adminChatbot, label: 'Asistente Virtual', icon: Bot, end: false },
   { to: ROUTES.adminSettings, label: 'Configuración', icon: Settings, end: false },
   { to: ROUTES.adminLogs, label: 'Bitácora', icon: ScrollText, end: false },
 ];

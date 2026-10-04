@@ -36,6 +36,7 @@ export const ROUTES = {
   adminModals: '/admin/modales',
   adminTiers: '/admin/niveles',
   adminSettings: '/admin/configuracion',
+  adminChatbot: '/admin/chatbot',
   adminLogs: '/admin/bitacora',
 } as const;
 

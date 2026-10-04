@@ -545,6 +545,12 @@ export interface PublicConfig {
   supportUrl: string;
   /** Escalera de niveles, servida por el backend (ver `functions/src/lib/tiers.ts`). */
   tiers: TierDefinition[];
+  chatbot?: {
+    enabled: boolean;
+    name: string;
+    avatarUrl: string;
+    welcomeMessage: string;
+  };
 }
 
 /** Un escalón de la escalera de fidelidad, tal como lo publica el backend. */

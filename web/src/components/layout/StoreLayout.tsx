@@ -22,6 +22,7 @@ import { ROUTES } from '@/lib/constants';
 import { cn, initials } from '@/lib/utils';
 import { captureCreatorCodeFromUrl } from '@/lib/creatorCode';
 import { StoreModals } from '@/components/common/StoreModals';
+import { RefillChatbot } from '@/features/chatbot';
 import { formatBs, formatUsd } from '@/lib/format';
 import { Button, ButtonLink } from '@/components/ui/Button';
 
@@ -469,6 +470,7 @@ export function StoreLayout() {
 
       <Footer />
       <BottomNav />
+      <RefillChatbot />
       <AccountDrawer open={menuOpen} onClose={() => setMenuOpen(false)} />
     </div>
   );

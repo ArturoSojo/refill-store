@@ -34,6 +34,8 @@ import { AdminCreators, AdminCreatorDetail } from '@/pages/admin/AdminCreators';
 import { CreatorPage } from '@/pages/CreatorPage';
 import { AdminAlerts } from '@/pages/admin/AdminAlerts';
 
+import { AdminChatbotPage } from '@/pages/admin/AdminChatbotPage';
+
 export function App() {
   return (
     <BrowserRouter>
@@ -152,6 +154,7 @@ export function App() {
           <Route path="creadores/:uid" element={<AdminCreatorDetail />} />
           <Route path="modales" element={<AdminModals />} />
           <Route path="niveles" element={<AdminTiers />} />
+          <Route path="chatbot" element={<AdminChatbotPage />} />
           <Route path="configuracion" element={<AdminSettings />} />
           <Route path="bitacora" element={<AdminLogs />} />
           <Route path="*" element={<Navigate to="/admin" replace />} />
