@@ -18,6 +18,7 @@ import {
   useCancelOrder,
   useCreateOrder,
   useLiveOrder,
+  usePricePreview,
   useVerifyPayment,
 } from '@/hooks/useOrders';
 import { cleanValues, fieldsAreValid, gameFields } from '@/features/catalog/PlayerFields';
@@ -37,7 +38,7 @@ import {
   paymentMethodOptions,
   referenceRules,
 } from './paymentMessages';
-import type { CreateOrderResponse, Game, Order, PublicProduct } from '@/types/models';
+import type { CreateOrderResponse, Game, Order, PricePreview, PublicProduct } from '@/types/models';
 import type { ChatFamily, ChatMessage, ChatOption, ChatPaymentMethod, ChatStep } from './types';
 
 /** Pausa simulada de «escribiendo…» antes de cada respuesta del bot. */
@@ -110,6 +111,12 @@ export function useRefillChatBot() {
   const [finalOrder, setFinalOrder] = useState<Order | null>(null);
   const [attempts, setAttempts] = useState(0);
   const lastAnnounced = useRef<string | null>(null);
+
+  // Cupón, saldo a favor y última cotización del servidor para el resumen.
+  const couponRef = useRef('');
+  const walletRef = useRef(false);
+  const previewRef = useRef<PricePreview | null>(null);
+  const previewMutation = usePricePreview();
 
   const { user, me, signInWithGoogle } = useAuth();
   const { config } = useConfig();
@@ -360,6 +367,51 @@ export function useRefillChatBot() {
     finish(selected, chosen, values);
   };
 
+  /**
+   * Consulta el precio real al servidor (nivel, cupón y saldo), igual que el
+   * checkout de la web, para que el resumen muestre lo que realmente se cobrará.
+   * Sin sesión no hay cotización: se muestra el precio de lista.
+   */
+  const fetchPreview = (
+    selected: Game,
+    chosen: PublicProduct,
+    values: Record<string, string>,
+    done: (quote: PricePreview | null) => void
+  ) => {
+    if (!user) {
+      previewRef.current = null;
+      done(null);
+      return;
+    }
+
+    const primary = gameFields(selected)[0];
+    setBusy(true);
+    previewMutation.mutate(
+      {
+        productId: chosen.id,
+        couponCode: couponRef.current || null,
+        creatorCode: readCreatorCode() || null,
+        useWallet: walletRef.current,
+        playerId: primary ? (values[primary.key] ?? null) : null,
+      },
+      {
+        onSuccess: (quote) => {
+          setBusy(false);
+          if (walletRef.current && !(quote.walletEnabled && quote.walletBalanceUsd > 0)) {
+            walletRef.current = false;
+          }
+          previewRef.current = quote;
+          done(quote);
+        },
+        onError: () => {
+          setBusy(false);
+          previewRef.current = null;
+          done(null);
+        },
+      }
+    );
+  };
+
   const finish = (selected: Game, chosen: PublicProduct, values: Record<string, string>) => {
     const lines = gameFields(selected)
       .filter((field) => values[field.key])
@@ -369,27 +421,76 @@ export function useRefillChatBot() {
       lines.push(`• Cuenta: ${values['_nick']}`);
     }
 
-    setStep('summary');
-    botSay([
-      {
-        text: [
-          'Este es el resumen de tu recarga:',
-          `🎮 ${selected.name}`,
-          `📦 ${chosen.name}`,
-          `💵 ${formatUsd(chosen.priceUsd)} · ${formatBs(chosen.priceBs)}`,
-          ...lines,
-        ].join('\n'),
-      },
-      {
-        text: '¿Todo correcto? Revisa bien los datos: la recarga entra en la cuenta que indicaste.',
-        actions: [
-          { id: 'pay', label: '💳 Continuar al pago' },
-          { id: 'edit:id', label: '✏️ Cambiar ID' },
-          { id: 'edit:pkg', label: '📦 Cambiar paquete' },
-          { id: 'back:games', label: '⬅️ Volver' },
-        ],
-      },
-    ]);
+    fetchPreview(selected, chosen, values, (quote) => {
+      let notice = '';
+      if (quote?.couponError && couponRef.current) {
+        notice = `⚠️ ${quote.couponError} `;
+        couponRef.current = '';
+      }
+
+      const priceLines = quote
+        ? [
+            `💵 Subtotal: ${formatUsd(quote.subtotalUsd)}`,
+            ...(quote.discountUsd > 0
+              ? [`🏷️ Descuento${quote.couponCode ? ` (${quote.couponCode})` : ''}: -${formatUsd(quote.discountUsd)}`]
+              : []),
+            ...(quote.creatorCode ? [`🎬 Código de creador: ${quote.creatorCode}`] : []),
+            ...(quote.walletAppliedUsd > 0 ? [`👛 Saldo a favor: -${formatUsd(quote.walletAppliedUsd)}`] : []),
+            quote.amountDueUsd <= 0
+              ? '✅ Total: $0.00 (cubierto con tu saldo)'
+              : `💳 Total a pagar: ${formatUsd(quote.amountDueUsd)} · ${formatBs(quote.totalBs)}`,
+          ]
+        : [`💵 ${formatUsd(chosen.priceUsd)} · ${formatBs(chosen.priceBs)}`];
+
+      const actions: ChatOption[] = [
+        {
+          id: 'pay',
+          label: quote && quote.amountDueUsd <= 0 ? '✅ Pagar con mi saldo' : '💳 Continuar al pago',
+        },
+        ...(config?.features.couponsEnabled
+          ? [
+              couponRef.current
+                ? { id: 'coupon:clear', label: '🗑️ Quitar código' }
+                : { id: 'coupon:ask', label: '🎟️ Código de descuento' },
+            ]
+          : []),
+        ...(quote?.walletEnabled && quote.walletBalanceUsd > 0
+          ? [
+              {
+                id: 'wallet:toggle',
+                label: walletRef.current
+                  ? '👛 No usar mi saldo'
+                  : `👛 Usar mi saldo (${formatUsd(quote.walletBalanceUsd)})`,
+              },
+            ]
+          : []),
+        { id: 'edit:id', label: '✏️ Cambiar ID' },
+        { id: 'edit:pkg', label: '📦 Cambiar paquete' },
+        { id: 'back:games', label: '⬅️ Volver' },
+      ];
+
+      setStep('summary');
+      botSay([
+        {
+          text: [
+            'Este es el resumen de tu recarga:',
+            `🎮 ${selected.name}`,
+            `📦 ${chosen.name}`,
+            ...priceLines,
+            ...lines,
+          ].join('\n'),
+        },
+        {
+          text: `${notice}¿Todo correcto? Revisa bien los datos: la recarga entra en la cuenta que indicaste.`,
+          actions,
+        },
+      ]);
+    });
+  };
+
+  /** Vuelve a pintar el resumen con el cupón o el saldo actualizados. */
+  const resummary = () => {
+    if (game && product) finish(game, product, fieldValues);
   };
 
   // ---------------------------------------------------------------------------
@@ -453,6 +554,20 @@ export function useRefillChatBot() {
       askPhone();
       return;
     }
+    goToMethodOrPay();
+  };
+
+  /**
+   * Si el saldo a favor cubre el 100% no hay nada que transferir: se crea la
+   * orden sin método de pago y queda pagada. Si no, se pregunta cómo pagar.
+   */
+  const goToMethodOrPay = () => {
+    const quote = previewRef.current;
+    const coveredByWallet = walletRef.current && quote !== null && quote.amountDueUsd <= 0;
+    if (coveredByWallet && !config?.features.maintenanceMode) {
+      createOrderFor();
+      return;
+    }
     askMethod();
   };
 
@@ -469,7 +584,7 @@ export function useRefillChatBot() {
     ]);
   };
 
-  const createOrderFor = (method: ChatPaymentMethod) => {
+  const createOrderFor = (method?: ChatPaymentMethod) => {
     if (!game || !product) return;
     setBusy(true);
     push({ from: 'bot', text: 'Creando tu orden…', progress: true });
@@ -480,11 +595,11 @@ export function useRefillChatBot() {
         productId: product.id,
         playerFields: cleanValues(gameFields(game), fieldValues),
         quantity: 1,
-        couponCode: null,
+        couponCode: couponRef.current || null,
         creatorCode: readCreatorCode() || null,
         contactPhone: needsPhone ? (contactPhone || me?.profile.phone || '').trim() : null,
-        paymentMethod: method,
-        useWallet: false,
+        ...(method ? { paymentMethod: method } : {}),
+        useWallet: walletRef.current,
       },
       {
         onSuccess: (data) => {
@@ -495,10 +610,19 @@ export function useRefillChatBot() {
 
           // Pagada íntegra por otra vía: no hay nada que transferir.
           if (data.payment.amountBs <= 0) {
+            couponRef.current = '';
+            walletRef.current = false;
+            push({
+              from: 'bot',
+              text: `✅ ¡Orden ${data.order.code} pagada con tu saldo a favor! Estamos procesando tu recarga.`,
+            });
             setFinalOrder(data.order);
             setStep('monitoring');
             return;
           }
+
+          couponRef.current = '';
+          walletRef.current = false;
 
           botSay(paymentInstructionMessages(data.payment, data.order.code), () =>
             askReference(data.payment)
@@ -868,6 +992,38 @@ export function useRefillChatBot() {
       return;
     }
 
+    if (kind === 'coupon') {
+      if (value === 'ask') {
+        push({ from: 'user', text: 'Código de descuento' });
+        if (!user) {
+          askAuth('Para aplicar un código de descuento necesitas iniciar sesión.');
+          return;
+        }
+        setStep('coupon');
+        botSay([
+          {
+            text: 'Escribe tu código de descuento:',
+            actions: [{ id: 'coupon:cancel', label: '⬅️ Volver al resumen' }],
+          },
+        ]);
+      } else if (value === 'clear') {
+        push({ from: 'user', text: 'Quitar código' });
+        couponRef.current = '';
+        resummary();
+      } else if (value === 'cancel') {
+        push({ from: 'user', text: 'Volver al resumen' });
+        resummary();
+      }
+      return;
+    }
+
+    if (kind === 'wallet' && value === 'toggle') {
+      push({ from: 'user', text: walletRef.current ? 'No usar mi saldo' : 'Usar mi saldo a favor' });
+      walletRef.current = !walletRef.current;
+      resummary();
+      return;
+    }
+
     if (kind === 'pay') {
       push({ from: 'user', text: 'Continuar al pago' });
       continueToPayment(Boolean(user));
@@ -912,6 +1068,13 @@ export function useRefillChatBot() {
     const text = raw.trim();
     if (!text || isTyping || pending || step === 'welcome') return;
 
+    if (step === 'coupon') {
+      push({ from: 'user', text });
+      couponRef.current = text.toUpperCase().replace(/\s+/g, '').slice(0, 24);
+      resummary();
+      return;
+    }
+
     if (step === 'phone') {
       push({ from: 'user', text });
       if (!PHONE_PATTERN.test(text)) {
@@ -919,7 +1082,7 @@ export function useRefillChatBot() {
         return;
       }
       setContactPhone(text);
-      askMethod();
+      goToMethodOrPay();
       return;
     }
 
@@ -979,6 +1142,9 @@ export function useRefillChatBot() {
     setFinalOrder(null);
     setContactPhone('');
     setAttempts(0);
+    couponRef.current = '';
+    walletRef.current = false;
+    previewRef.current = null;
     lastAnnounced.current = null;
     gameList.current = { items: [], shown: 0 };
     productList.current = { items: [], shown: 0 };

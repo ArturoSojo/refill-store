@@ -13,6 +13,7 @@ export type ChatStep =
   | 'packages'
   | 'fields'
   | 'summary'
+  | 'coupon'
   | 'auth'
   | 'phone'
   | 'method'
