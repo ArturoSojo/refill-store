@@ -3,6 +3,7 @@ import { useConfig } from '@/providers/ConfigProvider';
 export interface ChatbotConfig {
   enabled: boolean;
   name: string;
+  avatarUrl?: string;
   welcomeMessage: string;
 }
 

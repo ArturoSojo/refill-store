@@ -32,12 +32,20 @@ export function ChatWindow({ bot, onClose }: ChatWindowProps) {
       className="fixed inset-0 z-[60] flex flex-col bg-base-900 md:inset-auto md:bottom-6 md:right-6 md:h-[560px] md:max-h-[calc(100dvh-3rem)] md:w-[380px] md:overflow-hidden md:rounded-2xl md:border md:border-base-600 md:shadow-2xl"
     >
       <header className="safe-top flex items-center gap-3 bg-emerald-700 px-4 py-3 text-white">
-        <span
-          aria-hidden
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/20 text-sm font-bold uppercase"
-        >
-          {botName.charAt(0)}
-        </span>
+        {chatbotConfig.avatarUrl ? (
+          <img
+            src={chatbotConfig.avatarUrl}
+            alt=""
+            className="h-9 w-9 shrink-0 rounded-full bg-white/20 object-cover"
+          />
+        ) : (
+          <span
+            aria-hidden
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/20 text-sm font-bold uppercase"
+          >
+            {botName.charAt(0)}
+          </span>
+        )}
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-bold leading-tight">{botName}</p>
           <p className="text-xs text-emerald-100">{bot.isTyping ? 'escribiendo...' : 'en línea'}</p>
