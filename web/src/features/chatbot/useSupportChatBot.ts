@@ -77,25 +77,37 @@ export function useSupportChatBot() {
 
   const processQuery = (text: string) => {
     const lower = text.toLowerCase();
-    const instructions = dualConfig.supportBot.instructions;
     
     let answer = '';
     let addWa = false;
 
-    if (lower.includes('pago') || lower.includes('binance') || lower.includes('movil') || lower.includes('transferencia')) {
-      answer = 'Aceptamos Pago Móvil, Binance Pay (USDT) y transferencias bancarias nacionales. Si recargas saldo a favor en tu billetera, puedes pagar directamente desde allí. ' + instructions;
-    } else if (lower.includes('tasa') || lower.includes('dolar') || lower.includes('bs')) {
-      answer = `Nuestra tasa actual es de ${config?.rate || 0} Bs por dólar. Puedes verificarla en cualquier momento al iniciar una compra.`;
-    } else if (lower.includes('tiempo') || lower.includes('demora') || lower.includes('tarda')) {
-      answer = 'La mayoría de nuestras recargas (como Free Fire) son automáticas y se completan en segundos tras confirmar el pago.';
-    } else if (lower.includes('juegos') || lower.includes('lista') || lower.includes('disponible')) {
-      answer = 'Puedes ver nuestro catálogo completo haciendo clic en el carrito superior, o cambiando al Asistente de Recargas.';
-    } else {
-      answer = `Gracias por tu pregunta. Te recomendamos revisar el catálogo. ${instructions ? '\\n\\nNota: ' + instructions : ''}`;
+    // Intent: Métodos de pago
+    if (/(pago|pagar|método|metodo|binance|movil|móvil|transferencia|tarjeta)/i.test(lower)) {
+      answer = 'Aceptamos **Pago Móvil**, **Binance Pay (USDT)** y transferencias bancarias nacionales. También puedes depositar saldo a favor en tu billetera virtual y pagar directamente desde ahí.';
+    } 
+    // Intent: Tasa / Precios
+    else if (/(tasa|dolar|dólar|bs|bolivar|bolívar|precio)/i.test(lower)) {
+      answer = 'Nuestra tasa actual es de **' + (config?.rate || 0) + ' Bs por dólar**. Puedes verificarla en la cabecera de la página o al iniciar el flujo de cualquier compra.';
+    } 
+    // Intent: Tiempos / Demoras
+    else if (/(tiempo|demora|tarda|espera|rápido|rapido)/i.test(lower)) {
+      answer = '¡Las recargas son casi instantáneas! La mayoría de nuestros juegos (como Free Fire o Mobile Legends) se completan en **cuestión de segundos** tras la confirmación de tu pago.';
+    } 
+    // Intent: Catálogo / Juegos disponibles
+    else if (/(juegos|lista|disponible|catálogo|catalogo|free fire|robux)/i.test(lower)) {
+      answer = 'Contamos con un amplio catálogo incluyendo **Free Fire, Mobile Legends, Robux, y Gift Cards**. Cambia a la pestaña de **Recargas** o navega por nuestra página principal para verlos todos.';
+    } 
+    // Intent: Ayuda general / Hola
+    else if (/(hola|buenas|saludos|ayuda)/i.test(lower)) {
+      answer = '¡Hola! Estoy aquí para resolver tus dudas sobre la plataforma. Pregúntame sobre métodos de pago, nuestra tasa, o cómo funciona el proceso de recarga.';
+    }
+    // Fallback / Desconocido
+    else {
+      answer = 'Entiendo. Para consultas más específicas sobre pedidos particulares o problemas técnicos, te recomendamos contactar directamente a un agente humano.';
       addWa = true;
     }
 
-    const actions = addWa ? [{ id: 'wa', label: '💬 Hablar con soporte humano' }] : undefined;
+    const actions = addWa ? [{ id: 'wa', label: '💬 Hablar con Soporte Humano' }] : undefined;
 
     botSay([{ text: answer, actions }]);
   };
@@ -132,4 +144,5 @@ export function useSupportChatBot() {
     sendText,
   };
 }
+
 
