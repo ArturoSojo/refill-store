@@ -3,25 +3,33 @@ import { useLocation } from 'react-router-dom';
 import { ChatFloatingButton } from './ChatFloatingButton';
 import { ChatWindow } from './ChatWindow';
 import { useRefillChatBot } from './useRefillChatBot';
-import { useChatbotConfig } from './useChatbotConfig';
+import { useSupportChatBot } from './useSupportChatBot';
+import { useDualBotConfig } from './useChatbotConfig';
 
-/** Punto de entrada del asistente: botón flotante + ventana de chat. */
 export function RefillChatbot() {
   const [open, setOpen] = useState(false);
-  const bot = useRefillChatBot();
+  const refillBot = useRefillChatBot();
+  const supportBot = useSupportChatBot();
   const { pathname } = useLocation();
-  const chatbotConfig = useChatbotConfig();
+  const dualConfig = useDualBotConfig();
 
-  // En el checkout lo importante es el monto y la referencia: no se tapa.
-  if (pathname.startsWith('/comprar') || chatbotConfig.enabled === false) return null;
+  const isRefillEnabled = dualConfig.chatbot.enabled;
+  const isSupportEnabled = dualConfig.supportBot.enabled;
+
+  if (pathname.startsWith('/comprar') || (!isRefillEnabled && !isSupportEnabled)) return null;
 
   const openChat = () => {
     setOpen(true);
-    bot.start();
+    if (isRefillEnabled) refillBot.start();
+    if (isSupportEnabled) supportBot.start();
   };
 
   return open ? (
-    <ChatWindow bot={bot} onClose={() => setOpen(false)} />
+    <ChatWindow 
+      refillBot={refillBot} 
+      supportBot={supportBot} 
+      onClose={() => setOpen(false)} 
+    />
   ) : (
     <ChatFloatingButton onClick={openChat} />
   );

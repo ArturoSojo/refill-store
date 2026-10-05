@@ -8,6 +8,10 @@ import { ConfigProvider } from '@/providers/ConfigProvider';
 import { ApiError } from '@/lib/api';
 import './styles/index.css';
 
+window.addEventListener('vite:preloadError', () => {
+  window.location.reload();
+});
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -59,3 +63,4 @@ createRoot(document.getElementById('root')!).render(
     </QueryClientProvider>
   </StrictMode>
 );
+

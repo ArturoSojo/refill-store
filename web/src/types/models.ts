@@ -551,6 +551,13 @@ export interface PublicConfig {
     avatarUrl: string;
     welcomeMessage: string;
   };
+  supportBot?: {
+    enabled: boolean;
+    name: string;
+    avatarUrl: string;
+    welcomeMessage: string;
+    instructions: string;
+  };
 }
 
 /** Un escalón de la escalera de fidelidad, tal como lo publica el backend. */
@@ -866,3 +873,5 @@ export interface CreatorSummary {
   discountPercent: number;
   stats: Creator['stats'];
 }
+
+

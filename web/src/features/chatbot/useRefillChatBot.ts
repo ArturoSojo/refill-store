@@ -29,7 +29,7 @@ import { readCreatorCode, clearCreatorCode } from '@/lib/creatorCode';
 import { formatBs, formatUsd } from '@/lib/format';
 import { errorMessage, openWhatsapp } from '@/lib/utils';
 import { matchCategory, searchGames } from './fuzzy';
-import { useChatbotConfig } from './useChatbotConfig';
+import { useDualBotConfig } from './useChatbotConfig';
 import {
   PHONE_PATTERN,
   liveOrderMessages,
@@ -902,7 +902,8 @@ export function useRefillChatBot() {
   // API pública del hook
   // ---------------------------------------------------------------------------
 
-  const chatbotConfig = useChatbotConfig();
+  const dualConfig = useDualBotConfig();
+  const chatbotConfig = dualConfig.chatbot;
 
   /** Arranca la conversación una sola vez. */
   const start = () => {
@@ -1197,6 +1198,7 @@ export function useRefillChatBot() {
 function normalizeSkip(text: string): boolean {
   return ['no', 'omitir', 'saltar', '-'].includes(text.trim().toLowerCase());
 }
+
 
 
 

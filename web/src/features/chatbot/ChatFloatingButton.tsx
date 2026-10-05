@@ -1,5 +1,5 @@
 import { MessageCircle } from 'lucide-react';
-import { useChatbotConfig } from './useChatbotConfig';
+import { useDualBotConfig } from './useChatbotConfig';
 
 interface ChatFloatingButtonProps {
   onClick: () => void;
@@ -10,7 +10,8 @@ interface ChatFloatingButtonProps {
  * el área segura); desde `md` esa barra desaparece y baja a la esquina.
  */
 export function ChatFloatingButton({ onClick }: ChatFloatingButtonProps) {
-  const { avatarUrl } = useChatbotConfig();
+  const dualConfig = useDualBotConfig();
+  const { avatarUrl } = dualConfig.chatbot;
 
   return (
     <div className="fixed right-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-40 flex flex-col items-end gap-2.5 md:bottom-6 md:right-6">
@@ -44,3 +45,5 @@ export function ChatFloatingButton({ onClick }: ChatFloatingButtonProps) {
     </div>
   );
 }
+
+

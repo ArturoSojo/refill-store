@@ -7,11 +7,24 @@ export interface ChatbotConfig {
   welcomeMessage: string;
 }
 
-export function getLocalChatbotConfig(): ChatbotConfig | null {
+export interface SupportBotConfig {
+  enabled: boolean;
+  name: string;
+  avatarUrl?: string;
+  welcomeMessage: string;
+  instructions: string;
+}
+
+export interface DualBotConfig {
+  chatbot: ChatbotConfig;
+  supportBot: SupportBotConfig;
+}
+
+export function getLocalDualBotConfig(): DualBotConfig | null {
   try {
-    const local = localStorage.getItem('refill_chatbot_config');
+    const local = localStorage.getItem('refill_dualbot_config');
     if (local) {
-      return JSON.parse(local) as ChatbotConfig;
+      return JSON.parse(local) as DualBotConfig;
     }
   } catch {
     // ignore parsing errors
@@ -19,17 +32,23 @@ export function getLocalChatbotConfig(): ChatbotConfig | null {
   return null;
 }
 
-export function useChatbotConfig(): ChatbotConfig {
+export function useDualBotConfig(): DualBotConfig {
   const { config } = useConfig();
-  const local = getLocalChatbotConfig();
+  const local = getLocalDualBotConfig();
 
   return (
-    local ??
-    config?.chatbot ?? {
-      enabled: true,
-      name: 'Asistente Refill',
-      welcomeMessage:
-        '¡Hola! 👋 Soy el asistente de Refill Store. Te guío paso a paso con tu recarga.',
+    local ?? {
+      chatbot: config?.chatbot ?? {
+        enabled: true,
+        name: 'Asistente Refill',
+        welcomeMessage: '¡Hola! 🤖 Soy el asistente de Refill Store. Te guío paso a paso con tu recarga.',
+      },
+      supportBot: config?.supportBot ?? {
+        enabled: true,
+        name: 'Soporte Refill',
+        welcomeMessage: '¡Hola! 💬 Soy el asistente de soporte. ¿En qué te puedo ayudar hoy?',
+        instructions: 'Eres el asistente de soporte de Refill Store...',
+      },
     }
   );
 }
