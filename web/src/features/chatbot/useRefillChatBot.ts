@@ -25,7 +25,7 @@ import { cleanValues, fieldsAreValid, gameFields } from '@/features/catalog/Play
 import { useAuth } from '@/providers/AuthProvider';
 import { useConfig } from '@/providers/ConfigProvider';
 import { api, ApiError, isGatewayTimeout } from '@/lib/api';
-import { readCreatorCode } from '@/lib/creatorCode';
+import { readCreatorCode, clearCreatorCode } from '@/lib/creatorCode';
 import { formatBs, formatUsd } from '@/lib/format';
 import { errorMessage, openWhatsapp } from '@/lib/utils';
 import { matchCategory, searchGames } from './fuzzy';
@@ -151,13 +151,7 @@ export function useRefillChatBot() {
   const ready = Object.fromEntries(
     FAMILIES.map((family) => {
       const query = familyQueries[family];
-      const done =
-        enabledFamilies.includes(family) &&
-        !query.isLoading &&
-        (Boolean(query.error) ||
-          (query.data !== undefined &&
-            !query.isFetching &&
-            (!query.hasMore || query.data.games.length >= MAX_POOL_GAMES)));
+      const done = enabledFamilies.includes(family) && (!query.isLoading || Boolean(query.error));
       return [family, done];
     })
   ) as Record<ChatFamily, boolean>;
@@ -209,6 +203,11 @@ export function useRefillChatBot() {
   /** Encola mensajes del bot con retardo, mostrando el indicador de escritura. */
   const botSay = (items: Omit<ChatMessage, 'id' | 'from'>[], onDone?: () => void) => {
     setIsTyping(true);
+    if (items.length === 0) {
+      setIsTyping(false);
+      onDone?.();
+      return;
+    }
     items.forEach((item, index) => {
       const timer = setTimeout(() => {
         push({ ...item, from: 'bot' });
@@ -434,7 +433,7 @@ export function useRefillChatBot() {
             ...(quote.discountUsd > 0
               ? [`🏷️ Descuento${quote.couponCode ? ` (${quote.couponCode})` : ''}: -${formatUsd(quote.discountUsd)}`]
               : []),
-            ...(quote.creatorCode ? [`🎬 Código de creador: ${quote.creatorCode}`] : []),
+            ...(quote.creatorCode && quote.discountUsd > 0 ? [`🎬 Código de creador: ${quote.creatorCode}`] : []),
             ...(quote.walletAppliedUsd > 0 ? [`👛 Saldo a favor: -${formatUsd(quote.walletAppliedUsd)}`] : []),
             quote.amountDueUsd <= 0
               ? '✅ Total: $0.00 (cubierto con tu saldo)'
@@ -611,7 +610,8 @@ export function useRefillChatBot() {
           // Pagada íntegra por otra vía: no hay nada que transferir.
           if (data.payment.amountBs <= 0) {
             couponRef.current = '';
-            walletRef.current = false;
+    clearCreatorCode();
+    walletRef.current = false;
             push({
               from: 'bot',
               text: `✅ ¡Orden ${data.order.code} pagada con tu saldo a favor! Estamos procesando tu recarga.`,
@@ -622,7 +622,8 @@ export function useRefillChatBot() {
           }
 
           couponRef.current = '';
-          walletRef.current = false;
+    clearCreatorCode();
+    walletRef.current = false;
 
           botSay(paymentInstructionMessages(data.payment, data.order.code), () =>
             askReference(data.payment)
@@ -1143,6 +1144,7 @@ export function useRefillChatBot() {
     setContactPhone('');
     setAttempts(0);
     couponRef.current = '';
+    clearCreatorCode();
     walletRef.current = false;
     previewRef.current = null;
     lastAnnounced.current = null;
@@ -1195,3 +1197,7 @@ export function useRefillChatBot() {
 function normalizeSkip(text: string): boolean {
   return ['no', 'omitir', 'saltar', '-'].includes(text.trim().toLowerCase());
 }
+
+
+
+

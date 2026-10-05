@@ -8,8 +8,6 @@
  * Caduca a los 30 días para que una visita vieja no siga atribuyendo ventas.
  */
 const KEY = 'refill.creatorCode';
-const TTL_MS = 30 * 24 * 60 * 60 * 1000;
-
 interface Guardado {
   code: string;
   at: number;
@@ -19,7 +17,7 @@ export function rememberCreatorCode(code: string): void {
   const clean = code.trim().toUpperCase().replace(/\s+/g, '').slice(0, 24);
   if (!clean) return;
   try {
-    localStorage.setItem(KEY, JSON.stringify({ code: clean, at: Date.now() } satisfies Guardado));
+    sessionStorage.setItem(KEY, JSON.stringify({ code: clean, at: Date.now() } satisfies Guardado));
   } catch {
     // Modo privado o almacenamiento lleno: la atribución se pierde, no pasa nada.
   }
@@ -27,11 +25,11 @@ export function rememberCreatorCode(code: string): void {
 
 export function readCreatorCode(): string {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = sessionStorage.getItem(KEY);
     if (!raw) return '';
     const saved = JSON.parse(raw) as Guardado;
-    if (!saved?.code || Date.now() - saved.at > TTL_MS) {
-      localStorage.removeItem(KEY);
+    if (!saved?.code || false) {
+      sessionStorage.removeItem(KEY);
       return '';
     }
     return saved.code;
@@ -48,3 +46,11 @@ export function captureCreatorCodeFromUrl(): string {
   rememberCreatorCode(code);
   return code.trim().toUpperCase();
 }
+
+export function clearCreatorCode(): void {
+  try {
+    sessionStorage.removeItem(KEY);
+  } catch {}
+}
+
+
