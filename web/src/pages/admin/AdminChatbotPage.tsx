@@ -1,26 +1,92 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { Bot, Save, Upload, MessageSquare, ShoppingCart } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { useUpdateConfig } from '@/hooks/useAdmin';
+import { useAdminChatbotConfig, useUpdateChatbotConfig } from '@/hooks/useAdmin';
 import { Button } from '@/components/ui/Button';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { app } from '@/lib/firebase';
-import { useDualBotConfig, ChatbotConfig, SupportBotConfig } from '@/features/chatbot/useChatbotConfig';
+import { FullPageLoader } from '@/components/ui/Feedback';
+import { ChatbotConfig, SupportBotConfig } from '@/features/chatbot/useChatbotConfig';
 
 export function AdminChatbotPage() {
-  const updateConfig = useUpdateConfig();
-  const dualConfig = useDualBotConfig();
+  const configQuery = useAdminChatbotConfig();
+  const updateConfig = useUpdateChatbotConfig();
+  const dualConfig = configQuery.data?.config;
   
   const [activeTab, setActiveTab] = useState<'refill' | 'support'>('refill');
   
-  const [refillAvatarUrl, setRefillAvatarUrl] = useState(dualConfig.chatbot.avatarUrl || '');
-  const [supportAvatarUrl, setSupportAvatarUrl] = useState(dualConfig.supportBot.avatarUrl || '');
+  const [refillAvatarUrl, setRefillAvatarUrl] = useState('');
+  const [supportAvatarUrl, setSupportAvatarUrl] = useState('');
   
   const [uploading, setUploading] = useState(false);
+  const legacyMigrationAttempted = useRef(false);
+
+  useEffect(() => {
+    if (!dualConfig) return;
+    setRefillAvatarUrl(dualConfig.chatbot.avatarUrl || '');
+    setSupportAvatarUrl(dualConfig.supportBot.avatarUrl || '');
+  }, [dualConfig]);
+
+  useEffect(() => {
+    const settings = configQuery.data;
+    if (!settings || legacyMigrationAttempted.current) return;
+    legacyMigrationAttempted.current = true;
+
+    let legacyValue: string | null = null;
+    try {
+      legacyValue = localStorage.getItem('refill_dualbot_config');
+    } catch {
+      return;
+    }
+    if (!legacyValue) return;
+
+    if (settings.configured) {
+      localStorage.removeItem('refill_dualbot_config');
+      return;
+    }
+
+    try {
+      const legacy = JSON.parse(legacyValue) as {
+        chatbot?: Partial<ChatbotConfig>;
+        supportBot?: Partial<SupportBotConfig>;
+      };
+      const profile = (value: Partial<ChatbotConfig> | undefined, fallback: ChatbotConfig): ChatbotConfig => ({
+        enabled: typeof value?.enabled === 'boolean' ? value.enabled : fallback.enabled,
+        name: typeof value?.name === 'string' ? value.name : fallback.name,
+        avatarUrl: typeof value?.avatarUrl === 'string' ? value.avatarUrl : fallback.avatarUrl,
+        welcomeMessage: typeof value?.welcomeMessage === 'string' ? value.welcomeMessage : fallback.welcomeMessage,
+      });
+      const migrated: { chatbot: ChatbotConfig; supportBot: SupportBotConfig } = {
+        chatbot: profile(legacy.chatbot, dualConfig!.chatbot),
+        supportBot: {
+          ...profile(legacy.supportBot, dualConfig!.supportBot),
+          instructions: typeof legacy.supportBot?.instructions === 'string' ? legacy.supportBot.instructions : '',
+        },
+      };
+
+      updateConfig.mutate(migrated, {
+        onSuccess: () => {
+          localStorage.removeItem('refill_dualbot_config');
+          toast.success('La configuración anterior de los asistentes se guardó en la tienda.');
+        },
+        onError: () => toast.error('No se pudo migrar la configuración anterior. Puedes guardarla manualmente.'),
+      });
+    } catch {
+      localStorage.removeItem('refill_dualbot_config');
+    }
+  }, [configQuery.data, dualConfig, updateConfig]);
+
+  if (configQuery.isLoading || !dualConfig) return <FullPageLoader />;
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>, type: 'refill' | 'support') => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      toast.error('Selecciona un archivo de imagen.');
+      e.target.value = '';
+      return;
+    }
     
     if (file.size > 2 * 1024 * 1024) {
       toast.error('La imagen no debe superar los 2MB');
@@ -70,8 +136,6 @@ export function AdminChatbotPage() {
       supportBot: supportConfig
     };
 
-    localStorage.setItem('refill_dualbot_config', JSON.stringify(payload));
-    
     updateConfig.mutate(payload, {
       onSuccess: () => toast.success('Configuración de asistentes guardada.'),
       onError: (err) => {
@@ -240,5 +304,3 @@ export function AdminChatbotPage() {
     </div>
   );
 }
-
-

@@ -14,6 +14,7 @@ import { assertStorefrontGame, belongsToStorefront, resolveStorefront, INEFABLE_
 import { PAGE_LIMIT } from '../lib/pagination';
 import { rateLimit } from '../middleware/rateLimit';
 import * as fazerCards from '../services/fazercards';
+import * as chatbotService from '../services/chatbot';
 import { failedPrecondition, providerError } from '../lib/errors';
 
 const FAZER_FAMILIES = ['topup', 'gift_card', 'game_key'] as const;
@@ -21,11 +22,44 @@ const HOME_CATEGORIES_PER_FAMILY = 8;
 
 export const publicRouter = Router();
 
+const chatbotAnswerSchema = z.object({
+  messages: z
+    .array(
+      z.object({
+        role: z.enum(['user', 'assistant']),
+        content: z.string().trim().min(1).max(1500),
+      })
+    )
+    .min(1)
+    .max(12)
+    .superRefine((messages, context) => {
+      if (messages[messages.length - 1]?.role !== 'user') {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: 'El último mensaje debe ser una pregunta.' });
+      }
+    }),
+});
+
 /** Estado de salud, útil para monitoreo. */
 publicRouter.get(
   '/health',
   asyncHandler(async (_req, res) => {
     ok(res, { status: 'ok', time: new Date().toISOString() });
+  })
+);
+
+/** Respuesta pública del asistente de preguntas, fundamentada en datos del servidor. */
+publicRouter.post(
+  '/chatbot/answer',
+  rateLimit({
+    name: 'support_chatbot',
+    max: 20,
+    windowSeconds: 300,
+    message: 'Enviaste varias preguntas seguidas. Espera un momento e inténtalo de nuevo.',
+  }),
+  asyncHandler(async (req, res) => {
+    const { messages } = parseBody(req, chatbotAnswerSchema);
+    const answer = await chatbotService.answerSupportQuestion(messages, resolveStorefront(req));
+    ok(res, answer);
   })
 );
 

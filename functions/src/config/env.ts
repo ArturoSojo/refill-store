@@ -24,6 +24,8 @@ export const PABILO_USER_BANK_ID = defineSecret('PABILO_USER_BANK_ID');
 /** Cuenta de Pabilo asociada a Binance Pay; se usa sólo al verificar ese método. */
 export const PABILO_BINANCE_USER_BANK_ID = defineSecret('PABILO_BINANCE_USER_BANK_ID');
 export const INEFABLE_API_KEY = defineSecret('INEFABLE_API_KEY');
+/** Credencial de Gemini; se usa únicamente desde Cloud Functions. */
+export const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY');
 
 /** API key del revendedor FazerCards (`fc_…`). Nunca llega al navegador. */
 export const FAZERCARDS_API_KEY = defineSecret('FAZERCARDS_API_KEY');
@@ -82,6 +84,7 @@ export const API_SECRETS = [
   PABILO_USER_BANK_ID,
   PABILO_BINANCE_USER_BANK_ID,
   INEFABLE_API_KEY,
+  GEMINI_API_KEY,
   FAZERCARDS_API_KEY,
   FAZERCARDS_WEBHOOK_SECRET,
   FAZERCARDS_WEBHOOK_TOKEN,
@@ -118,6 +121,9 @@ export const fazerBaseUrl = () => fromEnv('FAZERCARDS_BASE_URL', 'https://api.fz
 /** Fuente pública para refrescar la tasa BCV cuando `rate.source = auto`. */
 export const rateSourceUrl = () =>
   fromEnv('RATE_SOURCE_URL', 'https://pydolarve.org/api/v2/tipo-cambio?currency=usd');
+
+/** Modelo de respuestas cortas del asistente de soporte. */
+export const geminiModel = () => fromEnv('GEMINI_MODEL', 'gemini-3.8-flash');
 
 const DEFAULT_ORIGINS = [
   // Dominio personalizado de producción.

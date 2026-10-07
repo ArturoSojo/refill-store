@@ -552,21 +552,17 @@ export interface PublicConfig {
     telegram: string;
   };
   supportUrl: string;
+  chatbot?: ChatbotProfile;
+  supportBot?: ChatbotProfile;
   /** Escalera de niveles, servida por el backend (ver `functions/src/lib/tiers.ts`). */
   tiers: TierDefinition[];
-  chatbot?: {
-    enabled: boolean;
-    name: string;
-    avatarUrl: string;
-    welcomeMessage: string;
-  };
-  supportBot?: {
-    enabled: boolean;
-    name: string;
-    avatarUrl: string;
-    welcomeMessage: string;
-    instructions: string;
-  };
+}
+
+export interface ChatbotProfile {
+  enabled: boolean;
+  name: string;
+  avatarUrl: string;
+  welcomeMessage: string;
 }
 
 /** Un escalón de la escalera de fidelidad, tal como lo publica el backend. */
@@ -882,5 +878,3 @@ export interface CreatorSummary {
   discountPercent: number;
   stats: Creator['stats'];
 }
-
-

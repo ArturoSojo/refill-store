@@ -11,7 +11,7 @@ interface ChatFloatingButtonProps {
  */
 export function ChatFloatingButton({ onClick }: ChatFloatingButtonProps) {
   const dualConfig = useDualBotConfig();
-  const { avatarUrl } = dualConfig.chatbot;
+  const profile = dualConfig.chatbot.enabled ? dualConfig.chatbot : dualConfig.supportBot;
 
   return (
     <div className="fixed right-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-40 flex flex-col items-end gap-2.5 md:bottom-6 md:right-6">
@@ -33,11 +33,11 @@ export function ChatFloatingButton({ onClick }: ChatFloatingButtonProps) {
       <button
         type="button"
         onClick={onClick}
-        aria-label="Abrir asistente de recargas"
+        aria-label={`Abrir ${profile.name}`}
         className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-emerald-600 text-white shadow-lg shadow-black/40 transition-transform duration-300 hover:scale-105 hover:bg-emerald-500 md:h-14 md:w-14"
       >
-        {avatarUrl ? (
-          <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+        {profile.avatarUrl ? (
+          <img src={profile.avatarUrl} alt="" className="h-full w-full object-cover" />
         ) : (
           <MessageCircle className="h-6 w-6" aria-hidden />
         )}
@@ -45,5 +45,4 @@ export function ChatFloatingButton({ onClick }: ChatFloatingButtonProps) {
     </div>
   );
 }
-
 

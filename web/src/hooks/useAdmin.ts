@@ -24,6 +24,7 @@ import type {
   UserProfile,
   WalletTransaction,
 } from '@/types/models';
+import type { AdminDualBotConfig } from '@/features/chatbot/useChatbotConfig';
 
 // --- Dashboard -------------------------------------------------------------
 
@@ -472,6 +473,28 @@ export function useUpdateConfig() {
     mutationFn: (patch: Record<string, unknown>) =>
       api.patch<{ config: AppConfig }>('/admin/config', patch),
     onSuccess: invalidate,
+  });
+}
+
+export function useAdminChatbotConfig() {
+  return useQuery({
+    queryKey: ['admin', 'chatbot-config'],
+    queryFn: () => api.get<{ config: AdminDualBotConfig; configured: boolean }>('/admin/chatbot/config'),
+    staleTime: 30_000,
+  });
+}
+
+export function useUpdateChatbotConfig() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (config: AdminDualBotConfig) =>
+      api.patch<{ config: AdminDualBotConfig }>('/admin/chatbot/config', config),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['admin', 'chatbot-config'] }),
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.config }),
+      ]);
+    },
   });
 }
 

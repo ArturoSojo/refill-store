@@ -884,10 +884,20 @@ export interface AppConfig {
     instagram: string;
     telegram: string;
   };
+  chatbot: ChatbotProfile;
+  supportBot: ChatbotProfile;
   /** Escalera de fidelidad, editable desde el panel. Ver `lib/tiers.ts`. */
   tiers: TierDefinition[];
   updatedAt: TimestampLike | null;
   updatedBy: string | null;
+}
+
+/** Datos visuales públicos de cada asistente. Las instrucciones se guardan aparte. */
+export interface ChatbotProfile {
+  enabled: boolean;
+  name: string;
+  avatarUrl: string;
+  welcomeMessage: string;
 }
 
 /**
@@ -945,6 +955,8 @@ export interface PublicConfig {
   >;
   announcement: AppConfig['announcement'];
   contact: AppConfig['contact'];
+  chatbot: AppConfig['chatbot'];
+  supportBot: AppConfig['supportBot'];
 }
 
 // ---------------------------------------------------------------------------

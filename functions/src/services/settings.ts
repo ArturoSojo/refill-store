@@ -100,6 +100,18 @@ export const DEFAULT_CONFIG: AppConfig = {
     instagram: '',
     telegram: '',
   },
+  chatbot: {
+    enabled: true,
+    name: 'Asistente Refill',
+    avatarUrl: '',
+    welcomeMessage: '¡Hola! 🤖 Soy el asistente de Refill Store. Te guío paso a paso con tu recarga.',
+  },
+  supportBot: {
+    enabled: true,
+    name: 'Soporte Refill',
+    avatarUrl: '',
+    welcomeMessage: '¡Hola! 💬 Soy el asistente de soporte. ¿En qué te puedo ayudar hoy?',
+  },
   tiers: [...DEFAULT_TIERS],
   updatedAt: null,
   updatedBy: null,
@@ -174,6 +186,13 @@ export async function updateConfig(
 
 /** Proyección segura para clientes anónimos: nada de números de admin ni márgenes. */
 export function toPublicConfig(config: AppConfig): PublicConfig {
+  const publicChatbotProfile = (profile: AppConfig['chatbot']) => ({
+    enabled: profile.enabled,
+    name: profile.name,
+    avatarUrl: profile.avatarUrl,
+    welcomeMessage: profile.welcomeMessage,
+  });
+
   return {
     storeName: config.storeName,
     tagline: config.tagline,
@@ -200,5 +219,8 @@ export function toPublicConfig(config: AppConfig): PublicConfig {
     },
     announcement: config.announcement,
     contact: config.contact,
+    // Proyectar cada campo evita filtrar campos privados heredados de config/app.
+    chatbot: publicChatbotProfile(config.chatbot),
+    supportBot: publicChatbotProfile(config.supportBot),
   };
 }

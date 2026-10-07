@@ -141,6 +141,7 @@ misma que las funciones, para que las lecturas no crucen regiones).
 firebase functions:secrets:set PABILO_API_KEY
 firebase functions:secrets:set PABILO_USER_BANK_ID
 firebase functions:secrets:set INEFABLE_API_KEY
+firebase functions:secrets:set GEMINI_API_KEY   # bot de preguntas (Gemini)
 firebase functions:secrets:set SETUP_TOKEN         # inventa una cadena larga
 firebase functions:secrets:set TELEGRAM_BOT_TOKEN  # opcional: avisos al equipo
 firebase functions:secrets:set GMAIL_APP_PASSWORD  # correos al cliente
@@ -149,6 +150,11 @@ firebase functions:secrets:set GMAIL_APP_PASSWORD  # correos al cliente
 `GMAIL_APP_PASSWORD` **no** es la contraseña de la cuenta: es una *contraseña de aplicación*
 de 16 caracteres que se genera en la seguridad de Google y exige tener activada la
 verificación en dos pasos. La cuenta remitente se elige en el panel.
+
+`GEMINI_API_KEY` se utiliza únicamente desde Cloud Functions para responder en el bot de
+preguntas. No se configura en el frontend. Si se quiere cambiar el modelo, se puede definir
+`GEMINI_MODEL` en la configuración del entorno de Functions; por defecto se usa
+`gemini-3.8-flash`.
 
 Los valores de los tres primeros están en el documento de especificaciones.
 `SETUP_TOKEN` es temporal: lo borras en cuanto tengas tu administrador.

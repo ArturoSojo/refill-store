@@ -45,6 +45,7 @@ import { seedCatalog } from '../seed/catalog.seed';
 import * as alertsService from '../services/adminAlerts';
 import * as emailService from '../services/email';
 import * as modalsService from '../services/modals';
+import * as chatbotService from '../services/chatbot';
 import { renderOrderEmail } from '../services/emailTemplates';
 import { DEFAULT_PLAYER_FIELD } from '../types/models';
 import type { Coupon, Order, Ticket, UserProfile } from '../types/models';
@@ -1370,6 +1371,52 @@ adminRouter.get(
 // ===========================================================================
 // Configuración
 // ===========================================================================
+
+const chatbotProfileSchema = z.object({
+  enabled: z.boolean(),
+  name: z.string().trim().min(1).max(60),
+  avatarUrl: z.string().trim().max(500),
+  welcomeMessage: z.string().trim().min(1).max(500),
+});
+
+const chatbotAdminConfigSchema = z.object({
+  chatbot: chatbotProfileSchema,
+  supportBot: chatbotProfileSchema.extend({
+    instructions: z.string().trim().max(10_000),
+  }),
+});
+
+adminRouter.get(
+  '/chatbot/config',
+  requireAuth,
+  requireAdmin,
+  asyncHandler(async (_req, res) => {
+    ok(res, await chatbotService.getAdminChatbotSettings());
+  })
+);
+
+adminRouter.patch(
+  '/chatbot/config',
+  requireAuth,
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const body = parseBody(req, chatbotAdminConfigSchema);
+    const actor = currentUser(req);
+    const config = await chatbotService.saveAdminChatbotConfig(body, actor.uid);
+
+    await audit.record({
+      action: audit.ACTIONS.CONFIG_UPDATED,
+      actorUid: actor.uid,
+      actorEmail: actor.email,
+      targetType: 'chatbot',
+      targetId: 'dual-assistant',
+      summary: 'Configuración de los asistentes de recargas y preguntas actualizada.',
+      ip: clientIp(req),
+    });
+
+    ok(res, { config });
+  })
+);
 
 adminRouter.get(
   '/config',

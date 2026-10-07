@@ -55,6 +55,12 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Instrucciones privadas del asistente. Se leen y escriben sólo mediante
+    // Cloud Functions con Admin SDK; nunca se entregan al cliente directamente.
+    match /privateConfig/{docId} {
+      allow read, write: if false;
+    }
+
     // ---------- Usuarios ----------
     match /users/{uid} {
       // Cada quien lee su perfil; el staff puede leer todos.
