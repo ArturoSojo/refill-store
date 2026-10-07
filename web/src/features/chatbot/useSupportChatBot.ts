@@ -93,7 +93,7 @@ export function useSupportChatBot() {
     setIsTyping(true);
 
     void api
-      .post<{ reply: string; needsSupport: boolean }>('/chatbot/answer', { messages: history })
+      .post<{ reply: string; needsSupport: boolean; action?: 'start_recharge' | 'view_orders' }>('/chatbot/answer', { messages: history })
       .then((answer) => {
         if (generation !== requestGeneration.current) return;
         const nextConversation: Array<{ role: 'user' | 'assistant'; content: string }> = [
@@ -105,9 +105,13 @@ export function useSupportChatBot() {
         push({
           from: 'bot',
           text: answer.reply,
-          actions: answer.needsSupport
-            ? [{ id: 'wa', label: '💬 Hablar con Soporte Humano' }]
-            : undefined,
+          actions: answer.action === 'start_recharge'
+            ? [{ id: 'start_recharge', label: '🛒 Empezar recarga' }]
+            : answer.action === 'view_orders'
+              ? [{ id: 'view_orders', label: '📋 Ver mis órdenes' }]
+              : answer.needsSupport
+                ? [{ id: 'wa', label: '💬 Hablar con Soporte Humano' }]
+                : undefined,
         });
       })
       .catch(() => {

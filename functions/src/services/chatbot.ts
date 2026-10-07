@@ -4,7 +4,9 @@ import { GEMINI_API_KEY, geminiModel } from '../config/env';
 import { failedPrecondition, providerError } from '../lib/errors';
 import { log } from '../lib/logger';
 import { belongsToStorefront, type Storefront } from '../lib/storefront';
+import { normalizeLadder } from '../lib/tiers';
 import type { AppConfig, ChatbotProfile, Game, Product } from '../types/models';
+import { answerKnownSupportQuestion, type SupportAnswer } from './chatbotAnswers';
 import { buildSupportSystemInstruction, parseSupportAnswer } from './chatbotPrompt';
 import { getConfig, invalidateConfigCache } from './settings';
 import * as catalog from './catalog';
@@ -151,14 +153,21 @@ function paymentContext(config: AppConfig): { methods: string[]; details: string
 export async function answerSupportQuestion(
   history: ChatHistoryMessage[],
   storefront: Storefront
-): Promise<{ reply: string; needsSupport: boolean }> {
-  const apiKey = GEMINI_API_KEY.value().trim();
-  if (!apiKey) throw providerError('El asistente está temporalmente fuera de servicio.');
-
+): Promise<SupportAnswer> {
   const config = await getConfig();
   if (!config.supportBot.enabled) {
     throw failedPrecondition('El asistente de preguntas está desactivado.');
   }
+
+  const knownAnswer = answerKnownSupportQuestion(history[history.length - 1]?.content ?? '', {
+    paymentMethods: paymentContext(config).methods,
+    orderExpiryMinutes: config.checkout.orderExpiryMinutes,
+    couponsEnabled: config.features.couponsEnabled,
+  });
+  if (knownAnswer) return knownAnswer;
+
+  const apiKey = GEMINI_API_KEY.value().trim();
+  if (!apiKey) throw providerError('El asistente está temporalmente fuera de servicio.');
 
   const [privateSnapshot, allGames] = await Promise.all([
     privateChatbotConfigDoc().get(),
@@ -204,6 +213,9 @@ export async function answerSupportQuestion(
         : '',
     games: visibleGames,
     matchingProducts: currentProducts,
+    tiers: normalizeLadder(config.tiers).map((tier) =>
+      `${tier.label}: desde USD ${tier.minSpentUsd} acumulados, ${tier.discountPercent}% de descuento`
+    ),
   });
 
   const model = geminiModel();

@@ -1,5 +1,7 @@
 import { useState, type FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { RotateCcw, Send, X, ShoppingCart, MessageSquare } from 'lucide-react';
+import { ROUTES } from '@/lib/constants';
 import { useDualBotConfig } from './useChatbotConfig';
 import { ChatMessageList } from './ChatMessageList';
 import type { useRefillChatBot } from './useRefillChatBot';
@@ -15,6 +17,7 @@ interface ChatWindowProps {
 }
 
 export function ChatWindow({ refillBot, supportBot, onClose }: ChatWindowProps) {
+  const navigate = useNavigate();
   const dualConfig = useDualBotConfig();
   const [draft, setDraft] = useState('');
   
@@ -34,6 +37,25 @@ export function ChatWindow({ refillBot, supportBot, onClose }: ChatWindowProps) 
   };
 
   const showTabs = isRefillEnabled && isSupportEnabled;
+
+  const selectOption = (actionId: string) => {
+    if (activeTab === 'support' && actionId === 'start_recharge') {
+      if (isRefillEnabled) {
+        setActiveTab('refill');
+        refillBot.start();
+      } else {
+        onClose();
+        navigate(ROUTES.home);
+      }
+      return;
+    }
+    if (activeTab === 'support' && actionId === 'view_orders') {
+      onClose();
+      navigate(ROUTES.orders);
+      return;
+    }
+    bot.selectOption(actionId);
+  };
 
   return (
     <div
@@ -109,7 +131,7 @@ export function ChatWindow({ refillBot, supportBot, onClose }: ChatWindowProps) 
         </button>
       </header>
 
-      <ChatMessageList messages={bot.messages} isTyping={bot.isTyping} onSelectOption={bot.selectOption} />
+      <ChatMessageList messages={bot.messages} isTyping={bot.isTyping} onSelectOption={selectOption} />
 
       <form onSubmit={handleSubmit} className="flex items-end gap-2 border-t border-base-600 bg-base-800 px-3 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
         <input
