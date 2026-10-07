@@ -1,14 +1,148 @@
 /** Lectura y escritura del catálogo (juegos y productos). */
 import { games, products, now } from '../config/firebase';
+import { FieldPath } from 'firebase-admin/firestore';
 import { notFound, failedPrecondition } from '../lib/errors';
 import { applyMargin, round, usdToBs } from '../lib/money';
 import { DEFAULT_PLAYER_FIELD } from '../types/models';
+import { paginate, type Page } from '../lib/pagination';
+import { FAZER_FREE_FIRE_ID, INEFABLE_FREE_FIRE_ID } from '../lib/storefront';
+import { slugify } from '../lib/ids';
 import type { Game, PlayerField, Product, PublicProduct } from '../types/models';
 
 export async function listGames(options: { onlyActive?: boolean } = {}): Promise<Game[]> {
   const snap = await games().orderBy('sortOrder', 'asc').get();
   const all = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }) as Game);
   return options.onlyActive ? all.filter((game) => game.active) : all;
+}
+
+export type FazerFamily = 'topup' | 'gift_card' | 'game_key';
+
+const HOME_PRIORITY: Partial<Record<FazerFamily, string[]>> = {
+  topup: [
+    INEFABLE_FREE_FIRE_ID,
+    'fz-topup-blood-strike',
+    'fz-topup-pubg-mobile-auto',
+    'fz-topup-mobile-legends-global',
+    'fz-topup-delta-force',
+    'fz-topup-genshin-impact-global',
+  ],
+  gift_card: [
+    'fz-gift_card-google-play-es',
+    'fz-gift_card-app-store-itunes-es',
+    'fz-gift_card-app-store-itunes-mx',
+    'fz-gift_card-steam-wallet-mx',
+    'fz-gift_card-roblox-global',
+    'fz-gift_card-roblox-mx',
+  ],
+};
+
+/** Busca categorías por el ID normalizado que genera la sincronización.
+ * Firestore recorre únicamente el prefijo solicitado; no descarga el catálogo
+ * completo para buscarlo en el teléfono. */
+export async function searchFazerGamesByFamily(
+  family: FazerFamily,
+  search: string,
+  options: { cursor?: string; limit: number }
+): Promise<Page<Game>> {
+  const prefix = `fz-${family}-${slugify(search)}`;
+  const items: Game[] = [];
+  let after = options.cursor?.startsWith(prefix) ? options.cursor : undefined;
+  let exhausted = false;
+
+  while (items.length <= options.limit && !exhausted) {
+    let query = games()
+      .orderBy(FieldPath.documentId())
+      .endAt(`${prefix}\uf8ff`)
+      .limit(Math.max(options.limit + 1, 30));
+    query = after ? query.startAfter(after) : query.startAt(prefix);
+    const snap = await query.get();
+    exhausted = snap.empty || snap.size < Math.max(options.limit + 1, 30);
+    for (const doc of snap.docs) {
+      after = doc.id;
+      const game = { id: doc.id, ...doc.data() } as Game;
+      if (game.active && game.provider === 'fazercards' && game.providerFamily === family) {
+        items.push(game);
+        if (items.length > options.limit) break;
+      }
+    }
+  }
+
+  return {
+    items: items.slice(0, options.limit),
+    nextCursor: items.length > options.limit ? items[options.limit - 1].id : null,
+  };
+}
+
+/** Lee sólo una familia activa del catálogo grande de FazerCards. */
+export async function listFazerGamesByFamily(
+  family: FazerFamily,
+  limit?: number
+): Promise<Game[]> {
+  let query = games()
+    .where('provider', '==', 'fazercards')
+    .where('providerFamily', '==', family)
+    .where('active', '==', true)
+    .orderBy('sortOrder', 'asc')
+    .orderBy(FieldPath.documentId(), 'asc');
+  if (limit !== undefined) query = query.limit(limit);
+  const snap = await query.get();
+  return snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }) as Game);
+}
+
+/** Portada: mantiene las categorías principales visibles sin leer la familia completa. */
+export async function listFazerHomeGamesByFamily(family: FazerFamily, limit: number): Promise<Game[]> {
+  const [firstPage, ...pinned] = await Promise.all([
+    listFazerGamesByFamily(family, limit),
+    ...(HOME_PRIORITY[family] ?? []).map(async (id) => {
+      const snap = await games().doc(id).get();
+      if (!snap.exists) return null;
+      const game = { id: snap.id, ...snap.data() } as Game;
+      const accepted = id === INEFABLE_FREE_FIRE_ID
+        ? family === 'topup' && game.provider === 'inefable'
+        : game.provider === 'fazercards' && game.providerFamily === family;
+      return game.active && accepted ? game : null;
+    }),
+  ]);
+  const rank = new Map((HOME_PRIORITY[family] ?? []).map((id, index) => [id, index]));
+  const unique = new Map([...firstPage.filter((game) => game.id !== FAZER_FREE_FIRE_ID), ...pinned.filter((game): game is Game => Boolean(game))].map((game) => [game.id, game]));
+  return [...unique.values()]
+    .sort((a, b) => (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER)
+      || (a.sortOrder ?? 0) - (b.sortOrder ?? 0)
+      || a.id.localeCompare(b.id))
+    .slice(0, limit);
+}
+
+/** Cuenta categorías visibles sin leer cada documento del catálogo. */
+export async function countFazerGamesByFamily(family: FazerFamily): Promise<number> {
+  const [result, hidden] = await Promise.all([
+    games().where('provider', '==', 'fazercards').where('providerFamily', '==', family)
+      .where('active', '==', true).count().get(),
+    family === 'topup' ? games().doc(FAZER_FREE_FIRE_ID).get() : Promise.resolve(null),
+  ]);
+  return result.data().count - Number(hidden?.get('active') === true);
+}
+
+/** Lista una familia con cursor para que el catálogo grande no se lea completo. */
+export async function pageFazerGamesByFamily(
+  family: FazerFamily,
+  options: { cursor?: string; limit: number }
+): Promise<Page<Game>> {
+  const query = games()
+    .where('provider', '==', 'fazercards')
+    .where('providerFamily', '==', family)
+    .where('active', '==', true);
+  const page = await paginate(
+    query,
+    { orderBy: 'sortOrder', direction: 'asc', cursor: options.cursor, limit: options.limit, withTotal: !options.cursor },
+    (id, data) => ({ id, ...data }) as Game
+  );
+  if (family !== 'topup') return page;
+  const hidden = !options.cursor ? await games().doc(FAZER_FREE_FIRE_ID).get() : null;
+  return {
+    ...page,
+    items: page.items.filter((game) => game.id !== FAZER_FREE_FIRE_ID),
+    ...(page.total === undefined ? {} : { total: page.total - Number(hidden?.get('active') === true) }),
+  };
 }
 
 export async function getGame(gameId: string): Promise<Game> {
@@ -116,10 +250,21 @@ export function toPublicProduct(product: Product, rate: number, roundToBs: numbe
  * juegos que se crearon cuando sólo existía un campo de ID.
  */
 export function toPublicGame(game: Game): Game {
+  const knownCurrency: Record<string, { label: string; iconUrl: string }> = {
+    [INEFABLE_FREE_FIRE_ID]: { label: 'Diamantes', iconUrl: '/coins/diamante-freefire.svg' },
+    'fz-topup-blood-strike': { label: 'Oro', iconUrl: '/coins/gold-bloodstrike.svg' },
+    'fz-topup-mobile-legends-global': { label: 'Diamantes', iconUrl: '/coins/diamante-mlbb.svg' },
+    'fz-topup-honor-of-kings': { label: 'Tokens', iconUrl: '/coins/token-hok.svg' },
+    'fz-topup-marvel-rivals': { label: 'Lattice', iconUrl: '/coins/lattice-marvel.svg' },
+  };
+  const known = knownCurrency[game.id];
+  const currentIconUrl = game.currencyIconUrl?.trim() ?? '';
+  const expiredCanvaIcon = game.id === INEFABLE_FREE_FIRE_ID && currentIconUrl.includes('media.canva.com');
   return {
     ...game,
     playerFields: resolvePlayerFields(game),
-    currencyIconUrl: game.currencyIconUrl ?? '',
+    currencyLabel: game.currencyLabel === 'Recargas' && known ? known.label : game.currencyLabel,
+    currencyIconUrl: expiredCanvaIcon ? known?.iconUrl ?? '' : currentIconUrl || known?.iconUrl || '',
     validatesPlayerId: game.validatesPlayerId ?? false,
   };
 }
@@ -150,6 +295,7 @@ export function assertPurchasable(product: Product, game: Game): void {
  * y que un documento sin migrar rompa el checkout.
  */
 export function resolvePlayerFields(game: Game): PlayerField[] {
+  if (game.requiresPlayerData === false) return [];
   const declared = Array.isArray(game.playerFields) ? game.playerFields : [];
   if (declared.length > 0) return declared;
 
@@ -195,6 +341,9 @@ export function resolvePlayerData(
   game: Game
 ): ResolvedPlayerData {
   const fields = resolvePlayerFields(game);
+  // Gift cards y game keys se entregan como código: no piden datos de una
+  // cuenta y la orden conserva campos vacíos de forma explícita.
+  if (fields.length === 0) return { playerId: '', playerId2: null, values: {} };
   const raw =
     typeof input === 'string' ? { [fields[0]?.key ?? 'playerId']: input } : (input ?? {});
 

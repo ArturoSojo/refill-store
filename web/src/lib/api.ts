@@ -18,6 +18,10 @@ function storefront(): 'inefable' | 'fazercards' {
     : 'fazercards';
 }
 
+export function isFazerCardsStorefront(): boolean {
+  return storefront() === 'fazercards';
+}
+
 function storefrontPath(path: string): string {
   const separator = path.includes('?') ? '&' : '?';
   return `${path}${separator}storefront=${storefront()}`;

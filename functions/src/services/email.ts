@@ -64,7 +64,10 @@ export interface SendResult {
 }
 
 /** Envía un correo. Nunca lanza. */
-export async function send(message: EmailMessage): Promise<SendResult> {
+export async function send(
+  message: EmailMessage,
+  options: { essential?: boolean } = {}
+): Promise<SendResult> {
   let config: AppConfig;
   try {
     config = await getConfig();
@@ -72,7 +75,10 @@ export async function send(message: EmailMessage): Promise<SendResult> {
     return { sent: false, reason: error instanceof Error ? error.message : 'sin configuración' };
   }
 
-  if (config.email?.enabled === false) return { sent: false, reason: 'desactivado en el panel' };
+  // Restablecer acceso no depende del interruptor de correos comerciales del panel.
+  if (!options.essential && config.email?.enabled === false) {
+    return { sent: false, reason: 'desactivado en el panel' };
+  }
   if (!message.to) return { sent: false, reason: 'el destinatario no tiene correo' };
 
   const from = config.email?.fromAddress ?? '';

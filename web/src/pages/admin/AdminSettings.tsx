@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   AlertTriangle,
   BellRing,
+  Coins,
   Landmark,
   Mail,
   Megaphone,
@@ -26,6 +27,7 @@ import {
   useTelegramChats,
   useTestAlert,
   useTestEmail,
+  useSyncFazerCatalogBatch,
 } from '@/hooks/useAdmin';
 import { useAuth } from '@/providers/AuthProvider';
 import { useDocumentTitle } from '@/hooks/useMisc';
@@ -51,6 +53,8 @@ export function AdminSettings() {
   const telegramChats = useTelegramChats();
   const emailStatus = useEmailStatus();
   const testEmail = useTestEmail();
+  const syncFazerBatch = useSyncFazerCatalogBatch();
+  const [catalogProgress, setCatalogProgress] = useState('');
 
   const [rateValue, setRateValue] = useState('');
   const [form, setForm] = useState<Record<string, unknown>>({});
@@ -93,6 +97,37 @@ export function AdminSettings() {
   };
 
   const dirty = Object.keys(form).length > 0;
+
+  const syncFazerCatalog = async () => {
+    const families = [
+      ['topup', 'Recargas'],
+      ['gift_card', 'Gift cards'],
+      ['game_key', 'Game keys'],
+    ] as const;
+    let added = 0;
+    let updated = 0;
+    try {
+      for (const [family, label] of families) {
+        let offset = 0;
+        let done = false;
+        while (!done) {
+          setCatalogProgress(`${label}: categoría ${offset + 1}…`);
+          const { summary } = await syncFazerBatch.mutateAsync({ family, offset, limit: 4 });
+          added += summary.createdProducts;
+          updated += summary.updatedProducts;
+          if (summary.errors.length) console.warn('FazerCards catalog import:', summary.errors);
+          offset = summary.nextOffset;
+          done = summary.done;
+          if (summary.totalCategories === 0 && !done) throw new Error(`FazerCards no devolvió categorías de ${label}.`);
+        }
+      }
+      toast.success(`Catálogo actualizado: ${added} productos nuevos y ${updated} actualizados.`);
+    } catch (error) {
+      toast.error(`La importación se detuvo. Puedes reintentar: ${errorMessage(error)}`);
+    } finally {
+      setCatalogProgress('');
+    }
+  };
 
   return (
     <div className="space-y-4 pb-24">
@@ -139,7 +174,7 @@ export function AdminSettings() {
                   : 'Con problema'}
             </Badge>
           </div>
-          <div className="flex items-center justify-between rounded-xl bg-base-900/60 px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-base-900/60 px-4 py-3">
             <div>
               <p className="text-sm font-medium text-white">Inefable</p>
               <p className="text-xs text-slate-400">Despacho automático</p>
@@ -181,6 +216,55 @@ export function AdminSettings() {
                   ? 'Conectado'
                   : 'Sin respuesta'}
             </Badge>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-base-900/60 px-4 py-3">
+            <div>
+              <p className="text-sm font-medium text-white">FazerCards</p>
+              <p className="text-xs text-slate-400">Nuevo despacho automático</p>
+              {providers.data?.fazercards.balanceUsd !== null &&
+                providers.data?.fazercards.balanceUsd !== undefined && (
+                  <p className="mt-1 text-xs">
+                    <span className="text-slate-400">Saldo: </span>
+                    <span
+                      className={
+                        providers.data.fazercards.balanceUsd < 5
+                          ? 'font-bold text-red-400'
+                          : providers.data.fazercards.balanceUsd < 20
+                            ? 'font-bold text-amber-400'
+                            : 'font-bold text-emerald-400'
+                      }
+                    >
+                      {formatUsd(providers.data.fazercards.balanceUsd)}
+                    </span>
+                    {providers.data.fazercards.accountName && (
+                      <span className="text-slate-500"> · {providers.data.fazercards.accountName}</span>
+                    )}
+                  </p>
+                )}
+            </div>
+            <Badge
+              variant={
+                !providers.data?.fazercards.configured
+                  ? 'danger'
+                  : providers.data.fazercards.reachable
+                    ? 'success'
+                    : 'warning'
+              }
+            >
+              {!providers.data?.fazercards.configured
+                ? 'Falta clave'
+                : providers.data.fazercards.reachable
+                  ? 'Conectado'
+                  : 'Sin respuesta'}
+            </Badge>
+            <Button
+              variant="secondary"
+              loading={syncFazerBatch.isPending || Boolean(catalogProgress)}
+              disabled={!isAdmin || !providers.data?.fazercards.configured || Boolean(catalogProgress)}
+              onClick={() => void syncFazerCatalog()}
+            >
+              {catalogProgress || 'Sincronizar catálogo LATAM'}
+            </Button>
           </div>
         </div>
 
@@ -315,6 +399,13 @@ export function AdminSettings() {
             </ul>
           </details>
         )}
+        {providers.data?.fazercards.balanceUsd !== null &&
+          providers.data?.fazercards.balanceUsd !== undefined &&
+          providers.data.fazercards.balanceUsd < 20 && (
+            <p className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+              Saldo bajo en FazerCards. Las recargas configuradas con este proveedor fallarán al agotarse.
+            </p>
+          )}
       </Card>
 
       {/* --- Datos bancarios --- */}
@@ -418,6 +509,31 @@ export function AdminSettings() {
             onChange={(event) => patch('transfer', { holder: event.target.value })}
             disabled={!isAdmin}
             containerClassName="sm:col-span-2"
+          />
+        </div>
+      </Card>
+
+      {/* --- Binance Pay --- */}
+      <Card>
+        <CardHeader
+          title="Binance Pay"
+          description="El pago se verifica con la cuenta Binance registrada en Pabilo."
+          icon={<Coins className="h-4 w-4" aria-hidden />}
+        />
+        <Switch
+          checked={sectionValue('binancePay', 'enabled', config.binancePay?.enabled ?? false)}
+          onChange={(enabled) => patch('binancePay', { enabled })}
+          label="Ofrecer Binance Pay en el checkout"
+          description="Actívalo cuando confirmes que Pabilo ya recibe los movimientos de esta cuenta."
+          disabled={!isAdmin}
+        />
+        <div className="mt-4 border-t border-base-600 pt-4">
+          <Input
+            label="ID de Binance Pay"
+            value={sectionValue('binancePay', 'payId', config.binancePay?.payId ?? '')}
+            onChange={(event) => patch('binancePay', { payId: event.target.value })}
+            hint="Este identificador se mostrará al cliente para que envíe el pago."
+            disabled={!isAdmin}
           />
         </div>
       </Card>

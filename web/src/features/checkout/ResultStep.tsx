@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { LifeBuoy, Loader2, MessageCircle, Save, Sparkles } from 'lucide-react';
 import { Button, ButtonLink } from '@/components/ui/Button';
 import { BrandMark } from '@/components/common/Brand';
+import { CopyField } from '@/components/common/CopyField';
 import { Input } from '@/components/ui/Field';
 import { OrderStatusBadge } from '@/components/ui/Feedback';
 import { useSavePlayerId } from '@/hooks/useAccount';
@@ -34,6 +35,8 @@ export function ResultStep({ order, game, supportUrl }: ResultStepProps) {
 
   const isProcessing = ['paid', 'dispatching', 'verifying'].includes(order.status);
   const isDone = order.status === 'completed';
+  const canRetryPayment = ['awaiting_payment', 'payment_rejected'].includes(order.status);
+  const paymentConfirmed = ['paid', 'dispatching', 'awaiting_manual', 'completed', 'failed'].includes(order.status);
   const needsWhatsapp = order.status === 'awaiting_manual' && Boolean(order.whatsappUrl);
   // Manual sin chat: el equipo lo entrega y avisa. El cliente no tiene que
   // hacer nada, y decírselo así evita que escriba preguntando.
@@ -93,16 +96,27 @@ export function ResultStep({ order, game, supportUrl }: ResultStepProps) {
             <dt className="text-slate-400">Producto</dt>
             <dd className="text-right font-medium text-white">{describeOrder(order)}</dd>
           </div>
-          <div className="flex justify-between">
-            <dt className="text-slate-400">{game.playerIdLabel}</dt>
+          {order.playerId && <div className="flex justify-between">
+            <dt className="text-slate-400">{game.playerIdLabel || 'ID del jugador'}</dt>
             <dd className="tabular text-white">{order.playerId}</dd>
-          </div>
+          </div>}
           <div className="flex justify-between">
-            <dt className="text-slate-400">Pagado</dt>
+            <dt className="text-slate-400">{paymentConfirmed ? 'Pagado' : 'Total de la orden'}</dt>
             <dd className="tabular text-white">{formatBs(order.pricing.totalBs)}</dd>
           </div>
         </dl>
       </motion.div>
+
+      {isDone && order.deliveredCodes && order.deliveredCodes.length > 0 && (
+        <div className="card border-emerald-500/25">
+          <h3 className="mb-3 text-sm font-bold text-emerald-100">Tus códigos digitales</h3>
+          <div className="space-y-2">
+            {order.deliveredCodes.map((code, index) => (
+              <CopyField key={`${index}-${code}`} label={`Código ${index + 1}`} value={code} emphasis />
+            ))}
+          </div>
+        </div>
+      )}
 
       {manualPending && (
         <div className="card border-amber-500/30 bg-amber-500/5">
@@ -188,8 +202,12 @@ export function ResultStep({ order, game, supportUrl }: ResultStepProps) {
         <ButtonLink to={ROUTES.order(order.id)} variant="secondary" fullWidth>
           Ver detalle de la orden
         </ButtonLink>
-        <ButtonLink to={ROUTES.game(order.gameId)} variant="primary" fullWidth>
-          Comprar otra recarga
+        <ButtonLink
+          to={canRetryPayment ? `${ROUTES.checkout(order.productId)}?orden=${order.id}` : ROUTES.game(order.gameId)}
+          variant="primary"
+          fullWidth
+        >
+          {canRetryPayment ? 'Volver a esta orden' : 'Comprar otra recarga'}
         </ButtonLink>
       </div>
 

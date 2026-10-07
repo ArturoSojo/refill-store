@@ -29,6 +29,9 @@ export function PackageCard({ product, game, selected, onSelect, index = 0 }: Pa
   const soldOut = product.stock !== null && product.stock <= 0;
   const isManual = product.fulfillment === 'manual';
   const hasDiscount = product.compareAtUsd !== null && product.compareAtUsd > product.priceUsd;
+  const hasCustomImage = Boolean(product.imageUrl && product.imageUrl !== game.coverUrl && product.imageUrl !== game.logoUrl);
+  const showProductImage = Boolean(product.imageUrl && (game.providerFamily !== 'topup' || hasCustomImage));
+  const showOfferName = product.kind === 'special' || (game.provider === 'fazercards' && !/^\s*[\d.,]+(?:\s|$)/.test(product.name));
 
   return (
     <motion.button
@@ -90,7 +93,7 @@ export function PackageCard({ product, game, selected, onSelect, index = 0 }: Pa
         {/* Un pase o una tarjeta no entregan monedas del juego, así que pintar
             ahí el diamante confunde: si el producto trae su propia imagen, esa
             manda. */}
-        {product.imageUrl ? (
+        {showProductImage ? (
           <img
             src={product.imageUrl}
             alt=""
@@ -102,8 +105,8 @@ export function PackageCard({ product, game, selected, onSelect, index = 0 }: Pa
           <CurrencyIcon game={game} className="h-7 w-7 self-center text-2xl" />
         )}
         <div className="min-w-0">
-          {product.kind === 'special' ? (
-            <p className="truncate text-sm font-bold leading-tight text-white">{product.name}</p>
+          {showOfferName ? (
+            <p className="line-clamp-2 text-sm font-bold leading-tight text-white">{product.name}</p>
           ) : (
             <>
               <p className="text-xl font-black leading-none text-white">
@@ -113,6 +116,9 @@ export function PackageCard({ product, game, selected, onSelect, index = 0 }: Pa
                 <p className="text-[11px] font-bold leading-tight text-emerald-400">
                   +{product.bonus.toLocaleString('es-VE')} extra
                 </p>
+              )}
+              {game.provider === 'fazercards' && (
+                <p className="mt-1 line-clamp-2 text-[11px] leading-tight text-slate-300">{product.name}</p>
               )}
             </>
           )}

@@ -2,7 +2,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { orders } from '../config/firebase';
-import { asyncHandler, ok, parseParams, parseQuery } from '../lib/http';
+import { asyncHandler, ok, parseBody, parseParams, parseQuery } from '../lib/http';
 import type { Order } from '../types/models';
 import { usdToBs } from '../lib/money';
 import { normalizeLadder } from '../lib/tiers';
@@ -10,14 +10,56 @@ import * as catalog from '../services/catalog';
 import * as modalsService from '../services/modals';
 import { getConfig, toPublicConfig } from '../services/settings';
 import { buildSupportUrl } from '../services/whatsapp';
+import { assertStorefrontGame, belongsToStorefront, resolveStorefront, INEFABLE_FREE_FIRE_ID } from '../lib/storefront';
+import { PAGE_LIMIT } from '../lib/pagination';
+import { rateLimit } from '../middleware/rateLimit';
+import * as fazerCards from '../services/fazercards';
+import * as chatbotService from '../services/chatbot';
+import { failedPrecondition, providerError } from '../lib/errors';
+
+const FAZER_FAMILIES = ['topup', 'gift_card', 'game_key'] as const;
+const HOME_CATEGORIES_PER_FAMILY = 8;
 
 export const publicRouter = Router();
+
+const chatbotAnswerSchema = z.object({
+  messages: z
+    .array(
+      z.object({
+        role: z.enum(['user', 'assistant']),
+        content: z.string().trim().min(1).max(1500),
+      })
+    )
+    .min(1)
+    .max(12)
+    .superRefine((messages, context) => {
+      if (messages[messages.length - 1]?.role !== 'user') {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: 'El último mensaje debe ser una pregunta.' });
+      }
+    }),
+});
 
 /** Estado de salud, útil para monitoreo. */
 publicRouter.get(
   '/health',
   asyncHandler(async (_req, res) => {
     ok(res, { status: 'ok', time: new Date().toISOString() });
+  })
+);
+
+/** Respuesta pública del asistente de preguntas, fundamentada en datos del servidor. */
+publicRouter.post(
+  '/chatbot/answer',
+  rateLimit({
+    name: 'support_chatbot',
+    max: 20,
+    windowSeconds: 300,
+    message: 'Enviaste varias preguntas seguidas. Espera un momento e inténtalo de nuevo.',
+  }),
+  asyncHandler(async (req, res) => {
+    const { messages } = parseBody(req, chatbotAnswerSchema);
+    const answer = await chatbotService.answerSupportQuestion(messages, resolveStorefront(req));
+    ok(res, answer);
   })
 );
 
@@ -36,15 +78,74 @@ publicRouter.get(
   })
 );
 
-/** Catálogo completo, ya convertido a bolívares con la tasa vigente. */
+/**
+ * Catálogo de portada.
+ * Inefable tiene sólo dos juegos, así que incluye sus paquetes activos para
+ * compatibilidad con la versión publicada en Netlify. FazerCards devuelve sólo
+ * 8 categorías por familia y sus totales; el listado completo se consulta por
+ * familia y las ofertas sólo al abrir una categoría.
+ */
 publicRouter.get(
   '/catalog',
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
     const config = await getConfig();
-    const [gameList, productList] = await Promise.all([
-      catalog.listGames({ onlyActive: true }),
-      catalog.listProducts({ onlyActive: true }),
-    ]);
+    const storefront = resolveStorefront(req);
+    const familyQuery = z.object({
+      family: z.enum(FAZER_FAMILIES).optional(),
+      search: z.string().trim().min(2).max(60).optional(),
+      cursor: z.string().max(400).optional(),
+      limit: z.coerce.number().int().min(PAGE_LIMIT.min).max(PAGE_LIMIT.max).default(30),
+    });
+    const { family, search, cursor, limit } = parseQuery(req, familyQuery);
+
+    if (storefront === 'fazercards') {
+      const families = family ? [family] : [...FAZER_FAMILIES];
+      const results = await Promise.all(
+        families.map(async (currentFamily) => {
+          const [page, total] = await Promise.all([
+            family
+              ? search
+                ? catalog.searchFazerGamesByFamily(currentFamily, search, { cursor, limit })
+                : catalog.pageFazerGamesByFamily(currentFamily, { cursor, limit })
+              : catalog.listFazerHomeGamesByFamily(currentFamily, HOME_CATEGORIES_PER_FAMILY).then((items) => ({
+                  items,
+                  nextCursor: null,
+                  total: undefined,
+                })),
+            family ? Promise.resolve(undefined) : catalog.countFazerGamesByFamily(currentFamily),
+          ]);
+          if (currentFamily === 'topup' && family && !cursor && (!search || 'free-fire'.startsWith(search.toLowerCase()))) {
+            const freeFire = await catalog.getGame(INEFABLE_FREE_FIRE_ID).catch(() => null);
+            if (freeFire?.active && freeFire.provider === 'inefable') {
+              page.items.unshift(freeFire);
+              if (page.total !== undefined) page.total += 1;
+            }
+          }
+          return { family: currentFamily, ...page, categoryTotal: total };
+        })
+      );
+      ok(res, {
+        rate: config.rate.value,
+        games: results.flatMap((result) => result.items.map(catalog.toPublicGame)),
+        products: [],
+        familyCounts: Object.fromEntries(results.flatMap((result) =>
+          result.categoryTotal === undefined ? [] : [[result.family, result.categoryTotal +
+            Number(result.family === 'topup' && result.items.some((game) => game.id === INEFABLE_FREE_FIRE_ID))]]
+        )),
+        nextCursor: family ? results[0]?.nextCursor ?? null : null,
+        total: family ? results[0]?.total : undefined,
+      });
+      return;
+    }
+
+    const gameList = (await catalog.listGames({ onlyActive: true })).filter((game) =>
+      belongsToStorefront(game, storefront)
+    );
+    const productList = (
+      await Promise.all(
+        gameList.map((game) => catalog.listProducts({ gameId: game.id, onlyActive: true }))
+      )
+    ).flat();
 
     ok(res, {
       rate: config.rate.value,
@@ -52,6 +153,25 @@ publicRouter.get(
       products: productList.map((product) =>
         catalog.toPublicProduct(product, config.rate.value, config.pricing.roundToBs)
       ),
+      familyCounts: {},
+    });
+  })
+);
+
+/** Producto directo para que el checkout no dependa del catálogo entero. */
+publicRouter.get(
+  '/products/:productId',
+  asyncHandler(async (req, res) => {
+    const { productId } = parseParams(req, z.object({ productId: z.string().min(1) }));
+    const config = await getConfig();
+    const product = await catalog.getProduct(productId);
+    const game = await catalog.getGame(product.gameId);
+    assertStorefrontGame(req, game);
+    if (!product.active || !game.active) throw new Error('Producto no disponible.');
+    ok(res, {
+      rate: config.rate.value,
+      game: catalog.toPublicGame(game),
+      product: catalog.toPublicProduct(product, config.rate.value, config.pricing.roundToBs),
     });
   })
 );
@@ -67,6 +187,7 @@ publicRouter.get(
       catalog.getGame(gameId),
       catalog.listProducts({ gameId, onlyActive: true }),
     ]);
+    assertStorefrontGame(req, game);
 
     ok(res, {
       game: catalog.toPublicGame(game),
@@ -75,6 +196,34 @@ publicRouter.get(
         catalog.toPublicProduct(product, config.rate.value, config.pricing.roundToBs)
       ),
     });
+  })
+);
+
+/** Valida Free Fire en FazerCards. Esta consulta no crea una orden; el despacho
+ * de las recargas de Free Fire sigue usando Inefable. */
+publicRouter.post(
+  '/games/:gameId/validate-player',
+  rateLimit({
+    name: 'free_fire_player_validation',
+    max: 8,
+    windowSeconds: 300,
+    message: 'Hiciste varias verificaciones seguidas. Espera unos minutos.',
+  }),
+  asyncHandler(async (req, res) => {
+    const { gameId } = parseParams(req, z.object({ gameId: z.string().min(1) }));
+    const body = parseBody(req, z.object({ playerId: z.string().trim().regex(/^\d{8,12}$/) }));
+    if (resolveStorefront(req) !== 'fazercards' || gameId !== INEFABLE_FREE_FIRE_ID) {
+      throw failedPrecondition('La verificación de Free Fire no está disponible en esta tienda.');
+    }
+
+    let result: Awaited<ReturnType<typeof fazerCards.validateFreeFirePlayerId>>;
+    try {
+      result = await fazerCards.validateFreeFirePlayerId(body.playerId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo verificar el ID con FazerCards.';
+      throw providerError(message);
+    }
+    ok(res, result);
   })
 );
 

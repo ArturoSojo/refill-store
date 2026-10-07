@@ -97,6 +97,7 @@ export function CheckoutPage() {
     () => Object.values(playerValues).some((value) => value.trim().length > 0),
     [playerValues]
   );
+  const requiresPlayerData = game?.requiresPlayerData !== false;
 
   /**
    * La orden retomada se resuelve una sola vez.
@@ -218,13 +219,13 @@ export function CheckoutPage() {
 
   useEffect(() => {
     if (autoCreated.current || resumeOrderId) return;
-    if (!hasPlayerData || !user || !product || !game) return;
+    if ((requiresPlayerData && !hasPlayerData) || !user || !product || !game) return;
     if (step !== 'player' || orderData || createOrder.isPending) return;
 
     autoCreated.current = true;
     handleCreateOrder();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasPlayerData, user, product, game, step, orderData, resumeOrderId]);
+  }, [hasPlayerData, requiresPlayerData, user, product, game, step, orderData, resumeOrderId]);
 
   // El cargador sólo cuando aún no hay nada que mostrar. Tras crear la orden la
   // URL pasa a llevar `?orden=`, lo que dispara su consulta; sin el
@@ -392,6 +393,7 @@ export function CheckoutPage() {
         <PaymentStep
           data={orderData}
           transferEnabled={config?.transfer?.enabled ?? false}
+          binancePayEnabled={config?.binancePay?.enabled ?? false}
           switchingMethod={setPaymentMethod.isPending}
           onMethodChange={(method) =>
             setPaymentMethod.mutate(method, {

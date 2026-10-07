@@ -6,6 +6,7 @@
  */
 import { Router } from 'express';
 import { z } from 'zod';
+import { getMessaging } from 'firebase-admin/messaging';
 import {
   games,
   products,
@@ -23,6 +24,7 @@ import { applyMargin, round } from '../lib/money';
 import { slugify } from '../lib/ids';
 import { MAX_DISCOUNT_PERCENT, TIER_ORDER, normalizeLadder } from '../lib/tiers';
 import { requireAuth, requireStaff, requireAdmin, currentUser } from '../middleware/auth';
+import { rateLimit } from '../middleware/rateLimit';
 import * as ordersService from '../services/orders';
 import * as usersService from '../services/users';
 import * as catalog from '../services/catalog';
@@ -34,6 +36,8 @@ import * as audit from '../services/audit';
 import * as notificationsService from '../services/notifications';
 import * as pabilo from '../services/pabilo';
 import * as inefable from '../services/inefable';
+import * as fazercards from '../services/fazercards';
+import * as fazerCatalogSync from '../services/fazerCatalogSync';
 import { listEvents } from '../services/orderEvents';
 import { getConfig, updateConfig } from '../services/settings';
 import * as settings from '../services/settings';
@@ -41,11 +45,49 @@ import { seedCatalog } from '../seed/catalog.seed';
 import * as alertsService from '../services/adminAlerts';
 import * as emailService from '../services/email';
 import * as modalsService from '../services/modals';
+import * as chatbotService from '../services/chatbot';
 import { renderOrderEmail } from '../services/emailTemplates';
 import { DEFAULT_PLAYER_FIELD } from '../types/models';
 import type { Coupon, Order, Ticket, UserProfile } from '../types/models';
 
 export const adminRouter = Router();
+
+const pushSchema = z.object({
+  title: z.string().trim().min(3).max(60),
+  body: z.string().trim().min(3).max(220),
+  link: z.string().trim().max(160).optional().nullable().refine(
+    (value) => !value || (value.startsWith('/') && !value.startsWith('//')),
+    'El enlace debe ser una ruta interna de la app.'
+  ),
+});
+
+adminRouter.post(
+  '/push',
+  requireAuth,
+  requireAdmin,
+  rateLimit({ name: 'admin_app_push', max: 5, windowSeconds: 3600 }),
+  asyncHandler(async (req, res) => {
+    const body = parseBody(req, pushSchema);
+    const messageId = await getMessaging().send({
+      topic: 'refill-store-app',
+      notification: { title: body.title, body: body.body },
+      data: { link: body.link ?? '' },
+      android: { priority: 'high' },
+      apns: { payload: { aps: { sound: 'default' } } },
+    });
+
+    await audit.record({
+      action: 'push.app.sent',
+      actorUid: currentUser(req).uid,
+      actorEmail: currentUser(req).email,
+      targetType: 'push',
+      targetId: messageId,
+      summary: `Notificación enviada a los usuarios de la app: ${body.title}.`,
+      ip: clientIp(req),
+    });
+    ok(res, { messageId });
+  })
+);
 
 adminRouter.use(requireAuth, requireStaff);
 
@@ -107,9 +149,17 @@ adminRouter.get(
 adminRouter.get(
   '/providers/status',
   asyncHandler(async (_req, res) => {
-    const [balance, pabiloHealth] = await Promise.all([
+    const [balance, fazerBalance, pabiloHealth] = await Promise.all([
       inefable.isInefableConfigured()
         ? inefable.getBalance()
+        : Promise.resolve({
+            ok: false,
+            balanceUsd: null,
+            accountName: null,
+            message: 'Sin API key.',
+          }),
+      fazercards.isFazerCardsConfigured()
+        ? fazercards.getBalance()
         : Promise.resolve({
             ok: false,
             balanceUsd: null,
@@ -130,7 +180,50 @@ adminRouter.get(
         accountName: balance.accountName,
         message: balance.message,
       },
+      fazercards: {
+        configured: fazercards.isFazerCardsConfigured(),
+        reachable: fazerBalance.ok,
+        balanceUsd: fazerBalance.balanceUsd,
+        accountName: fazerBalance.accountName,
+        message: fazerBalance.message,
+      },
     });
+  })
+);
+
+/** Consulta de sólo lectura para copiar ofertas reales al editor de productos. */
+adminRouter.get(
+  '/providers/fazercards/offers',
+  asyncHandler(async (req, res) => {
+    const { categoryId } = parseQuery(req, z.object({ categoryId: z.string().trim().min(1).max(100) }));
+    const result = await fazercards.getTopupOffers(categoryId);
+    if (!result.ok) throw failedPrecondition(result.message ?? 'No se pudo consultar el catálogo de FazerCards.');
+    ok(res, { categoryId, offers: result.offers });
+  })
+);
+
+/** Importa el catálogo LATAM de FazerCards. Sólo administra catálogo, nunca órdenes. */
+adminRouter.post(
+  '/providers/fazercards/sync',
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const input = parseBody(req, z.object({
+      family: z.enum(['topup', 'gift_card', 'game_key']),
+      offset: z.number().int().min(0).default(0),
+      limit: z.number().int().min(1).max(4).default(4),
+    }));
+    const summary = await fazerCatalogSync.syncFazerCatalog(input);
+    await audit.record({
+      action: 'FAZERCARDS_CATALOG_SYNC',
+      actorUid: currentUser(req).uid,
+      actorEmail: currentUser(req).email,
+      targetType: 'catalog',
+      targetId: 'fazercards',
+      summary: `Catálogo FazerCards ${input.family}: ${summary.createdGames} categorías y ${summary.createdProducts} productos nuevos.`,
+      data: { ...summary },
+      ip: clientIp(req),
+    });
+    ok(res, { summary });
   })
 );
 
@@ -407,8 +500,9 @@ const playerFieldSchema = z.object({
 const gameSchema = z.object({
   name: z.string().trim().min(2).max(60),
   shortName: z.string().trim().min(2).max(40).optional(),
-  apiGameId: z.coerce.number().int(),
+  apiGameId: z.union([z.coerce.number().int(), z.string().trim().min(1).max(100)]),
   apiGameType: z.string().trim().min(1).max(40),
+  provider: z.enum(['inefable', 'fazercards']).optional(),
   currencyLabel: z.string().trim().min(1).max(30),
   currencyIcon: z.string().trim().max(8).optional(),
   currencyIconUrl: z.string().trim().max(500).optional(),
@@ -523,6 +617,7 @@ adminRouter.post(
       shortName: body.shortName ?? body.name,
       apiGameId: body.apiGameId,
       apiGameType: body.apiGameType,
+      provider: body.provider ?? 'inefable',
       currencyLabel: body.currencyLabel,
       currencyIcon: body.currencyIcon ?? '🎮',
       currencyIconUrl: body.currencyIconUrl ?? '',
@@ -666,10 +761,14 @@ const productSchema = z.object({
   calls: z
     .array(
       z.object({
-        packageId: z.coerce.number().int(),
+        // Inefable usa IDs numéricos; FazerCards usa IDs de oferta alfanuméricos.
+        packageId: z.union([z.coerce.number().int(), z.string().trim().min(1).max(120)]),
         quantity: z.coerce.number().int().min(1).max(10),
         // Permite sacar un paquete suelto de otra «tienda» del proveedor.
-        providerGameId: z.coerce.number().int().nullable().optional(),
+        providerGameId: z
+          .union([z.coerce.number().int(), z.string().trim().min(1).max(100)])
+          .nullable()
+          .optional(),
       })
     )
     .max(10)
@@ -686,7 +785,7 @@ const productSchema = z.object({
 /** Un producto automático sin llamadas configuradas no se puede despachar. */
 function assertCallsConsistent(input: {
   fulfillment: 'auto' | 'manual';
-  calls?: Array<{ packageId: number; quantity: number }>;
+  calls?: Array<{ packageId: number | string; quantity: number }>;
 }) {
   if (input.fulfillment === 'auto' && (!input.calls || input.calls.length === 0)) {
     throw invalidArgument(
@@ -1273,6 +1372,52 @@ adminRouter.get(
 // Configuración
 // ===========================================================================
 
+const chatbotProfileSchema = z.object({
+  enabled: z.boolean(),
+  name: z.string().trim().min(1).max(60),
+  avatarUrl: z.string().trim().max(500),
+  welcomeMessage: z.string().trim().min(1).max(500),
+});
+
+const chatbotAdminConfigSchema = z.object({
+  chatbot: chatbotProfileSchema,
+  supportBot: chatbotProfileSchema.extend({
+    instructions: z.string().trim().max(10_000),
+  }),
+});
+
+adminRouter.get(
+  '/chatbot/config',
+  requireAuth,
+  requireAdmin,
+  asyncHandler(async (_req, res) => {
+    ok(res, await chatbotService.getAdminChatbotSettings());
+  })
+);
+
+adminRouter.patch(
+  '/chatbot/config',
+  requireAuth,
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const body = parseBody(req, chatbotAdminConfigSchema);
+    const actor = currentUser(req);
+    const config = await chatbotService.saveAdminChatbotConfig(body, actor.uid);
+
+    await audit.record({
+      action: audit.ACTIONS.CONFIG_UPDATED,
+      actorUid: actor.uid,
+      actorEmail: actor.email,
+      targetType: 'chatbot',
+      targetId: 'dual-assistant',
+      summary: 'Configuración de los asistentes de recargas y preguntas actualizada.',
+      ip: clientIp(req),
+    });
+
+    ok(res, { config });
+  })
+);
+
 adminRouter.get(
   '/config',
   asyncHandler(async (_req, res) => {
@@ -1306,6 +1451,7 @@ const configPatchSchema = z.object({
     })
     .partial()
     .optional(),
+  binancePay: z.object({ enabled: z.boolean(), payId: z.string().trim().max(80) }).partial().optional(),
   whatsapp: z
     .object({
       adminNumber: z.string().trim().regex(/^\d{7,20}$/),
@@ -1385,6 +1531,15 @@ const configPatchSchema = z.object({
     })
     .partial()
     .optional(),
+  chatbot: z
+    .object({
+      enabled: z.boolean(),
+      name: z.string().trim().max(60),
+      avatarUrl: z.string().trim().max(500),
+      welcomeMessage: z.string().trim().max(500),
+    })
+    .partial()
+    .optional(),
 });
 
 adminRouter.patch(
@@ -1412,6 +1567,11 @@ adminRouter.patch(
       throw invalidArgument(
         'Para activar la transferencia hace falta el número de cuenta.'
       );
+    }
+
+    const binancePatch = patch.binancePay as { enabled?: boolean; payId?: string } | undefined;
+    if (binancePatch?.enabled && !String(binancePatch.payId ?? '').trim()) {
+      throw invalidArgument('Para activar Binance Pay hace falta el ID de recepción.');
     }
 
     const actor = currentUser(req);
@@ -1531,6 +1691,7 @@ const couponSchema = z.object({
   validUntilMillis: z.coerce.number().int().nullable().optional(),
   gameIds: z.array(z.string()).max(20).default([]),
   productIds: z.array(z.string()).max(100).default([]),
+  audience: z.enum(['web', 'app', 'both']).default('both'),
   active: z.boolean().default(true),
 });
 
@@ -1563,6 +1724,7 @@ adminRouter.post(
         validUntil: body.validUntilMillis ? Timestamp.fromMillis(body.validUntilMillis) : null,
         gameIds: body.gameIds,
         productIds: body.productIds,
+        audience: body.audience,
         active: body.active,
         createdAt: now(),
         createdBy: currentUser(req).uid,
@@ -1992,6 +2154,7 @@ const modalSchema = z.object({
   active: z.boolean().default(false),
   frequency: z.enum(['once', 'daily', 'always']).default('once'),
   placement: z.enum(['home', 'store', 'manual']).default('home'),
+  audience: z.enum(['web', 'app', 'both']).default('both'),
   sortOrder: z.coerce.number().int().min(0).max(999).default(99),
 });
 

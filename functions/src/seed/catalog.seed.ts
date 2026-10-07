@@ -90,10 +90,9 @@ export const SEED_GAMES: SeedGame[] = [
     id: 'free-fire',
     name: 'Free Fire',
     shortName: 'Free Fire',
-    // «Free fire 20%» del catálogo del proveedor: entre un 3 % y un 5 % más
-    // barato que la ruta `-1 / freefire_id`. El cambio se hizo desde el panel y
-    // aquí se refleja para que volver a sembrar no lo deshaga.
-    apiGameId: 24,
+    // El juego base sigue usando Inefable game_id 1. Los paquetes de
+    // «Free Fire 20%» (game_id 24) se seleccionan explícitamente por llamada.
+    apiGameId: 1,
     apiGameType: 'dynamic',
     currencyLabel: 'Diamantes',
     currencyIcon: '💎',
@@ -268,9 +267,10 @@ export const SEED_GAMES: SeedGame[] = [
 /**
  * Paquetes de Free Fire.
  *
- * Los `package_id` son los de `game_id 24` («Free fire 20%»), NO los 1-6 de la
- * ruta `-1`. Un `package_id` sólo tiene sentido dentro de su juego: dejar aquí
- * los viejos haría que sembrar el catálogo rompiera todas las recargas.
+ * La ruta base de Free Fire usa los paquetes de `game_id 1`. El paquete de
+ * 520+52 y los combos que lo incluyen usan `game_id 24` («Free fire 20%»),
+ * seleccionado en cada llamada porque un `package_id` sólo tiene sentido
+ * dentro de su juego.
  *
  * Ojo con el de 2.160: en la ruta `-1` ese paquete daba 2.180 diamantes y aquí
  * da 20 menos. El nombre tiene que decir lo que se entrega de verdad.
@@ -287,7 +287,7 @@ const FREE_FIRE_PACKAGES: SeedProduct[] = [
     amount: 100,
     bonus: 10,
     costUsd: 0.719,
-    calls: [{ packageId: 169, quantity: 1 }],
+    calls: [{ packageId: 6, quantity: 1 }],
     sortOrder: 10,
   },
   {
@@ -301,7 +301,7 @@ const FREE_FIRE_PACKAGES: SeedProduct[] = [
     amount: 310,
     bonus: 31,
     costUsd: 2.16,
-    calls: [{ packageId: 170, quantity: 1 }],
+    calls: [{ packageId: 3, quantity: 1 }],
     badge: 'POPULAR',
     featured: true,
     sortOrder: 20,
@@ -317,7 +317,7 @@ const FREE_FIRE_PACKAGES: SeedProduct[] = [
     amount: 520,
     bonus: 52,
     costUsd: 3.63,
-    calls: [{ packageId: 171, quantity: 1 }],
+    calls: [{ packageId: 171, quantity: 1, providerGameId: 24 }],
     sortOrder: 30,
   },
   {
@@ -331,7 +331,7 @@ const FREE_FIRE_PACKAGES: SeedProduct[] = [
     amount: 1060,
     bonus: 106,
     costUsd: 6.77,
-    calls: [{ packageId: 172, quantity: 1 }],
+    calls: [{ packageId: 2, quantity: 1 }],
     featured: true,
     sortOrder: 40,
   },
@@ -348,7 +348,7 @@ const FREE_FIRE_PACKAGES: SeedProduct[] = [
     amount: 2160,
     bonus: 218,
     costUsd: 13.45,
-    calls: [{ packageId: 173, quantity: 1 }],
+    calls: [{ packageId: 1, quantity: 1 }],
     sortOrder: 50,
   },
   {
@@ -362,7 +362,7 @@ const FREE_FIRE_PACKAGES: SeedProduct[] = [
     amount: 5600,
     bonus: 560,
     costUsd: 34.3,
-    calls: [{ packageId: 174, quantity: 1 }],
+    calls: [{ packageId: 4, quantity: 1 }],
     badge: 'MÁXIMO',
     sortOrder: 60,
   },
@@ -384,7 +384,7 @@ const FREE_FIRE_COMBOS: SeedProduct[] = [
     amount: 200,
     bonus: 20,
     costUsd: 1.438,
-    calls: [{ packageId: 169, quantity: 2 }],
+    calls: [{ packageId: 6, quantity: 2 }],
     sortOrder: 15,
   },
   {
@@ -399,8 +399,8 @@ const FREE_FIRE_COMBOS: SeedProduct[] = [
     bonus: 41,
     costUsd: 2.879,
     calls: [
-      { packageId: 170, quantity: 1 },
-      { packageId: 169, quantity: 1 },
+      { packageId: 1, quantity: 1 },
+      { packageId: 2, quantity: 1 },
     ],
     sortOrder: 25,
   },
@@ -416,8 +416,8 @@ const FREE_FIRE_COMBOS: SeedProduct[] = [
     bonus: 62,
     costUsd: 4.349,
     calls: [
-      { packageId: 171, quantity: 1 },
-      { packageId: 169, quantity: 1 },
+      { packageId: 6, quantity: 1 },
+      { packageId: 171, quantity: 1, providerGameId: 24 },
     ],
     sortOrder: 35,
   },
@@ -433,8 +433,8 @@ const FREE_FIRE_COMBOS: SeedProduct[] = [
     bonus: 83,
     costUsd: 5.79,
     calls: [
-      { packageId: 171, quantity: 1 },
-      { packageId: 170, quantity: 1 },
+      { packageId: 3, quantity: 1 },
+      { packageId: 171, quantity: 1, providerGameId: 24 },
     ],
     badge: 'COMBO',
     sortOrder: 45,

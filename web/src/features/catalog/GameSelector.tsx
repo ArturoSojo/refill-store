@@ -6,9 +6,9 @@
  * Cambiar de juego no obliga a volver atrás, que es lo que rompía el flujo
  * cuando cada juego vivía en su propia página.
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Check } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { CurrencyIcon } from '@/components/common/CurrencyIcon';
 import { hexToRgb } from '@/lib/utils';
 import type { Game } from '@/types/models';
@@ -17,10 +17,35 @@ interface GameSelectorProps {
   games: Game[];
   selectedId: string;
   onSelect: (gameId: string) => void;
+  onEnd?: () => void;
+  hasMore?: boolean;
+  isLoadingMore?: boolean;
 }
 
-export function GameSelector({ games, selectedId, onSelect }: GameSelectorProps) {
+export function GameSelector({ games, selectedId, onSelect, onEnd, hasMore = false, isLoadingMore = false }: GameSelectorProps) {
   const selectedRef = useRef<HTMLLIElement>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const onEndRef = useRef(onEnd);
+  onEndRef.current = onEnd;
+  const [atStart, setAtStart] = useState(true);
+  const [atEnd, setAtEnd] = useState(false);
+
+  const updateScroll = () => {
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    const remaining = scroller.scrollWidth - scroller.scrollLeft - scroller.clientWidth;
+    setAtStart(scroller.scrollLeft <= 4);
+    setAtEnd(remaining <= 4);
+    if (remaining < 160 && hasMore && !isLoadingMore) onEndRef.current?.();
+  };
+
+  const advance = (direction: -1 | 1) => {
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    const remaining = scroller.scrollWidth - scroller.scrollLeft - scroller.clientWidth;
+    if (direction === 1 && remaining < 160 && hasMore) onEndRef.current?.();
+    scroller.scrollBy({ left: direction * Math.max(160, scroller.clientWidth * 0.7), behavior: 'smooth' });
+  };
 
   // Al entrar por enlace directo a un juego, su tarjeta puede quedar fuera de
   // la vista en móvil. Se trae al centro para que se vea cuál está elegido.
@@ -32,9 +57,17 @@ export function GameSelector({ games, selectedId, onSelect }: GameSelectorProps)
     });
   }, [selectedId]);
 
+  useEffect(() => {
+    const frame = requestAnimationFrame(updateScroll);
+    return () => cancelAnimationFrame(frame);
+    // El tamaño de la fila y el estado de carga son las causas de esta medición.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [games.length, hasMore, isLoadingMore]);
+
   return (
-    <div className="-mx-4 overflow-x-auto px-4 no-scrollbar">
-      <ul className="flex w-max gap-3 pb-1">
+    <div className="relative -mx-4 px-4">
+      <div ref={scrollerRef} onScroll={updateScroll} className="overflow-x-auto scroll-smooth pb-1 no-scrollbar" aria-label="Juegos disponibles">
+      <ul className="flex w-max gap-3 pr-12">
         {games.map((game, index) => {
           const selected = game.id === selectedId;
           const accent = game.accentColor || '#F03030';
@@ -102,6 +135,17 @@ export function GameSelector({ games, selectedId, onSelect }: GameSelectorProps)
           );
         })}
       </ul>
+      </div>
+      <button type="button" onClick={() => advance(-1)} disabled={atStart}
+        aria-label="Ver juegos anteriores"
+        className="absolute left-1 top-14 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-base-500 bg-base-900/90 text-white shadow-lg backdrop-blur transition hover:border-neon-red disabled:opacity-0">
+        <ChevronLeft className="h-5 w-5" aria-hidden />
+      </button>
+      <button type="button" onClick={() => advance(1)} disabled={atEnd && !hasMore}
+        aria-label="Ver más juegos"
+        className="absolute right-1 top-14 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-base-500 bg-base-900/90 text-white shadow-lg backdrop-blur transition hover:border-neon-red disabled:opacity-0">
+        {isLoadingMore ? <Loader2 className="h-5 w-5 animate-spin" aria-hidden /> : <ChevronRight className="h-5 w-5" aria-hidden />}
+      </button>
     </div>
   );
 }

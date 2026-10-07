@@ -58,6 +58,8 @@ function isEnabled(kind: AdminAlert['kind'], config: AppConfig): boolean {
       return alerts.notifyOnNewTicket !== false;
     case 'payment_rejected':
       return alerts.notifyOnPaymentRejected === true;
+    case 'payment_review':
+      return true;
     default:
       // `low_balance`, `provider_down` y `test` son siempre relevantes.
       return true;

@@ -1,5 +1,5 @@
 /**
- * Integración con Pabilo — verificación de pagos móviles (BDV).
+ * Integración con Pabilo — verificación de pagos entrantes (BDV y Binance Pay).
  *
  * Endpoint (según especificaciones):
  *   POST {base}/userbankpayment/{PABILO_USER_BANK_ID}/betaserio
@@ -37,7 +37,12 @@
  * el monto real es OBLIGATORIO: si no se puede leer, se rechaza. Si no, pagar
  * 1 Bs valdría por una orden de 3.000.
  */
-import { PABILO_API_KEY, PABILO_USER_BANK_ID, pabiloBaseUrl } from '../config/env';
+import {
+  PABILO_API_KEY,
+  PABILO_BINANCE_USER_BANK_ID,
+  PABILO_USER_BANK_ID,
+  pabiloBaseUrl,
+} from '../config/env';
 import { fetchJson } from '../lib/fetchJson';
 import { log } from '../lib/logger';
 import { providerError } from '../lib/errors';
@@ -45,8 +50,9 @@ import { providerError } from '../lib/errors';
 export interface PabiloVerifyInput {
   /** Referencia del pago móvil, sólo dígitos. */
   bankReference: string;
-  /** Monto exacto esperado en bolívares. */
-  amountBs: number;
+  /** Monto exacto esperado, en la moneda de la cuenta (VES o USDT). */
+  amount: number;
+  account?: 'bdv' | 'binance';
 }
 
 export interface PabiloVerifyResult {
@@ -54,8 +60,8 @@ export interface PabiloVerifyResult {
   isNew: boolean;
   /** `true` si el proveedor reconoce la referencia (aunque ya esté usada). */
   found: boolean;
-  /** Monto que el banco reporta para esa referencia, si viene. */
-  reportedAmountBs: number | null;
+  /** Monto que la cuenta reporta para esa referencia, en la moneda de la cuenta. */
+  reportedAmount: number | null;
   /**
    * `true` cuando fue el propio Pabilo quien comprobó el monto (la consulta con
    * `amount` encontró el movimiento). Con esto en `true` la tienda no necesita
@@ -139,12 +145,12 @@ function extractDate(movement: PabiloMovement | undefined): string | null {
   return typeof value === 'string' ? value : null;
 }
 
-/** Una consulta a Pabilo. `amountBs: null` = sin filtrar por monto. */
+/** Una consulta a Pabilo. `amount: null` = sin filtrar por monto. */
 async function query(
   bankId: string,
   apiKey: string,
   bankReference: string,
-  amountBs: number | null
+  amount: number | null
 ) {
   const url = `${pabiloBaseUrl().replace(/\/+$/, '')}/userbankpayment/${bankId}/betaserio`;
 
@@ -155,16 +161,20 @@ async function query(
       bank_reference: bankReference,
       // Omitido a propósito cuando es `null`: mandarlo convierte la consulta en
       // una búsqueda por monto exacto.
-      ...(amountBs === null ? {} : { amount: Number(amountBs.toFixed(2)) }),
+      ...(amount === null ? {} : { amount: Number(amount.toFixed(2)) }),
     },
     timeoutMs: 25_000,
-    retries: 2,
+    // Betaserio registra el pago en Pabilo. Si la respuesta se pierde después
+    // del registro, repetir el POST devuelve is_new=false y parece que otra
+    // compra consumió la referencia. Un fallo incierto se concilia, no se
+    // reintenta automáticamente.
+    retries: 0,
   });
 
   log.info('Respuesta de Pabilo', {
     status: response.status,
     reference: `***${bankReference.slice(-4)}`,
-    filtradoPorMonto: amountBs !== null,
+    filtradoPorMonto: amount !== null,
     body: response.data ?? response.raw.slice(0, 400),
   });
 
@@ -184,7 +194,9 @@ function isNotFound(response: { status: number; data: PabiloRawResponse | null }
  * o responde algo que no se puede interpretar.
  */
 export async function verifyPayment(input: PabiloVerifyInput): Promise<PabiloVerifyResult> {
-  const bankId = PABILO_USER_BANK_ID.value();
+  const bankId = input.account === 'binance'
+    ? PABILO_BINANCE_USER_BANK_ID.value()
+    : PABILO_USER_BANK_ID.value();
   const apiKey = PABILO_API_KEY.value();
 
   if (!bankId || !apiKey) {
@@ -195,7 +207,7 @@ export async function verifyPayment(input: PabiloVerifyInput): Promise<PabiloVer
 
   // 1) Consulta filtrando por el monto exacto. Es el camino normal: si acierta,
   //    fue Pabilo quien comprobó el importe y no hay nada más que discutir.
-  let response = await query(bankId, apiKey, input.bankReference, input.amountBs);
+  let response = await query(bankId, apiKey, input.bankReference, input.amount);
   let amountVerifiedByProvider = true;
 
   // 2) No encontró nada: puede ser que la referencia no exista… o que el cliente
@@ -255,7 +267,7 @@ export async function verifyPayment(input: PabiloVerifyInput): Promise<PabiloVer
     return {
       isNew: false,
       found: false,
-      reportedAmountBs: null,
+      reportedAmount: null,
       amountVerifiedByProvider: false,
       reportedDate: null,
       message:
@@ -266,12 +278,15 @@ export async function verifyPayment(input: PabiloVerifyInput): Promise<PabiloVer
     };
   }
 
-  const isNew = data?.is_new === true;
+  if (typeof data?.is_new !== 'boolean') {
+    throw providerError('Pabilo devolvió un pago sin estado de verificación. Intenta más tarde.');
+  }
+  const isNew = data.is_new;
 
   return {
     isNew,
     found: true,
-    reportedAmountBs: extractAmount(data),
+    reportedAmount: extractAmount(data),
     amountVerifiedByProvider,
     reportedDate: extractDate(data),
     message: isNew

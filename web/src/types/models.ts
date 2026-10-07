@@ -54,8 +54,15 @@ export interface Game {
   id: string;
   name: string;
   shortName: string;
-  apiGameId: number;
+  apiGameId: number | string;
   apiGameType: string;
+  provider?: 'inefable' | 'fazercards';
+  providerFamily?: 'topup' | 'gift_card' | 'game_key';
+  requiresPlayerData?: boolean;
+  region?: string | null;
+  platform?: string | null;
+  productCount?: number;
+  minPriceUsd?: number | null;
   currencyLabel: string;
   currencyIcon: string;
   currencyIconUrl: string;
@@ -72,14 +79,12 @@ export interface Game {
   accentColor: string;
   accentColorSecondary: string;
   active: boolean;
-  /** Conteo ligero para tarjetas de portada; las ofertas se cargan al abrir. */
-  productCount?: number;
   sortOrder: number;
   createdAt: TimestampLike;
   updatedAt: TimestampLike;
 }
 
-export type PaymentMethod = 'pagomovil_bdv' | 'transfer' | 'wallet';
+export type PaymentMethod = 'pagomovil_bdv' | 'transfer' | 'binance_pay' | 'wallet';
 
 export type FulfillmentType = 'auto' | 'manual';
 
@@ -104,7 +109,8 @@ export type ManualFlow = 'notify' | 'whatsapp' | 'phone';
 export type ProductKind = 'package' | 'combo' | 'special';
 
 export interface DispatchCall {
-  packageId: number;
+  /** ID de oferta del proveedor. Inefable usa números; FazerCards, strings. */
+  packageId: number | string;
   quantity: number;
   /**
    * Juego del proveedor para ESTA llamada. `null` = el del juego.
@@ -114,7 +120,7 @@ export interface DispatchCall {
    * todo menos en el 520, donde gana «Free fire 20%». Sin esto habría que
    * elegir una sola para todo el juego y pagar de más en algún paquete.
    */
-  providerGameId?: number | null;
+  providerGameId?: number | string | null;
 }
 
 export interface Product {
@@ -139,6 +145,10 @@ export interface Product {
   sortOrder: number;
   stock: number | null;
   deliveryEtaMinutes: number;
+  providerOfferId?: string | null;
+  region?: string;
+  regionNotice?: string;
+  isRegionLocked?: boolean;
   createdAt: TimestampLike;
   updatedAt: TimestampLike;
 }
@@ -160,6 +170,9 @@ export interface PublicProduct {
   compareAtUsd: number | null;
   imageUrl: string;
   badge: string | null;
+  region?: string;
+  regionNotice?: string;
+  isRegionLocked?: boolean;
   active: boolean;
   featured: boolean;
   sortOrder: number;
@@ -196,9 +209,11 @@ export type OrderStatus =
 export type DispatchCallStatus = 'pending' | 'processing' | 'success' | 'error';
 
 export interface DispatchCallResult {
-  packageId: number;
+  packageId: number | string;
   /** Juego del proveedor con el que se envió. `null` = el del juego. */
-  providerGameId?: number | null;
+  providerGameId?: number | string | null;
+  provider?: 'inefable' | 'fazercards';
+  deliveredCodes?: string[];
   index: number;
   status: DispatchCallStatus;
   /** Ojo: el proveedor también devuelve `order_id` cuando la recarga falla. */
@@ -232,6 +247,8 @@ export interface OrderPricing {
   /** Sólo presente para staff. */
   costUsd?: number;
   profitUsd?: number;
+  /** Marca si el saldo descontado ya fue devuelto tras fallar la orden. */
+  walletRefunded?: boolean;
 }
 
 export interface OrderPayment {
@@ -266,6 +283,7 @@ export interface OrderPayment {
     phone: string;
     accountNumber?: string;
     accountType?: 'corriente' | 'ahorro';
+    binancePayId?: string;
   };
 }
 
@@ -280,6 +298,9 @@ export interface Order {
   };
   gameId: string;
   gameName: string;
+  providerGameId?: number | string | null;
+  provider?: 'inefable' | 'fazercards';
+  providerFamily?: 'topup' | 'gift_card' | 'game_key';
   productId: string;
   productName: string;
   productSku: string;
@@ -296,6 +317,7 @@ export interface Order {
     completedAt: TimestampLike;
     lastError: string | null;
   };
+  deliveredCodes?: string[];
   whatsappUrl: string | null;
   contactPhone: string | null;
   status: OrderStatus;
@@ -397,6 +419,7 @@ export interface AdminAlert {
     | 'new_ticket'
     | 'ticket_reply'
     | 'payment_rejected'
+    | 'payment_review'
     | 'low_balance'
     | 'rate_stale'
     | 'provider_down'
@@ -433,6 +456,7 @@ export interface UserNotification {
 
 export type ModalFrequency = 'once' | 'daily' | 'always';
 export type ModalPlacement = 'home' | 'store' | 'manual';
+export type ModalAudience = 'web' | 'app' | 'both';
 
 /** Ventana superpuesta que explica algo al cliente (cómo recargar, un aviso). */
 export interface StoreModal {
@@ -447,6 +471,7 @@ export interface StoreModal {
   active: boolean;
   frequency: ModalFrequency;
   placement: ModalPlacement;
+  audience?: ModalAudience;
   sortOrder: number;
   createdAt: TimestampLike;
   updatedAt: TimestampLike;
@@ -470,6 +495,7 @@ export interface Coupon {
   validUntil: TimestampLike;
   gameIds: string[];
   productIds: string[];
+  audience?: 'web' | 'app' | 'both';
   active: boolean;
   createdAt: TimestampLike;
   createdBy: string | null;
@@ -497,6 +523,7 @@ export interface PublicConfig {
     accountNumber: string;
     accountType: 'corriente' | 'ahorro';
   };
+  binancePay: { enabled: boolean; payId: string };
   whatsapp: { supportNumber: string };
   checkout: {
     referenceMinLength: number;
@@ -525,8 +552,17 @@ export interface PublicConfig {
     telegram: string;
   };
   supportUrl: string;
+  chatbot?: ChatbotProfile;
+  supportBot?: ChatbotProfile;
   /** Escalera de niveles, servida por el backend (ver `functions/src/lib/tiers.ts`). */
   tiers: TierDefinition[];
+}
+
+export interface ChatbotProfile {
+  enabled: boolean;
+  name: string;
+  avatarUrl: string;
+  welcomeMessage: string;
 }
 
 /** Un escalón de la escalera de fidelidad, tal como lo publica el backend. */
@@ -628,6 +664,16 @@ export interface CatalogResponse {
   rate: number;
   games: Game[];
   products: PublicProduct[];
+  /** Conteo por familia. En portada se usa para el enlace «Ver todos». */
+  familyCounts?: Partial<Record<'topup' | 'gift_card' | 'game_key', number>>;
+  nextCursor?: string | null;
+  total?: number;
+}
+
+export interface ProductResponse {
+  rate: number;
+  game: Game;
+  product: PublicProduct;
 }
 
 export interface GameCatalogResponse {
@@ -645,6 +691,7 @@ export interface PaymentInstructions {
   paidBs: number;
   partials: OrderPayment['partials'];
   amountUsd: number;
+  totalUsd: number;
   walletAppliedUsd: number;
   rate: number;
   expiresAt: number;
@@ -747,6 +794,13 @@ export interface ProvidersStatus {
     message: string | null;
   };
   inefable: {
+    configured: boolean;
+    reachable: boolean;
+    balanceUsd: number | null;
+    accountName: string | null;
+    message: string | null;
+  };
+  fazercards: {
     configured: boolean;
     reachable: boolean;
     balanceUsd: number | null;

@@ -8,11 +8,11 @@ import { cn } from '@/lib/utils';
 const FAQS = [
   {
     q: '¿Cuánto tarda en llegar mi recarga?',
-    a: 'Las recargas automáticas se acreditan en menos de un minuto desde que verificamos tu pago. Los productos especiales (pases, tarjetas) los activa un asesor por WhatsApp y suelen tomar unos minutos.',
+    a: 'Las recargas automáticas se despachan después de verificar el pago. A veces el proveedor tarda en procesarlas. Los productos manuales quedan en gestión y te avisamos cuando se completen.',
   },
   {
-    q: '¿Por qué debo pagar el monto exacto?',
-    a: 'Verificamos tu pago automáticamente contra el banco usando el número de referencia y el monto. Si transfieres una cantidad distinta a la que muestra la orden, el sistema no puede reconocer el pago y tendrás que escribirnos para resolverlo a mano.',
+    q: '¿Qué pasa si pago menos o más del monto?',
+    a: 'Si el verificador encuentra un pago menor, se guarda como pago parcial de la misma orden. Paga la diferencia y verifica la nueva referencia allí. Si cubres el total, la orden puede continuar; cualquier excedente queda registrado para revisión.',
   },
   {
     q: '¿Dónde consigo el número de referencia?',
@@ -28,7 +28,7 @@ const FAQS = [
   },
   {
     q: 'Pagué pero la orden aparece rechazada.',
-    a: 'Revisa que la referencia esté completa y que el monto transferido sea exactamente el de la orden. Puedes reintentar la verificación desde la misma pantalla. Si el problema persiste, escríbenos con tu número de orden y el comprobante.',
+    a: 'Consulta el motivo en la orden y revisa la referencia. No hagas otro pago sólo porque la verificación falló. Si la referencia aparece como usada o el pago sigue sin encontrarse, escríbenos con el número de orden y el comprobante.',
   },
   {
     q: '¿Por qué tengo que iniciar sesión?',
@@ -36,7 +36,7 @@ const FAQS = [
   },
   {
     q: '¿Qué es el descuento por nivel?',
-    a: 'A medida que compras subes de nivel (Bronce, Plata, Oro, Diamante) y obtienes un descuento automático sobre cada compra. No hay que hacer nada: se aplica solo al crear la orden.',
+    a: 'Tu nivel depende de las compras acumuladas. Los niveles y descuentos vigentes se configuran en la tienda; puedes consultar tu nivel en Cuenta y ver el descuento antes de confirmar la compra.',
   },
 ];
 

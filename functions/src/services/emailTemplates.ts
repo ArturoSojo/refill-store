@@ -16,10 +16,10 @@ import type { AppConfig, Order, PlayerField } from '../types/models';
 /** Los tres momentos en que se le escribe al cliente. */
 export type EmailKind = 'payment_verified' | 'delivered' | 'dispatch_failed';
 
-const MARCA = '#E2373B';
-const TEXTO = '#1F2430';
-const SUAVE = '#6B7280';
-const BORDE = '#E5E7EB';
+const MARCA = '#e2373b';
+const TEXTO = '#e5e7eb';
+const SUAVE = '#9ca3af';
+const BORDE = '#374151';
 
 function escape(value: string): string {
   return value
@@ -151,27 +151,27 @@ export function renderOrderEmail(
   const html = `<!doctype html>
 <html lang="es">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#F3F4F6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+<body style="margin:0;padding:0;background:#0b0f19;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#e5e7eb">
   <!-- Resumen que algunos clientes muestran junto al asunto en la bandeja. -->
   <div style="display:none;max-height:0;overflow:hidden;opacity:0;">${escape(c.mensaje.slice(0, 120))}</div>
 
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F3F4F6;padding:24px 12px;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0b0f19;padding:24px 12px;">
     <tr><td align="center">
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#FFFFFF;border-radius:14px;overflow:hidden;border:1px solid ${BORDE};">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#1f2937;border-radius:16px;overflow:hidden;border:1px solid ${BORDE};">
 
-        <tr><td style="background:${TEXTO};padding:20px 28px;">
-          <span style="color:#FFFFFF;font-size:19px;font-weight:700;">${escape(config.storeName)}</span>
+        <tr><td style="background:#111827;padding:22px 28px;text-align:center;border-bottom:1px solid ${BORDE};">
+          <span style="color:#ffffff;font-size:22px;font-weight:700;">${escape(config.storeName)}</span>
         </td></tr>
 
-        <tr><td style="padding:28px 28px 8px;">
-          <span style="display:inline-block;background:${c.cintaColor};color:#FFFFFF;font-size:11px;font-weight:700;letter-spacing:.6px;padding:5px 11px;border-radius:999px;">${escape(c.cinta)}</span>
-          <h1 style="margin:14px 0 8px;font-size:22px;color:${TEXTO};">${escape(c.titulo)}</h1>
-          <p style="margin:0;font-size:15px;line-height:1.55;color:${SUAVE};">${c.mensaje}</p>
+        <tr><td style="padding:32px 28px 8px;">
+          <span style="display:inline-block;background:${c.cintaColor};color:#ffffff;font-size:11px;font-weight:700;letter-spacing:.6px;padding:6px 12px;border-radius:999px;">${escape(c.cinta)}</span>
+          <h1 style="margin:16px 0 8px;font-size:24px;color:#ffffff;">${escape(c.titulo)}</h1>
+          <p style="margin:0;font-size:15px;line-height:1.6;color:${SUAVE};">${c.mensaje}</p>
         </td></tr>
 
-        <tr><td style="padding:20px 28px 0;">
+        <tr><td style="padding:24px 28px 0;">
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
-            <tr><td colspan="2" style="padding-bottom:6px;font-size:12px;font-weight:700;letter-spacing:.5px;color:${SUAVE};border-bottom:1px solid ${BORDE};">DETALLE DE LA COMPRA</td></tr>
+            <tr><td colspan="2" style="padding-bottom:8px;font-size:12px;font-weight:700;letter-spacing:.5px;color:${SUAVE};border-bottom:1px solid ${BORDE};">DETALLE DE LA COMPRA</td></tr>
             ${row('Orden', order.code, { fuerte: true })}
             ${row('Fecha', formatDate(order))}
             ${row('Juego', order.gameName)}
@@ -180,39 +180,40 @@ export function renderOrderEmail(
           </table>
         </td></tr>
 
-        <tr><td style="padding:18px 28px 0;">
+        <tr><td style="padding:24px 28px 0;">
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
-            <tr><td colspan="2" style="padding-bottom:6px;font-size:12px;font-weight:700;letter-spacing:.5px;color:${SUAVE};border-bottom:1px solid ${BORDE};">PAGO</td></tr>
+            <tr><td colspan="2" style="padding-bottom:8px;font-size:12px;font-weight:700;letter-spacing:.5px;color:${SUAVE};border-bottom:1px solid ${BORDE};">PAGO</td></tr>
             ${row('Subtotal', formatUsd(pricing.subtotalUsd))}
             ${descuentos}
             ${order.payment.reference ? row('Referencia', order.payment.reference) : ''}
             ${pricing.totalBs > 0 ? row('Tasa aplicada', `${formatBs(pricing.rate)} Bs / $`) : ''}
-            <tr><td colspan="2" style="padding-top:10px;border-top:2px solid ${TEXTO};"></td></tr>
+            <tr><td colspan="2" style="padding-top:12px;border-top:1px solid ${BORDE};"></td></tr>
             <tr>
               <td style="padding:10px 0;font-size:15px;font-weight:700;color:${TEXTO};">Total pagado</td>
               <td style="padding:10px 0;text-align:right;">
-                <span style="display:block;font-size:20px;font-weight:800;color:${MARCA};">${escape(totalBs)}</span>
-                <span style="display:block;font-size:12px;color:${SUAVE};">${escape(formatUsd(pricing.totalUsd))}</span>
+                <span style="display:block;font-size:22px;font-weight:800;color:${MARCA};">${escape(totalBs)}</span>
+                <span style="display:block;font-size:13px;color:${SUAVE};">${escape(formatUsd(pricing.totalUsd))}</span>
               </td>
             </tr>
           </table>
         </td></tr>
 
-        <tr><td style="padding:22px 28px 28px;">
-          <p style="margin:0 0 4px;font-size:13px;line-height:1.6;color:${SUAVE};">
+        <tr><td style="padding:32px 28px;">
+          <p style="margin:0 0 6px;font-size:14px;line-height:1.6;color:${SUAVE};">
             ¿Alguna duda con esta orden? Responde a este correo${
               soporte ? ` o escríbenos por <a href="${soporte}" style="color:${MARCA};">WhatsApp</a>` : ''
             }.
           </p>
-          <p style="margin:0;font-size:12px;color:#9CA3AF;">
+          <p style="margin:0;font-size:13px;color:#6b7280;">
             Este correo es el comprobante de tu orden ${escape(order.code)}. Consérvalo.
           </p>
         </td></tr>
 
+        <tr><td style="padding:20px 28px;background:#111827;text-align:center;border-top:1px solid ${BORDE}">
+          <p style="margin:0;font-size:12px;color:#9ca3af">Este es un correo automático de seguridad.</p>
+          <p style="margin:4px 0 0;font-size:12px;color:#9ca3af"><a href="https://recargasrefillstore.com" style="color:#9ca3af;text-decoration:none">recargasrefillstore.com</a></p>
+        </td></tr>
       </table>
-      <p style="max-width:560px;margin:14px auto 0;font-size:11px;color:#9CA3AF;text-align:center;">
-        ${escape(config.storeName)} · Recargas para tus juegos
-      </p>
     </td></tr>
   </table>
 </body>

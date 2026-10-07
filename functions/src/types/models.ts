@@ -73,9 +73,21 @@ export interface Game {
   name: string;
   shortName: string;
   /** `game_id` que espera el proveedor Inefable (Free Fire = -1, Blood Strike = 15). */
-  apiGameId: number;
+  apiGameId: number | string;
   /** `game_type` del proveedor: `freefire_id`, `dynamic`. */
   apiGameType: string;
+  /** Proveedor que entrega este juego. Se congela al crear cada orden. */
+  provider?: 'inefable' | 'fazercards';
+  /** Familia de FazerCards que define cómo se entrega el producto. */
+  providerFamily?: 'topup' | 'gift_card' | 'game_key';
+  /** Las gift cards y keys se compran sin ID de jugador. */
+  requiresPlayerData?: boolean;
+  /** Región/plataforma informadas por FazerCards para mostrarlas al cliente. */
+  region?: string | null;
+  platform?: string | null;
+  /** Resumen precalculado para que la portada no lea miles de productos. */
+  productCount?: number;
+  minPriceUsd?: number | null;
   /** Cómo se llama la moneda del juego en la interfaz: Diamantes, Gold… */
   currencyLabel: string;
   currencyIcon: string;
@@ -130,7 +142,7 @@ export interface Game {
  * disponible para esta cuenta: la API lo rechaza). Guardar cuál usó el cliente
  * sirve para saber qué datos se le mostraron, no para verificar distinto.
  */
-export type PaymentMethod = 'pagomovil_bdv' | 'transfer' | 'wallet';
+export type PaymentMethod = 'pagomovil_bdv' | 'transfer' | 'binance_pay' | 'wallet';
 
 /** Datos de una cuenta para recibir pagos, tal como se le muestran al cliente. */
 export interface BankAccountInfo {
@@ -176,7 +188,8 @@ export type ProductKind = 'package' | 'combo' | 'special';
  * en secuencia: 830+83 💎 = [{packageId: 3}, {packageId: 2}].
  */
 export interface DispatchCall {
-  packageId: number;
+  /** ID de oferta del proveedor. Inefable usa números; FazerCards, strings. */
+  packageId: number | string;
   quantity: number;
   /**
    * Juego del proveedor para ESTA llamada. `null` = el del juego.
@@ -186,7 +199,7 @@ export interface DispatchCall {
    * todo menos en el 520, donde gana «Free fire 20%». Sin esto habría que
    * elegir una sola para todo el juego y pagar de más en algún paquete.
    */
-  providerGameId?: number | null;
+  providerGameId?: number | string | null;
 }
 
 export interface Product {
@@ -220,6 +233,11 @@ export interface Product {
   /** `null` = stock ilimitado. */
   stock: number | null;
   deliveryEtaMinutes: number;
+  /** Identificador del catálogo de FazerCards, útil para conciliación. */
+  providerOfferId?: string | null;
+  region?: string;
+  regionNotice?: string;
+  isRegionLocked?: boolean;
   createdAt: TimestampLike;
   updatedAt: TimestampLike;
 }
@@ -285,9 +303,12 @@ export const TERMINAL_STATUSES: OrderStatus[] = [
 export type DispatchCallStatus = 'pending' | 'processing' | 'success' | 'error';
 
 export interface DispatchCallResult {
-  packageId: number;
+  packageId: number | string;
   /** Juego del proveedor con el que se envió. `null` = el del juego. */
-  providerGameId?: number | null;
+  providerGameId?: number | string | null;
+  provider?: 'inefable' | 'fazercards';
+  /** Códigos digitales devueltos para ESTA llamada; se preservan al cliente al finalizar. */
+  deliveredCodes?: string[];
   index: number;
   status: DispatchCallStatus;
   /** ID de orden devuelto por el proveedor. Ojo: también viene en los fallos. */
@@ -337,6 +358,8 @@ export interface OrderPricing {
   /** Costo del proveedor, para calcular utilidad. Sólo lo ve el staff. */
   costUsd: number;
   profitUsd: number;
+  /** Marca si el saldo descontado ya fue devuelto tras fallar la orden. */
+  walletRefunded?: boolean;
 }
 
 export interface OrderPayment {
@@ -385,6 +408,7 @@ export interface OrderPayment {
     phone: string;
     accountNumber?: string;
     accountType?: 'corriente' | 'ahorro';
+    binancePayId?: string;
   };
 }
 
@@ -407,7 +431,10 @@ export interface Order {
    * lee del catálogo al despachar— para que un cambio posterior en el juego no
    * altere cómo se entrega una orden que ya se cotizó.
    */
-  providerGameId: number | null;
+  providerGameId: number | string | null;
+  /** Proveedor congelado al comprar; las órdenes anteriores usan Inefable. */
+  provider?: 'inefable' | 'fazercards';
+  providerFamily?: 'topup' | 'gift_card' | 'game_key';
   productId: string;
   productName: string;
   productSku: string;
@@ -449,6 +476,8 @@ export interface Order {
     completedAt: TimestampLike | null;
     lastError: string | null;
   };
+  /** Gift cards / keys listas para mostrar al comprador al completar la orden. */
+  deliveredCodes?: string[];
   /** Enlace precargado de WhatsApp para productos manuales. */
   /** Enlace al chat, sólo cuando el producto usa el flujo `whatsapp`. */
   whatsappUrl: string | null;
@@ -675,6 +704,7 @@ export type ModalFrequency = 'once' | 'daily' | 'always';
 
 /** En qué parte de la tienda aparece solo. */
 export type ModalPlacement = 'home' | 'store' | 'manual';
+export type ModalAudience = 'web' | 'app' | 'both';
 
 /**
  * Ventana superpuesta que explica algo al cliente (cómo recargar, un aviso).
@@ -695,6 +725,7 @@ export interface StoreModal {
   active: boolean;
   frequency: ModalFrequency;
   placement: ModalPlacement;
+  audience: ModalAudience;
   sortOrder: number;
   createdAt: TimestampLike;
   updatedAt: TimestampLike;
@@ -721,6 +752,8 @@ export interface Coupon {
   /** Restricciones opcionales; vacío = aplica a todo. */
   gameIds: string[];
   productIds: string[];
+  /** Dónde se permite usar este cupón. Los documentos antiguos aplican en ambos. */
+  audience?: 'web' | 'app' | 'both';
   active: boolean;
   createdAt: TimestampLike;
   createdBy: string | null;
@@ -766,6 +799,7 @@ export interface AppConfig {
     accountNumber: string;
     accountType: 'corriente' | 'ahorro';
   };
+  binancePay: { enabled: boolean; payId: string };
   whatsapp: {
     adminNumber: string;
     supportNumber: string;
@@ -850,10 +884,20 @@ export interface AppConfig {
     instagram: string;
     telegram: string;
   };
+  chatbot: ChatbotProfile;
+  supportBot: ChatbotProfile;
   /** Escalera de fidelidad, editable desde el panel. Ver `lib/tiers.ts`. */
   tiers: TierDefinition[];
   updatedAt: TimestampLike | null;
   updatedBy: string | null;
+}
+
+/** Datos visuales públicos de cada asistente. Las instrucciones se guardan aparte. */
+export interface ChatbotProfile {
+  enabled: boolean;
+  name: string;
+  avatarUrl: string;
+  welcomeMessage: string;
 }
 
 /**
@@ -870,6 +914,7 @@ export interface AdminAlert {
     | 'new_ticket'
     | 'ticket_reply'
     | 'payment_rejected'
+    | 'payment_review'
     | 'low_balance'
     | 'rate_stale'
     | 'provider_down'
@@ -897,6 +942,7 @@ export interface PublicConfig {
   rate: number;
   bank: AppConfig['bank'];
   transfer: AppConfig['transfer'];
+  binancePay: AppConfig['binancePay'];
   whatsapp: { supportNumber: string };
   checkout: AppConfig['checkout'];
   features: Pick<
@@ -909,6 +955,8 @@ export interface PublicConfig {
   >;
   announcement: AppConfig['announcement'];
   contact: AppConfig['contact'];
+  chatbot: AppConfig['chatbot'];
+  supportBot: AppConfig['supportBot'];
 }
 
 // ---------------------------------------------------------------------------

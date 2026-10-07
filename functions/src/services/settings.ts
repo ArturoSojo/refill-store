@@ -39,6 +39,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     accountNumber: '',
     accountType: 'corriente',
   },
+  binancePay: { enabled: false, payId: '916942742' },
   whatsapp: {
     adminNumber: '584122686326',
     supportNumber: '584122686326',
@@ -98,6 +99,18 @@ export const DEFAULT_CONFIG: AppConfig = {
     email: '',
     instagram: '',
     telegram: '',
+  },
+  chatbot: {
+    enabled: true,
+    name: 'Asistente Refill',
+    avatarUrl: '',
+    welcomeMessage: '¡Hola! 🤖 Soy el asistente de Refill Store. Te guío paso a paso con tu recarga.',
+  },
+  supportBot: {
+    enabled: true,
+    name: 'Soporte Refill',
+    avatarUrl: '',
+    welcomeMessage: '¡Hola! 💬 Soy el asistente de soporte. ¿En qué te puedo ayudar hoy?',
   },
   tiers: [...DEFAULT_TIERS],
   updatedAt: null,
@@ -173,6 +186,13 @@ export async function updateConfig(
 
 /** Proyección segura para clientes anónimos: nada de números de admin ni márgenes. */
 export function toPublicConfig(config: AppConfig): PublicConfig {
+  const publicChatbotProfile = (profile: AppConfig['chatbot']) => ({
+    enabled: profile.enabled,
+    name: profile.name,
+    avatarUrl: profile.avatarUrl,
+    welcomeMessage: profile.welcomeMessage,
+  });
+
   return {
     storeName: config.storeName,
     tagline: config.tagline,
@@ -183,6 +203,9 @@ export function toPublicConfig(config: AppConfig): PublicConfig {
     transfer: config.transfer.enabled
       ? config.transfer
       : { ...config.transfer, accountNumber: '', enabled: false },
+    binancePay: config.binancePay.enabled
+      ? config.binancePay
+      : { ...config.binancePay, payId: '', enabled: false },
     whatsapp: { supportNumber: config.whatsapp.supportNumber },
     // `alerts` NO va aquí: contiene el chat de Telegram y la URL del webhook
     // del equipo, que no tienen por qué ser públicos.
@@ -196,5 +219,8 @@ export function toPublicConfig(config: AppConfig): PublicConfig {
     },
     announcement: config.announcement,
     contact: config.contact,
+    // Proyectar cada campo evita filtrar campos privados heredados de config/app.
+    chatbot: publicChatbotProfile(config.chatbot),
+    supportBot: publicChatbotProfile(config.supportBot),
   };
 }

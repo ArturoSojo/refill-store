@@ -129,7 +129,7 @@ export function useCreateOrder() {
       couponCode?: string | null;
       creatorCode?: string | null;
       contactPhone?: string | null;
-      paymentMethod?: 'pagomovil_bdv' | 'transfer';
+      paymentMethod?: 'pagomovil_bdv' | 'transfer' | 'binance_pay';
       useWallet?: boolean;
     }) => api.post<CreateOrderResponse>('/orders', input),
     onSuccess: () => {
@@ -174,7 +174,7 @@ export function usePricePreview() {
       couponCode?: string | null;
       creatorCode?: string | null;
       contactPhone?: string | null;
-      paymentMethod?: 'pagomovil_bdv' | 'transfer';
+      paymentMethod?: 'pagomovil_bdv' | 'transfer' | 'binance_pay';
       useWallet?: boolean;
       /** Permite validar ya el límite del cupón por ID de jugador. */
       playerId?: string | null;
@@ -192,7 +192,7 @@ export function useSetPaymentMethod(orderId: string | undefined) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (method: 'pagomovil_bdv' | 'transfer') =>
+    mutationFn: (method: 'pagomovil_bdv' | 'transfer' | 'binance_pay') =>
       api.patch<CreateOrderResponse>(`/orders/${orderId}/payment-method`, { method }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.order(orderId ?? '') });

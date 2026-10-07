@@ -12,7 +12,8 @@ interface PaymentStepProps {
   data: CreateOrderResponse;
   /** La transferencia sólo se ofrece si el panel la tiene activa y con cuenta. */
   transferEnabled: boolean;
-  onMethodChange: (method: 'pagomovil_bdv' | 'transfer') => void;
+  binancePayEnabled: boolean;
+  onMethodChange: (method: 'pagomovil_bdv' | 'transfer' | 'binance_pay') => void;
   switchingMethod: boolean;
   onVerify: (reference: string) => void;
   verifying: boolean;
@@ -33,6 +34,7 @@ interface PaymentStepProps {
 export function PaymentStep({
   data,
   transferEnabled,
+  binancePayEnabled,
   onMethodChange,
   switchingMethod,
   onVerify,
@@ -53,12 +55,15 @@ export function PaymentStep({
     paidBs,
     totalBs,
     amountUsd,
+    totalUsd,
     walletAppliedUsd,
     referenceMinLength,
     referenceMaxLength,
   } = data.payment;
 
   const isTransfer = method === 'transfer';
+  const isBinancePay = method === 'binance_pay';
+  const showMethodPicker = transferEnabled || binancePayEnabled;
   // Ya abonó algo y falta la diferencia: hay que decírselo con todas las
   // letras, o va a transferir el total otra vez.
   const hayParcial = (paidBs ?? 0) > 0;
@@ -71,11 +76,13 @@ export function PaymentStep({
       {/* 1. Cuánto pagar */}
       <div className="card ring-gradient text-center">
         <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-          Monto exacto a transferir
+          Monto exacto a pagar
         </p>
-        <p className="mt-2 text-4xl font-extrabold tabular text-white">{formatBs(amountBs)}</p>
+        <p className="mt-2 text-4xl font-extrabold tabular text-white">
+          {isBinancePay ? `${formatUsd(amountUsd)} USDT` : `${formatBs(amountBs)} Bs`}
+        </p>
         <p className="mt-1 text-sm tabular text-slate-400">
-          {formatUsd(amountUsd)} · Tasa {formatBs(data.payment.rate)}
+          {isBinancePay ? 'Importe en Tether (USDT)' : `${formatUsd(amountUsd)} · Tasa ${formatBs(data.payment.rate)}`}
         </p>
 
         {walletAppliedUsd > 0 && (
@@ -102,11 +109,11 @@ export function PaymentStep({
         {hayParcial ? (
           <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-relaxed text-amber-100">
             <p>
-              Ya recibimos <strong>{formatBs(paidBs)}</strong> de los{' '}
-              <strong>{formatBs(totalBs)}</strong> de esta orden.
+              Ya recibimos <strong>{isBinancePay ? `${formatUsd(Math.max(0, totalUsd - amountUsd))} USDT` : formatBs(paidBs)}</strong> de los{' '}
+              <strong>{isBinancePay ? `${formatUsd(totalUsd)} USDT` : formatBs(totalBs)}</strong> de esta orden.
             </p>
             <p className="mt-1">
-              Transfiere sólo los <strong>{formatBs(amountBs)}</strong> que faltan y pega la
+              Paga sólo los <strong>{isBinancePay ? `${formatUsd(amountUsd)} USDT` : formatBs(amountBs)}</strong> que faltan y pega la
               referencia nueva aquí mismo. No hace falta crear otra orden.
             </p>
           </div>
@@ -120,24 +127,25 @@ export function PaymentStep({
 
       {/* 2. Cómo pagar. Va aquí, pegado a los datos, y no en el paso anterior:
           es donde el cliente los mira y donde cambia de idea. */}
-      {transferEnabled && (
+      {showMethodPicker && (
         <div className="card">
           <p className="text-sm font-semibold text-white">¿Cómo vas a pagar?</p>
           <p className="mt-0.5 text-xs text-slate-400">
-            Las dos se verifican solas con la referencia. El monto es el mismo.
+            Elige dónde pagar; sólo mostraremos los datos de esa opción.
           </p>
 
-          <div className="mt-3 grid grid-cols-2 gap-2">
+          <div className={`mt-3 grid gap-2 ${transferEnabled && binancePayEnabled ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-2'}`}>
             {(
               [
                 { id: 'pagomovil_bdv', label: 'Pago Móvil', hint: 'Al teléfono' },
                 { id: 'transfer', label: 'Transferencia', hint: 'A la cuenta' },
+                ...(binancePayEnabled ? [{ id: 'binance_pay' as const, label: 'Binance Pay', hint: 'A tu Binance' }] : []),
               ] as const
             ).map((option) => (
               <button
                 key={option.id}
                 type="button"
-                disabled={switchingMethod || method === option.id}
+                disabled={switchingMethod || method === option.id || hayParcial}
                 onClick={() => onMethodChange(option.id)}
                 aria-pressed={method === option.id}
                 className={cn(
@@ -164,13 +172,16 @@ export function PaymentStep({
           </span>
           <div>
             <h3 className="text-sm font-semibold text-white">
-              {isTransfer ? 'Datos para la transferencia' : 'Datos del Pago Móvil'}
+              {isTransfer ? 'Datos para la transferencia' : isBinancePay ? 'Pagar con Binance Pay' : 'Datos del Pago Móvil'}
             </h3>
             <p className="text-xs text-slate-400">Toca cualquier dato para copiarlo</p>
           </div>
         </div>
 
         <div className="space-y-2">
+          {isBinancePay ? (
+            <CopyField label="Binance Pay ID" value={bank.binancePayId ?? ''} display={bank.binancePayId ?? ''} emphasis />
+          ) : <>
           <CopyField label="Banco" value={bank.code} display={`${bank.code} · ${bank.name}`} />
           <CopyField
             label={isTransfer ? 'Cédula / RIF' : 'Cédula'}
@@ -189,12 +200,12 @@ export function PaymentStep({
           ) : (
             <CopyField label="Teléfono" value={onlyDigits(bank.phone)} display={bank.phone} />
           )}
-          <CopyField
-            label="Monto"
-            value={amountBs.toFixed(2)}
-            display={formatBs(amountBs)}
-            emphasis
-          />
+          </>}
+          {isBinancePay ? (
+            <CopyField label="Monto a enviar" value={amountUsd.toFixed(2)} display={`${formatUsd(amountUsd)} USDT`} emphasis />
+          ) : (
+            <CopyField label="Monto" value={amountBs.toFixed(2)} display={`${formatBs(amountBs)} Bs`} emphasis />
+          )}
         </div>
       </div>
 
@@ -207,25 +218,27 @@ export function PaymentStep({
           <div>
             <h3 className="text-sm font-semibold text-white">Confirma tu pago</h3>
             <p className="text-xs text-slate-400">
-              Pega el número de referencia que te dio el banco
+              {isBinancePay ? 'Pega el código o referencia de la operación de Binance Pay' : 'Pega el número de referencia que te dio el banco'}
             </p>
           </div>
         </div>
 
         <Input
-          inputMode="numeric"
+          inputMode={isBinancePay ? 'text' : 'numeric'}
           autoComplete="off"
-          placeholder="Ej: 12345678"
+          placeholder={isBinancePay ? 'Código de la operación' : 'Ej: 12345678'}
           value={reference}
-          onChange={(event) => setReference(onlyDigits(event.target.value).slice(0, referenceMaxLength))}
+          onChange={(event) => setReference((isBinancePay ? event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '') : onlyDigits(event.target.value)).slice(0, referenceMaxLength))}
           onBlur={() => setTouched(true)}
           error={
             error ??
             (touched && reference.length > 0 && !isValidReference
-              ? `La referencia debe tener entre ${referenceMinLength} y ${referenceMaxLength} dígitos.`
+              ? isBinancePay
+                ? `El código debe tener entre ${referenceMinLength} y ${referenceMaxLength} caracteres.`
+                : `La referencia debe tener entre ${referenceMinLength} y ${referenceMaxLength} dígitos.`
               : null)
           }
-          hint={`Sólo números. Si tu referencia tiene letras o guiones, escribe únicamente los dígitos.`}
+          hint={isBinancePay ? 'Escribe el código tal como aparece en el comprobante de Binance Pay.' : 'Sólo números. Si tu referencia tiene letras o guiones, escribe únicamente los dígitos.'}
         />
 
         {attemptsLeft <= 2 && attemptsLeft > 0 && (
@@ -250,8 +263,7 @@ export function PaymentStep({
         </Button>
 
         <p className="mt-3 text-center text-xs text-slate-500">
-          Verificamos tu pago directamente con el banco. No subas capturas ni envíes nada por
-          WhatsApp.
+          {isBinancePay ? 'Verificamos tu pago con Pabilo. No subas capturas ni envíes nada por WhatsApp.' : 'Verificamos tu pago directamente con el banco. No subas capturas ni envíes nada por WhatsApp.'}
         </p>
       </div>
 

@@ -25,7 +25,6 @@ import {
   getRedirectResult,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
-  sendPasswordResetEmail,
   updateProfile,
   signOut as firebaseSignOut,
   type User,
@@ -80,6 +79,9 @@ export function authErrorMessage(error: unknown): string {
       return 'El acceso con correo y contraseña no está habilitado en Firebase.';
     case 'auth/network-request-failed':
       return 'Sin conexión. Revisa tu internet.';
+    case 'auth/unauthorized-continue-uri':
+    case 'auth/invalid-continue-uri':
+      return 'El dominio de recuperación no está autorizado en Firebase. Contacta al soporte.';
     default:
       return error instanceof Error ? error.message : 'No pudimos completar el acceso.';
   }
@@ -183,7 +185,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const resetPassword = useCallback(async (email: string) => {
-    await sendPasswordResetEmail(auth, email.trim());
+    await api.post('/auth/password-reset', {
+      email: email.trim(),
+      client: 'web',
+    }, { anonymous: true });
   }, []);
 
   const signOut = useCallback(async () => {

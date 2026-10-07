@@ -151,7 +151,11 @@ export function toCustomerOrder(order: Order): CustomerOrder {
     ...rest
   } = order;
   const { costUsd: _costUsd, profitUsd: _profitUsd, ...pricing } = fullPricing;
-  return { ...rest, pricing };
+  return {
+    ...rest,
+    deliveredCodes: order.status === 'completed' ? order.deliveredCodes ?? [] : [],
+    pricing,
+  };
 }
 
 export interface PaymentInstructions {
@@ -166,6 +170,8 @@ export interface PaymentInstructions {
   paidBs: number;
   partials: Order['payment']['partials'];
   amountUsd: number;
+  /** Total pendiente tras aplicar saldo, en USD (Binance lo cobra en USDT). */
+  totalUsd: number;
   walletAppliedUsd: number;
   rate: number;
   expiresAt: number;
@@ -185,6 +191,8 @@ export function toPaymentInstructions(
   config: { checkout: { referenceMinLength: number; referenceMaxLength: number } }
 ): PaymentInstructions {
   const paidBs = round(order.payment.paidBs ?? 0, 2);
+  const totalUsd = order.pricing.amountDueUsd ?? order.pricing.totalUsd;
+  const paidUsd = order.pricing.rate > 0 ? round(paidBs / order.pricing.rate, 2) : 0;
 
   return {
     method: order.payment.method,
@@ -195,7 +203,8 @@ export function toPaymentInstructions(
     totalBs: order.pricing.totalBs,
     paidBs,
     partials: order.payment.partials ?? [],
-    amountUsd: order.pricing.amountDueUsd ?? order.pricing.totalUsd,
+    amountUsd: round(Math.max(0, totalUsd - paidUsd), 2),
+    totalUsd,
     walletAppliedUsd: order.pricing.walletAppliedUsd ?? 0,
     rate: order.pricing.rate,
     expiresAt: order.expiresAt.toMillis(),
@@ -218,6 +227,7 @@ export interface CreateOrderInput {
   playerFields: Record<string, string> | string;
   quantity: number;
   couponCode?: string | null;
+  clientPlatform?: 'web' | 'app';
   /** Código del creador de contenido que trajo la venta. */
   creatorCode?: string | null;
   /** Cómo va a pagar. Por defecto, Pago Móvil. */
@@ -327,16 +337,20 @@ export async function createOrder(
       gameId: game.id,
       productId: product.id,
       playerId: playerData.playerId,
+      clientPlatform: input.clientPlatform ?? 'web',
     });
     discountUsd = round(discountUsd + evaluation.discountUsd, 2);
     couponCode = evaluation.coupon.code;
   }
 
-  // El método sólo importa para saber qué datos mostrarle al cliente: ambos
-  // entran a la misma cuenta y Pabilo los verifica con la misma consulta.
+  // Cada método muestra y verifica su propia cuenta receptora.
   const wantsTransfer = input.paymentMethod === 'transfer' && config.transfer.enabled;
+  const wantsBinancePay = input.paymentMethod === 'binance_pay' && config.binancePay.enabled;
   if (input.paymentMethod === 'transfer' && !config.transfer.enabled) {
     throw failedPrecondition('La transferencia bancaria no está disponible ahora mismo.');
+  }
+  if (input.paymentMethod === 'binance_pay' && !config.binancePay.enabled) {
+    throw failedPrecondition('Binance Pay no está disponible ahora mismo.');
   }
 
   // Sólo se guarda si el producto lo pide: un teléfono suelto en órdenes que
@@ -391,7 +405,9 @@ export async function createOrder(
     ? 'wallet'
     : wantsTransfer
       ? 'transfer'
-      : 'pagomovil_bdv';
+      : wantsBinancePay
+        ? 'binance_pay'
+        : 'pagomovil_bdv';
 
   /** Congela los datos que se le muestran al cliente para este método. */
   const bankSnapshot = () =>
@@ -405,7 +421,9 @@ export async function createOrder(
           accountNumber: config.transfer.accountNumber,
           accountType: config.transfer.accountType,
         }
-      : {
+      : paymentMethod === 'binance_pay'
+        ? { code: '', name: 'Binance Pay', idNumber: '', phone: '', binancePayId: config.binancePay.payId }
+        : {
           code: config.bank.code,
           name: config.bank.name,
           idNumber: config.bank.idNumber,
@@ -438,6 +456,9 @@ export async function createOrder(
     gameId: game.id,
     gameName: game.name,
     providerGameId: game.apiGameId,
+    // Queda congelado: cambiar de proveedor mañana no altera una compra ya pagada.
+    provider: game.provider ?? 'inefable',
+    providerFamily: game.providerFamily ?? 'topup',
     productId: product.id,
     productName: product.name,
     productSku: product.sku,
@@ -555,34 +576,70 @@ export async function createOrder(
 // Verificación de pago
 // ---------------------------------------------------------------------------
 
-interface ReferenceLock {
-  acquired: boolean;
-  conflictOrderCode?: string;
-}
+type VerificationClaim =
+  | { kind: 'claimed' }
+  | { kind: 'in_progress' | 'already_paid'; order: Order }
+  | { kind: 'conflict'; conflictOrderCode: string; sameOrder: boolean };
 
 /**
- * Toma un candado exclusivo sobre la referencia bancaria.
- * Sólo una orden en todo el sistema puede tener una referencia dada.
+ * Reserva la orden y la referencia en una sola transacción. Dos peticiones de
+ * la misma orden nunca deben consultar a Pabilo a la vez: la segunda recibiría
+ * is_new=false aunque la primera acabara de verificar el pago correctamente.
  */
-async function acquireReferenceLock(
+async function claimPaymentVerification(
   reference: string,
-  orderId: string,
-  uid: string
-): Promise<ReferenceLock> {
-  const ref = paymentRefs().doc(reference);
+  order: Order,
+  expiresAt: Order['expiresAt'],
+  maxAttempts: number
+): Promise<VerificationClaim> {
+  const orderRef = orders().doc(order.id);
+  const referenceRef = paymentRefs().doc(reference);
 
   return db.runTransaction(async (tx) => {
-    const snap = await tx.get(ref);
+    const [orderSnap, referenceSnap] = await Promise.all([
+      tx.get(orderRef),
+      tx.get(referenceRef),
+    ]);
+    if (!orderSnap.exists) throw notFound('Orden no encontrada.');
+    const current = { id: orderSnap.id, ...orderSnap.data() } as Order;
+    if (current.uid !== order.uid) throw forbidden('Esa orden no es tuya.');
 
-    if (snap.exists) {
-      const data = snap.data() as { orderId?: string; orderCode?: string } | undefined;
-      if (data?.orderId && data.orderId !== orderId) {
-        return { acquired: false, conflictOrderCode: data.orderCode ?? '' };
-      }
+    if (PAID_STATES.includes(current.status)) return { kind: 'already_paid', order: current };
+    if (current.status === 'verifying') return { kind: 'in_progress', order: current };
+    if (!['awaiting_payment', 'payment_rejected'].includes(current.status)) {
+      throw failedPrecondition('Esta orden ya no admite verificación de pago.');
+    }
+    if (current.expiresAt.toMillis() < Date.now()) {
+      throw failedPrecondition('Esta orden expiró. Crea una nueva con la tasa vigente.');
+    }
+    if ((current.payment.attempts ?? 0) >= maxAttempts) {
+      throw failedPrecondition('Alcanzaste el máximo de intentos de verificación. Contacta al soporte.');
     }
 
-    tx.set(ref, { orderId, uid, reference, createdAt: now() }, { merge: true });
-    return { acquired: true };
+    if (referenceSnap.exists) {
+      const data = referenceSnap.data() as { orderId?: string; orderCode?: string } | undefined;
+      return {
+        kind: 'conflict',
+        conflictOrderCode: data?.orderCode ?? '',
+        sameOrder: data?.orderId === order.id,
+      };
+    }
+
+    tx.create(referenceRef, {
+      orderId: order.id,
+      orderCode: order.code,
+      uid: order.uid,
+      reference,
+      createdAt: now(),
+    });
+    tx.update(orderRef, {
+      status: 'verifying',
+      'payment.reference': reference,
+      'payment.attempts': FieldValue.increment(1),
+      expiresAt: expiresAt.toMillis() > current.expiresAt.toMillis() ? expiresAt : current.expiresAt,
+      updatedAt: now(),
+    });
+    return { kind: 'claimed' };
   });
 }
 
@@ -610,7 +667,6 @@ export interface VerifyPaymentResult {
  * bien: el pago está hecho y lo único que falta —si falta algo— es la entrega.
  */
 const PAID_STATES: OrderStatus[] = [
-  'verifying',
   'paid',
   'dispatching',
   'awaiting_manual',
@@ -628,6 +684,14 @@ export async function verifyPayment(
   const order = await getOrderFor(orderId, user);
 
   if (order.uid !== user.uid) throw forbidden('Esa orden no es tuya.');
+
+  if (order.status === 'verifying') {
+    return {
+      order,
+      verified: false,
+      message: 'Estamos consultando el banco. La orden se actualizará en unos segundos.',
+    };
+  }
 
   // Reintentar la verificación cuando el pago YA entró no es un error del
   // cliente: es lo que hace cualquiera cuando la petición anterior se le cortó
@@ -670,13 +734,13 @@ export async function verifyPayment(
     );
   }
 
-  const reference = normalizeReference(rawReference);
+  const reference = normalizeReference(rawReference, order.payment.method === 'binance_pay');
   if (
     reference.length < config.checkout.referenceMinLength ||
     reference.length > config.checkout.referenceMaxLength
   ) {
     throw invalidArgument(
-      `La referencia debe tener entre ${config.checkout.referenceMinLength} y ${config.checkout.referenceMaxLength} dígitos.`
+      `El código de pago debe tener entre ${config.checkout.referenceMinLength} y ${config.checkout.referenceMaxLength} caracteres.`
     );
   }
 
@@ -694,50 +758,65 @@ export async function verifyPayment(
    */
   const yaPagadoBs = round(order.payment.paidBs ?? 0, 2);
   const pendienteBs = round(order.pricing.totalBs - yaPagadoBs, 2);
+  const esBinancePay = order.payment.method === 'binance_pay';
+  // Pabilo reports Binance collections in USDT, while internal order
+  // accounting stays in Bs. Compare in the payment currency and convert any
+  // partial or surplus back to Bs at the order's frozen rate.
+  const pendienteMoneda = esBinancePay
+    ? round(Math.max(0, order.pricing.amountDueUsd - yaPagadoBs / order.pricing.rate), 2)
+    : pendienteBs;
 
   const propuesto = minutesFromNow(config.checkout.orderExpiryMinutes);
   const nuevoVencimiento =
     propuesto.toMillis() > order.expiresAt.toMillis() ? propuesto : order.expiresAt;
 
-  // Marca el intento antes de nada: así un cliente no puede lanzar peticiones
-  // ilimitadas contra Pabilo aunque cancele la respuesta a mitad de camino.
-  await orders().doc(orderId).set(
-    {
-      status: 'verifying',
-      payment: { reference, attempts: FieldValue.increment(1) },
-      expiresAt: nuevoVencimiento,
-      updatedAt: now(),
-    },
-    { merge: true }
+  const claim = await claimPaymentVerification(
+    reference,
+    order,
+    nuevoVencimiento,
+    config.checkout.maxVerifyAttempts
   );
-
-  const lock = await acquireReferenceLock(reference, orderId, user.uid);
-  if (!lock.acquired) {
+  if (claim.kind === 'in_progress') {
+    return {
+      order: claim.order,
+      verified: false,
+      message: 'Estamos consultando el banco. La orden se actualizará en unos segundos.',
+    };
+  }
+  if (claim.kind === 'already_paid') {
+    return {
+      order: claim.order,
+      verified: true,
+      message: 'Tu pago ya estaba verificado. Estamos procesando la entrega.',
+    };
+  }
+  if (claim.kind === 'conflict') {
     await orders().doc(orderId).set(
-      { status: 'payment_rejected', updatedAt: now() },
+      { status: 'payment_rejected', payment: { reference }, updatedAt: now() },
       { merge: true }
     );
+    const reason = claim.sameOrder
+      ? 'Esta referencia ya se registró en tu orden. Si pagaste la diferencia, usa la referencia nueva.'
+      : claim.conflictOrderCode
+        ? `Esa referencia ya se usó en la orden ${claim.conflictOrderCode}.`
+        : 'Esa referencia ya está asociada a otra orden.';
     await addEvent({
       orderId,
       type: 'payment_duplicate',
-      message: 'Esa referencia ya está asociada a otra orden.',
+      message: reason,
       status: 'payment_rejected',
     });
-    throw paymentRejected(
-      lock.conflictOrderCode
-        ? `Esa referencia ya se usó en la orden ${lock.conflictOrderCode}.`
-        : 'Esa referencia ya fue utilizada en otra compra.',
-      { canRetry: true, expiresAt: nuevoVencimiento.toMillis() }
-    );
+    throw paymentRejected(reason, { canRetry: true, expiresAt: nuevoVencimiento.toMillis() });
   }
 
   let result: Awaited<ReturnType<typeof pabilo.verifyPayment>>;
   try {
     result = await pabilo.verifyPayment({
       bankReference: reference,
+      account: order.payment.method === 'binance_pay' ? 'binance' : 'bdv',
       // Lo que falta, no el total: si ya hay parciales acreditados, el pago
       // bueno es el de la diferencia.
-      amountBs: pendienteBs,
+      amount: pendienteMoneda,
     });
   } catch (error) {
     // El proveedor está caído: se libera el candado y se devuelve la orden a
@@ -767,13 +846,22 @@ export async function verifyPayment(
   //    caso el monto real es imprescindible; sin él no hay nada que comparar y
   //    se rechaza, porque aceptar a ciegas dejaría pasar cualquier importe.
   const amountCheck =
-    result.reportedAmountBs === null
+    result.reportedAmount === null
       ? null
       : checkAmount(
-          pendienteBs,
-          result.reportedAmountBs,
+          pendienteMoneda,
+          result.reportedAmount,
           config.checkout.amountTolerancePercent
         );
+
+  const reportedAmountBs = result.reportedAmount === null
+    ? null
+    : esBinancePay
+      ? round(result.reportedAmount * order.pricing.rate, 2)
+      : result.reportedAmount;
+  const shortfallBs = amountCheck
+    ? round(amountCheck.shortfallBs * (esBinancePay ? order.pricing.rate : 1), 2)
+    : null;
 
   const amountOk = result.amountVerifiedByProvider
     ? true
@@ -792,11 +880,11 @@ export async function verifyPayment(
     !amountOk &&
     amountCheck !== null &&
     amountCheck.shortfallBs > 0 &&
-    (result.reportedAmountBs ?? 0) > 0;
+    (result.reportedAmount ?? 0) > 0;
 
   if (esParcial) {
     // El candado NO se libera: esa referencia queda consumida por esta orden.
-    const abonado = round(result.reportedAmountBs!, 2);
+    const abonado = reportedAmountBs!;
     const totalPagado = round(yaPagadoBs + abonado, 2);
     const faltanBs = round(order.pricing.totalBs - totalPagado, 2);
 
@@ -805,7 +893,7 @@ export async function verifyPayment(
         status: 'awaiting_payment',
         payment: {
           reference,
-          reportedAmountBs: result.reportedAmountBs,
+          reportedAmountBs,
           providerResponse: result.raw,
           paidBs: totalPagado,
           partials: FieldValue.arrayUnion({
@@ -820,9 +908,9 @@ export async function verifyPayment(
     );
 
     const mensaje =
-      `Recibimos ${abonado.toFixed(2)} Bs de esa referencia. La orden es de ` +
+      `Recibimos ${esBinancePay ? `${result.reportedAmount!.toFixed(2)} USDT` : `${abonado.toFixed(2)} Bs`} de esa referencia. La orden es de ` +
       `${order.pricing.totalBs.toFixed(2)} Bs, así que faltan ${faltanBs.toFixed(2)} Bs. ` +
-      'Transfiere esa diferencia y verifica con la nueva referencia: no crees otra orden.';
+      'Paga esa diferencia y verifica con la nueva referencia: no crees otra orden.';
 
     await Promise.all([
       addEvent({
@@ -856,12 +944,12 @@ export async function verifyPayment(
     const reason = !result.found
       ? 'No encontramos ningún pago con esa referencia. Revisa que la hayas copiado completa.'
       : !result.isNew
-        ? 'Esa referencia ya fue utilizada en otra compra.'
+        ? 'Pabilo encontró el pago, pero indica que esa referencia ya había sido verificada. No podemos atribuirla automáticamente a esta orden. No pagues de nuevo: contacta al soporte para revisarla.'
         : amountCheck === null
           ? 'No pudimos leer el monto de ese pago. Escríbenos por WhatsApp y lo revisamos.'
-          : `Ese pago es de ${result.reportedAmountBs!.toFixed(2)} Bs y la orden es de ` +
-            `${order.pricing.totalBs.toFixed(2)} Bs: faltan ` +
-            `${amountCheck.shortfallBs.toFixed(2)} Bs. Transfiere el monto exacto y ` +
+      : `Ese pago es de ${esBinancePay ? `${result.reportedAmount!.toFixed(2)} USDT` : `${result.reportedAmount!.toFixed(2)} Bs`} y la orden es de ` +
+            `${esBinancePay ? `${order.pricing.amountDueUsd.toFixed(2)} USDT` : `${order.pricing.totalBs.toFixed(2)} Bs`}: faltan ` +
+            `${esBinancePay ? `${amountCheck.shortfallBs.toFixed(2)} USDT` : `${shortfallBs!.toFixed(2)} Bs`}. Paga el monto exacto y ` +
             'verifica con esa nueva referencia.';
 
     await orders().doc(orderId).set(
@@ -883,7 +971,7 @@ export async function verifyPayment(
         type: 'payment_rejected',
         message: reason,
         status: 'payment_rejected',
-        data: { reportedAmountBs: result.reportedAmountBs },
+        data: { reportedAmountBs },
       }),
       stats.trackEvent({ type: 'payment_rejected', order }),
       audit.record({
@@ -896,9 +984,11 @@ export async function verifyPayment(
         ip,
       }),
       adminAlerts.alert({
-        kind: 'payment_rejected',
-        severity: 'info',
-        title: `Pago rechazado · ${order.code}`,
+        kind: result.found && !result.isNew ? 'payment_review' : 'payment_rejected',
+        severity: result.found && !result.isNew ? 'warning' : 'info',
+        title: result.found && !result.isNew
+          ? `Revisar pago registrado en Pabilo · ${order.code}`
+          : `Pago rechazado · ${order.code}`,
         body: `${order.user.email ?? 'Un cliente'} intentó pagar ${describeOrder(order)}. ${reason}`,
         link: `/admin/ordenes/${orderId}`,
         data: { code: order.code, reference: `***${reference.slice(-4)}` },
@@ -919,7 +1009,7 @@ export async function verifyPayment(
       // a cero.
       payment: {
         reference,
-        reportedAmountBs: result.reportedAmountBs,
+        reportedAmountBs,
         verifiedAt: now(),
         providerResponse: result.raw,
       },
@@ -931,8 +1021,9 @@ export async function verifyPayment(
   // Pagó de más: la orden se acepta igual (está cubierta), pero el excedente no
   // se queda callado. Es dinero del cliente y el equipo decide si se lo abona al
   // saldo o se lo devuelve.
-  const surplusBs = amountCheck?.surplusBs ?? 0;
-  const surplusIsRelevant = surplusBs > (amountCheck?.alertAboveBs ?? 0);
+  const surplusBs = round((amountCheck?.surplusBs ?? 0) * (esBinancePay ? order.pricing.rate : 1), 2);
+  const surplusThresholdBs = (amountCheck?.alertAboveBs ?? 0) * (esBinancePay ? order.pricing.rate : 1);
+  const surplusIsRelevant = surplusBs > surplusThresholdBs;
 
   await Promise.all([
     addEvent({
@@ -942,7 +1033,7 @@ export async function verifyPayment(
         ? `Pago verificado. Transferiste ${surplusBs.toFixed(2)} Bs de más; ya lo estamos revisando.`
         : 'Pago verificado correctamente.',
       status: 'paid',
-      data: { reportedAmountBs: result.reportedAmountBs, surplusBs },
+      data: { reportedAmountBs, surplusBs },
     }),
     audit.record({
       action: audit.ACTIONS.ORDER_PAYMENT_VERIFIED,
@@ -951,7 +1042,7 @@ export async function verifyPayment(
       targetType: 'order',
       targetId: orderId,
       summary: `Pago verificado en la orden ${order.code} (${order.pricing.totalBs} Bs).`,
-      data: { reportedAmountBs: result.reportedAmountBs, surplusBs },
+      data: { reportedAmountBs, surplusBs },
       ip,
     }),
     catalog.decrementStock(order.productId, order.pricing.quantity),
@@ -964,12 +1055,12 @@ export async function verifyPayment(
           severity: 'info',
           title: `Pagaron de más · ${order.code}`,
           body: [
-            `${order.user.email ?? 'Un cliente'} transfirió ${result.reportedAmountBs?.toFixed(2)} Bs`,
+            `${order.user.email ?? 'Un cliente'} pagó ${reportedAmountBs?.toFixed(2)} ${esBinancePay ? 'USDT' : 'Bs'}`,
             `para una orden de ${order.pricing.totalBs.toFixed(2)} Bs.`,
             `Sobran ${surplusBs.toFixed(2)} Bs: puedes abonárselos al saldo desde su ficha.`,
           ].join(' '),
           link: `/admin/ordenes/${orderId}`,
-          data: { code: order.code, surplusBs, reportedAmountBs: result.reportedAmountBs },
+          data: { code: order.code, surplusBs, reportedAmountBs },
         })
       : Promise.resolve(),
   ]);
@@ -1009,7 +1100,7 @@ export async function verifyPayment(
  * `pricing.walletRefunded` para que un segundo cierre de la misma orden no
  * regale el saldo dos veces.
  */
-async function refundWalletIfApplied(order: Order, reason: string): Promise<number> {
+export async function refundWalletIfApplied(order: Order, reason: string): Promise<number> {
   const alreadyRefunded = (order.pricing as { walletRefunded?: boolean })?.walletRefunded === true;
   if (alreadyRefunded) return 0;
 
@@ -1078,7 +1169,7 @@ async function expireOrder(order: Order): Promise<void> {
 export async function setPaymentMethod(
   user: AuthUser,
   orderId: string,
-  method: 'pagomovil_bdv' | 'transfer'
+  method: 'pagomovil_bdv' | 'transfer' | 'binance_pay'
 ): Promise<Order> {
   const order = await getOrderFor(orderId, user);
   const config = await getConfig();
@@ -1089,8 +1180,16 @@ export async function setPaymentMethod(
   if (order.payment.method === 'wallet') {
     throw failedPrecondition('Esta orden se pagó con saldo.');
   }
+  if ((order.payment.paidBs ?? 0) > 0 && method !== order.payment.method) {
+    throw failedPrecondition(
+      'Esta orden ya tiene un pago parcial. Continúa con el mismo método para no separar los movimientos entre cuentas.'
+    );
+  }
   if (method === 'transfer' && !config.transfer.enabled) {
     throw failedPrecondition('La transferencia bancaria no está disponible ahora mismo.');
+  }
+  if (method === 'binance_pay' && !config.binancePay.enabled) {
+    throw failedPrecondition('Binance Pay no está disponible ahora mismo.');
   }
 
   const bankSnapshot =
@@ -1103,7 +1202,9 @@ export async function setPaymentMethod(
           accountNumber: config.transfer.accountNumber,
           accountType: config.transfer.accountType,
         }
-      : {
+      : method === 'binance_pay'
+        ? { code: '', name: 'Binance Pay', idNumber: '', phone: '', binancePayId: config.binancePay.payId }
+        : {
           code: config.bank.code,
           name: config.bank.name,
           idNumber: config.bank.idNumber,

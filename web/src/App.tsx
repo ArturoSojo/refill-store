@@ -1,14 +1,16 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { StoreLayout } from '@/components/layout/StoreLayout';
 import { AdminLayout } from '@/components/layout/AdminLayout';
-import { RequireAuth, RequireStaff, ScrollToTop } from '@/components/common/Guards';
+import { RequireAdmin, RequireAuth, RequireStaff, ScrollToTop } from '@/components/common/Guards';
 
 import { HomePage } from '@/pages/HomePage';
 import { GamePage } from '@/pages/GamePage';
+import { FamilyPage } from '@/pages/FamilyPage';
 import { CheckoutPage } from '@/pages/CheckoutPage';
 import { OrderPage } from '@/pages/OrderPage';
 import { OrdersPage } from '@/pages/OrdersPage';
 import { LoginPage } from '@/pages/LoginPage';
+import { AuthActionPage } from '@/pages/AuthActionPage';
 import { AccountPage } from '@/pages/AccountPage';
 import { PlayerIdsPage } from '@/pages/PlayerIdsPage';
 import { WalletPage } from '@/pages/WalletPage';
@@ -32,6 +34,9 @@ import { AdminModals } from '@/pages/admin/AdminModals';
 import { AdminCreators, AdminCreatorDetail } from '@/pages/admin/AdminCreators';
 import { CreatorPage } from '@/pages/CreatorPage';
 import { AdminAlerts } from '@/pages/admin/AdminAlerts';
+import { AdminPushNotifications } from '@/pages/admin/AdminPushNotifications';
+
+import { AdminChatbotPage } from '@/pages/admin/AdminChatbotPage';
 
 export function App() {
   return (
@@ -39,9 +44,13 @@ export function App() {
       <ScrollToTop />
 
       <Routes>
+        {/* Acción que llega por correo: no debe depender de que haya una sesión abierta. */}
+        <Route path="/auth/action" element={<AuthActionPage />} />
+
         {/* --- Tienda --- */}
         <Route element={<StoreLayout />}>
           <Route index element={<HomePage />} />
+          <Route path="familia/:family" element={<FamilyPage />} />
           <Route path="juego/:slug" element={<GamePage />} />
           {/* El checkout es público hasta el momento de pagar: así el usuario
               ve el precio antes de que se le pida iniciar sesión. */}
@@ -146,10 +155,19 @@ export function App() {
           <Route path="soporte" element={<AdminSupport />} />
           <Route path="soporte/:ticketId" element={<AdminTicketDetail />} />
           <Route path="avisos" element={<AdminAlerts />} />
+          <Route
+            path="notificaciones-push"
+            element={
+              <RequireAdmin>
+                <AdminPushNotifications />
+              </RequireAdmin>
+            }
+          />
           <Route path="creadores" element={<AdminCreators />} />
           <Route path="creadores/:uid" element={<AdminCreatorDetail />} />
           <Route path="modales" element={<AdminModals />} />
           <Route path="niveles" element={<AdminTiers />} />
+          <Route path="chatbot" element={<AdminChatbotPage />} />
           <Route path="configuracion" element={<AdminSettings />} />
           <Route path="bitacora" element={<AdminLogs />} />
           <Route path="*" element={<Navigate to="/admin" replace />} />

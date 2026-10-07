@@ -43,6 +43,9 @@ interface ProductFormState {
   stock: string;
   deliveryEtaMinutes: string;
   calls: DispatchCall[];
+  region: string;
+  regionNotice: string;
+  isRegionLocked: boolean;
 }
 
 const EMPTY_FORM: ProductFormState = {
@@ -66,6 +69,9 @@ const EMPTY_FORM: ProductFormState = {
   stock: '',
   deliveryEtaMinutes: '2',
   calls: [{ packageId: 1, quantity: 1 }],
+  region: '',
+  regionNotice: '',
+  isRegionLocked: false,
 };
 
 function toForm(product: Product): ProductFormState {
@@ -90,6 +96,9 @@ function toForm(product: Product): ProductFormState {
     stock: product.stock === null ? '' : String(product.stock),
     deliveryEtaMinutes: String(product.deliveryEtaMinutes),
     calls: product.calls.length > 0 ? product.calls : [],
+    region: product.region ?? '',
+    regionNotice: product.regionNotice ?? '',
+    isRegionLocked: product.isRegionLocked ?? false,
   };
 }
 
@@ -125,14 +134,15 @@ function CallsEditor({
           <div key={index} className="flex items-center gap-2">
             <span className="w-6 shrink-0 text-center text-xs text-slate-500">{index + 1}</span>
             <input
-              type="number"
+              type="text"
               value={call.packageId}
               onChange={(event) => {
                 const next = [...calls];
-                next[index] = { ...call, packageId: Number(event.target.value) };
+                const raw = event.target.value.trim();
+                next[index] = { ...call, packageId: /^\d+$/.test(raw) ? Number(raw) : raw };
                 onChange(next);
               }}
-              placeholder="package_id"
+              placeholder="offer_id"
               className="input-base flex-1 py-2"
             />
             <input
@@ -149,12 +159,15 @@ function CallsEditor({
               title="Veces seguidas"
             />
             <input
-              type="number"
+              type="text"
               value={call.providerGameId ?? ''}
               onChange={(event) => {
                 const raw = event.target.value.trim();
                 const next = [...calls];
-                next[index] = { ...call, providerGameId: raw === '' ? null : Number(raw) };
+                next[index] = {
+                  ...call,
+                  providerGameId: raw === '' ? null : /^\d+$/.test(raw) ? Number(raw) : raw,
+                };
                 onChange(next);
               }}
               placeholder="juego"
@@ -203,6 +216,7 @@ export function AdminProducts() {
   const [repriceOpen, setRepriceOpen] = useState(false);
   const [margin, setMargin] = useState('25');
   const [seedOpen, setSeedOpen] = useState(false);
+  const [iconUploading, setIconUploading] = useState(false);
 
   const games = useAdminGames();
   const products = useAdminProducts(gameFilter || undefined);
@@ -256,6 +270,9 @@ export function AdminProducts() {
       sortOrder: Number(form.sortOrder) || 99,
       stock: form.stock === '' ? null : Number(form.stock),
       deliveryEtaMinutes: Number(form.deliveryEtaMinutes) || 2,
+      region: form.region.trim() || undefined,
+      regionNotice: form.regionNotice.trim() || undefined,
+      isRegionLocked: form.isRegionLocked,
     };
 
     saveProduct.mutate(
@@ -400,14 +417,14 @@ export function AdminProducts() {
       {/* --- Formulario --- */}
       <Modal
         open={formOpen}
-        onClose={() => setFormOpen(false)}
+        onClose={() => { if (!iconUploading) setFormOpen(false); }}
         title={editing ? `Editar ${editing.name}` : 'Nuevo producto'}
         size="lg"
         footer={
           <Button
             fullWidth
             loading={saveProduct.isPending}
-            disabled={!form.gameId || form.sku.length < 2 || form.name.length < 2}
+            disabled={iconUploading || !form.gameId || form.sku.length < 2 || form.name.length < 2}
             onClick={submit}
           >
             {editing ? 'Guardar cambios' : 'Crear producto'}
@@ -432,13 +449,37 @@ export function AdminProducts() {
             />
           </div>
 
-          <Input
-            label="Nombre"
-            value={form.name}
-            onChange={(event) => setForm({ ...form, name: event.target.value })}
-            placeholder="310 + 31 Diamantes"
-            required
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Input
+              label="Nombre"
+              value={form.name}
+              onChange={(event) => setForm({ ...form, name: event.target.value })}
+              placeholder="310 + 31 Diamantes"
+              required
+            />
+            <Input
+              label="Región (Ej. USA, Global)"
+              value={form.region}
+              onChange={(event) => setForm({ ...form, region: event.target.value })}
+              placeholder="Global"
+            />
+          </div>
+
+          <Switch
+            label="¿Bloqueado por región?"
+            checked={form.isRegionLocked}
+            onChange={(checked) => setForm({ ...form, isRegionLocked: checked })}
           />
+
+          {form.isRegionLocked && (
+            <Textarea
+              label="Aviso de Región"
+              value={form.regionNotice}
+              onChange={(event) => setForm({ ...form, regionNotice: event.target.value })}
+              placeholder="Solo canjeable en cuentas con región Estados Unidos."
+              rows={2}
+            />
+          )}
 
           <Textarea
             label="Descripción"
@@ -589,6 +630,7 @@ export function AdminProducts() {
             label="Icono del producto"
             value={form.imageUrl}
             onChange={(imageUrl) => setForm({ ...form, imageUrl })}
+            onUploadingChange={setIconUploading}
             folder="productos"
             hint="Si lo dejas vacío se usa el ícono de la moneda del juego. Para pases y tarjetas conviene poner uno propio."
           />

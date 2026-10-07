@@ -10,7 +10,6 @@ import {
   parseQuery,
   userAgent,
 } from '../lib/http';
-import { invalidArgument } from '../lib/errors';
 import { requireAuth, currentUser } from '../middleware/auth';
 import { rateLimit } from '../middleware/rateLimit';
 import * as ordersService from '../services/orders';
@@ -20,6 +19,8 @@ import * as creatorsService from '../services/creators';
 import * as catalog from '../services/catalog';
 import { listEvents } from '../services/orderEvents';
 import { getConfig } from '../services/settings';
+import { assertStorefrontGame } from '../lib/storefront';
+import { invalidArgument } from '../lib/errors';
 
 export const ordersRouter = Router();
 
@@ -47,8 +48,9 @@ const createOrderSchema = z.object({
   playerId: z.string().trim().max(120).optional(),
   quantity: z.coerce.number().int().min(1).max(10).default(1),
   couponCode: z.string().trim().max(32).optional().nullable(),
+  clientPlatform: z.enum(['web', 'app']).default('web'),
   creatorCode: z.string().trim().max(32).optional().nullable(),
-  paymentMethod: z.enum(['pagomovil_bdv', 'transfer']).optional(),
+  paymentMethod: z.enum(['pagomovil_bdv', 'transfer', 'binance_pay']).optional(),
   contactPhone: z
     .string()
     .trim()
@@ -71,17 +73,22 @@ ordersRouter.post(
     const user = currentUser(req);
     const body = parseBody(req, createOrderSchema);
     const profile = await usersService.ensureProfile(user);
-
-    if (!body.playerFields && !body.playerId) {
-      throw invalidArgument('Faltan los datos de la cuenta a recargar.');
+    const [game, product] = await Promise.all([
+      catalog.getGame(body.gameId),
+      catalog.getProduct(body.productId),
+    ]);
+    if (product.gameId !== game.id) {
+      throw invalidArgument('El paquete no corresponde al juego seleccionado.');
     }
+    assertStorefrontGame(req, game);
 
     const order = await ordersService.createOrder(user, profile, {
       gameId: body.gameId,
       productId: body.productId,
-      playerFields: body.playerFields ?? body.playerId!,
+      playerFields: body.playerFields ?? body.playerId ?? {},
       quantity: body.quantity,
       couponCode: body.couponCode ?? null,
+      clientPlatform: body.clientPlatform,
       creatorCode: body.creatorCode ?? null,
       paymentMethod: body.paymentMethod,
       contactPhone: body.contactPhone ?? null,
@@ -219,6 +226,7 @@ const previewSchema = z.object({
   productId: z.string().min(1),
   quantity: z.coerce.number().int().min(1).max(10).default(1),
   couponCode: z.string().trim().max(32).optional().nullable(),
+  clientPlatform: z.enum(['web', 'app']).default('web'),
   creatorCode: z.string().trim().max(32).optional().nullable(),
   useWallet: z.boolean().default(false),
   /** Opcional: permite comprobar ya el límite del cupón por ID de jugador. */
@@ -236,6 +244,8 @@ ordersRouter.post(
       usersService.ensureProfile(user),
       catalog.getProduct(body.productId),
     ]);
+    const game = await catalog.getGame(product.gameId);
+    assertStorefrontGame(req, game);
 
     const subtotalUsd = Number((product.priceUsd * body.quantity).toFixed(2));
     const tierPercent = await usersService.tierDiscountPercent(profile.tier);
@@ -254,6 +264,7 @@ ordersRouter.post(
           // Si el cliente ya escribió el ID, se avisa aquí de que el cupón está
           // agotado para esa cuenta, en vez de dejarle llegar hasta el pago.
           playerId: body.playerId ?? null,
+          clientPlatform: body.clientPlatform,
         });
         discountUsd = Number((discountUsd + evaluation.discountUsd).toFixed(2));
         couponCode = evaluation.coupon.code;
@@ -328,7 +339,7 @@ ordersRouter.patch(
     const { orderId } = parseParams(req, z.object({ orderId: z.string().min(1) }));
     const { method } = parseBody(
       req,
-      z.object({ method: z.enum(['pagomovil_bdv', 'transfer']) })
+      z.object({ method: z.enum(['pagomovil_bdv', 'transfer', 'binance_pay']) })
     );
 
     const order = await ordersService.setPaymentMethod(currentUser(req), orderId, method);

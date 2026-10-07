@@ -24,6 +24,7 @@ import type {
   UserProfile,
   WalletTransaction,
 } from '@/types/models';
+import type { AdminDualBotConfig } from '@/features/chatbot/useChatbotConfig';
 
 // --- Dashboard -------------------------------------------------------------
 
@@ -52,6 +53,32 @@ export function useProvidersStatus() {
     // menudo que el resto de la configuración.
     staleTime: 60_000,
     refetchInterval: 180_000,
+  });
+}
+
+export interface FazerCatalogBatch {
+  summary: {
+    createdGames: number;
+    updatedGames: number;
+    createdProducts: number;
+    updatedProducts: number;
+    skipped: number;
+    errors: string[];
+    family: 'topup' | 'gift_card' | 'game_key';
+    nextOffset: number;
+    totalCategories: number;
+    done: boolean;
+  };
+}
+
+export function useSyncFazerCatalogBatch() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { family: FazerCatalogBatch['summary']['family']; offset: number; limit?: number }) =>
+      api.post<FazerCatalogBatch>('/admin/providers/fazercards/sync', input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.catalog });
+    },
   });
 }
 
@@ -446,6 +473,28 @@ export function useUpdateConfig() {
     mutationFn: (patch: Record<string, unknown>) =>
       api.patch<{ config: AppConfig }>('/admin/config', patch),
     onSuccess: invalidate,
+  });
+}
+
+export function useAdminChatbotConfig() {
+  return useQuery({
+    queryKey: ['admin', 'chatbot-config'],
+    queryFn: () => api.get<{ config: AdminDualBotConfig; configured: boolean }>('/admin/chatbot/config'),
+    staleTime: 30_000,
+  });
+}
+
+export function useUpdateChatbotConfig() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (config: AdminDualBotConfig) =>
+      api.patch<{ config: AdminDualBotConfig }>('/admin/chatbot/config', config),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['admin', 'chatbot-config'] }),
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.config }),
+      ]);
+    },
   });
 }
 

@@ -24,6 +24,7 @@ function toModal(id: string, data: FirebaseFirestore.DocumentData): StoreModal {
     active: false,
     frequency: 'once',
     placement: 'home',
+    audience: 'both',
     sortOrder: 99,
     createdAt: now(),
     updatedAt: now(),
@@ -54,6 +55,7 @@ export interface ModalInput {
   active: boolean;
   frequency: StoreModal['frequency'];
   placement: StoreModal['placement'];
+  audience: StoreModal['audience'];
   sortOrder: number;
 }
 

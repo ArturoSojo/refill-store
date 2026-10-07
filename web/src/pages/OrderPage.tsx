@@ -135,6 +135,17 @@ export function OrderPage() {
           {meta.description}
         </p>
 
+        {order.status === 'completed' && order.deliveredCodes && order.deliveredCodes.length > 0 && (
+          <div className="mt-4 rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-4 text-left">
+            <h2 className="mb-3 text-sm font-bold text-emerald-100">Tus códigos digitales</h2>
+            <div className="space-y-2">
+              {order.deliveredCodes.map((code, index) => (
+                <CopyField key={`${index}-${code}`} label={`Código ${index + 1}`} value={code} emphasis />
+              ))}
+            </div>
+          </div>
+        )}
+
         {showWhatsapp && (
           <Button
             className="mt-4"
@@ -282,7 +293,7 @@ export function OrderPage() {
               <div className="flex justify-between gap-3">
                 <dt className="text-slate-500">Método</dt>
                 <dd className="text-slate-300">
-                  {order.payment.method === 'transfer' ? 'Transferencia' : 'Pago Móvil'}
+                  {order.payment.method === 'transfer' ? 'Transferencia' : order.payment.method === 'binance_pay' ? 'Binance Pay' : 'Pago Móvil'}
                 </dd>
               </div>
             )}

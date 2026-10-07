@@ -7,7 +7,7 @@
  * si falla al cargar (URL rota puesta desde el panel) se vuelve al emoji en vez
  * de dejar un hueco.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import type { Game } from '@/types/models';
 
@@ -20,6 +20,8 @@ interface CurrencyIconProps {
 export function CurrencyIcon({ game, className }: CurrencyIconProps) {
   const [failed, setFailed] = useState(false);
   const url = game.currencyIconUrl?.trim();
+
+  useEffect(() => setFailed(false), [url]);
 
   if (url && !failed) {
     return (

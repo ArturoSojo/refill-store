@@ -28,6 +28,7 @@
     }
   ],
   "hosting": {
+    "site": "refill-e254f",
     "public": "web/dist",
     "ignore": [
       "firebase.json",
@@ -62,7 +63,7 @@
         "headers": [
           {
             "key": "Cache-Control",
-            "value": "no-cache"
+            "value": "no-cache, no-store, must-revalidate"
           }
         ]
       },
@@ -112,3 +113,4 @@
     "singleProjectMode": true
   }
 }
+

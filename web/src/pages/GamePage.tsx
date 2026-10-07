@@ -12,6 +12,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import {
   AlertTriangle,
+  BadgeCheck,
   ChevronLeft,
   HelpCircle,
   Loader2,
@@ -20,7 +21,8 @@ import {
   Zap,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { useCatalog, useGameCatalog, groupProducts } from '@/hooks/useCatalog';
+import { api, isFazerCardsStorefront } from '@/lib/api';
+import { useCatalog, useFamilyCatalog, useGameCatalog, groupProducts } from '@/hooks/useCatalog';
 import { usePricePreview } from '@/hooks/useOrders';
 import { useSavedPlayerIds } from '@/hooks/useAccount';
 import { useDocumentTitle } from '@/hooks/useMisc';
@@ -39,7 +41,7 @@ import { AnimatedBackground } from '@/components/common/Decor';
 import { Input, Switch } from '@/components/ui/Field';
 import { Modal, ConfirmDialog } from '@/components/ui/Modal';
 import { ErrorState, FullPageLoader, EmptyState } from '@/components/ui/Feedback';
-import { ButtonLink } from '@/components/ui/Button';
+import { Button, ButtonLink } from '@/components/ui/Button';
 import { ROUTES } from '@/lib/constants';
 import { readCreatorCode } from '@/lib/creatorCode';
 import { formatUsd } from '@/lib/format';
@@ -55,8 +57,11 @@ export function GamePage() {
   const { user } = useAuth();
   const { config } = useConfig();
 
-  const catalog = useCatalog();
-  const gameCatalog = useGameCatalog(slug);
+  const catalog = useGameCatalog(slug);
+  const storefrontCatalog = useCatalog();
+  const [carouselStarted, setCarouselStarted] = useState(false);
+  const family = catalog.data?.game?.providerFamily ?? 'topup';
+  const familyCatalog = useFamilyCatalog(catalog.data?.game ? family : undefined, 12, carouselStarted);
   const savedIds = useSavedPlayerIds();
   const pricePreview = usePricePreview();
 
@@ -71,14 +76,42 @@ export function GamePage() {
   const [preview, setPreview] = useState<PricePreview | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [playerValidation, setPlayerValidation] = useState<{
+    playerId: string;
+    playerName: string | null;
+    region: string | null;
+  } | null>(null);
+  const [validatingPlayer, setValidatingPlayer] = useState(false);
 
-  const games = catalog.data?.games ?? [];
-  const game = games.find((item) => item.id === slug) ?? games[0];
+  const game = catalog.data?.game;
+  const games = useMemo(() => {
+    if (!game) return [];
+    const family = game.providerFamily ?? 'topup';
+    const candidates = [...(storefrontCatalog.data?.games ?? []), ...(familyCatalog.data?.games ?? [])].filter(
+      (item) => (item.providerFamily ?? 'topup') === family
+    );
+    // La portada entrega una muestra pequeña y priorizada por familia. Añade
+    // siempre el juego actual si no está en esa muestra (p. ej. una categoría
+    // profunda), sin descargar todo el catálogo sólo para el selector.
+    const unique = new Map(candidates.map((item) => [item.id, item]));
+    unique.set(game.id, game);
+    return [...unique.values()];
+  }, [game, storefrontCatalog.data?.games, familyCatalog.data?.games]);
+
+  const loadMoreGames = () => {
+    if (!carouselStarted) {
+      setCarouselStarted(true);
+    } else if (familyCatalog.error) {
+      void familyCatalog.refetch();
+    } else if (familyCatalog.hasMore && !familyCatalog.isFetching) {
+      familyCatalog.loadMore();
+    }
+  };
   const selectedProductId = searchParams.get('pkg') ?? '';
 
   const products = useMemo(
-    () => gameCatalog.data?.products ?? [],
-    [gameCatalog.data]
+    () => catalog.data?.products ?? [],
+    [catalog.data]
   );
 
   const { automatic, manual } = groupProducts(products);
@@ -88,8 +121,14 @@ export function GamePage() {
   useDocumentTitle(game ? `Recargar ${game.name}` : 'Recargar');
 
   const fields = useMemo(() => gameFields(game), [game]);
-  const idIsValid = fieldsAreValid(fields, playerValues);
+  const requiresPlayerData = game?.requiresPlayerData !== false;
+  const idIsValid = !requiresPlayerData || fieldsAreValid(fields, playerValues);
   const primaryField = fields[0];
+  const requiresFazerValidation = game?.id === 'free-fire' && isFazerCardsStorefront();
+  const currentPlayerId = primaryField ? (playerValues[primaryField.key] ?? '').trim() : '';
+  const playerIdVerified = Boolean(
+    requiresFazerValidation && playerValidation?.playerId === currentPlayerId
+  );
 
   const gameSavedIds = (savedIds.data?.playerIds ?? []).filter(
     (saved) => saved.gameId === game?.id
@@ -104,6 +143,7 @@ export function GamePage() {
     setPreview(null);
     setTab('auto');
     setPlayerValues({});
+    setPlayerValidation(null);
     setTouched(false);
     navigate(ROUTES.game(gameId));
   };
@@ -134,7 +174,7 @@ export function GamePage() {
           useWallet,
           // Sólo cuando el ID está completo: así el cupón se valida contra esa
           // cuenta del juego antes de llegar al pago.
-          playerId: idIsValid ? (playerValues[primaryField.key] ?? null) : null,
+          playerId: idIsValid && primaryField ? (playerValues[primaryField.key] ?? null) : null,
         },
         { onSuccess: setPreview }
       );
@@ -144,11 +184,9 @@ export function GamePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, selected?.id, quantity, couponCode, creatorCode, useWallet, idIsValid, playerValues]);
 
-  if (catalog.isLoading || gameCatalog.isLoading) {
-    return <FullPageLoader label="Cargando el catálogo…" />;
-  }
+  if (catalog.isLoading || storefrontCatalog.isLoading) return <FullPageLoader label="Cargando el catálogo…" />;
 
-  if (catalog.error || gameCatalog.error || !game) {
+  if (catalog.error || !game) {
     return (
       <div className="mx-auto max-w-lg px-4 py-16">
         <ErrorState
@@ -171,11 +209,13 @@ export function GamePage() {
     .map((field) => field.label)
     .join(' y ');
 
-  const continueDisabled = !selected || !idIsValid;
+  const continueDisabled = !selected || !idIsValid || (requiresFazerValidation && !playerIdVerified);
   const disabledReason = !selected
     ? undefined
     : !idIsValid
-      ? `Completa ${missingLabel || primaryField.label} para continuar`
+      ? `Completa ${missingLabel || primaryField?.label || 'los datos solicitados'} para continuar`
+      : requiresFazerValidation && !playerIdVerified
+        ? 'Verifica tu ID de Free Fire para continuar'
       : undefined;
 
   const startCheckout = () => {
@@ -185,6 +225,7 @@ export function GamePage() {
     navigate(ROUTES.checkout(selected.id), {
       state: {
         playerFields: cleanValues(fields, playerValues),
+        playerIdVerified: requiresFazerValidation && playerIdVerified,
         quantity,
         couponCode: couponCode.trim() || null,
         creatorCode: creatorCode.trim() || null,
@@ -208,12 +249,42 @@ export function GamePage() {
 
     // El proveedor de estos juegos acepta cualquier número y cobra igual: un
     // dígito mal escrito se pierde. Por eso se pide confirmar antes de cobrar.
-    if (game.validatesPlayerId === false) {
+    if (requiresPlayerData && game.validatesPlayerId === false && !requiresFazerValidation) {
       setConfirmOpen(true);
       return;
     }
 
     startCheckout();
+  };
+
+  const verifyFreeFireId = async () => {
+    if (!idIsValid || !currentPlayerId || validatingPlayer) {
+      setTouched(true);
+      return;
+    }
+    setValidatingPlayer(true);
+    setPlayerValidation(null);
+    try {
+      const result = await api.post<{
+        valid: boolean;
+        playerName: string | null;
+        region: string | null;
+      }>(`/games/${encodeURIComponent(game!.id)}/validate-player`, { playerId: currentPlayerId });
+      if (!result.valid) {
+        toast.error('FazerCards no encontró una cuenta de Free Fire con ese ID. Revísalo e intenta otra vez.');
+        return;
+      }
+      setPlayerValidation({
+        playerId: currentPlayerId,
+        playerName: result.playerName,
+        region: result.region,
+      });
+      toast.success('ID de Free Fire verificado.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'No se pudo verificar el ID. Intenta de nuevo.');
+    } finally {
+      setValidatingPlayer(false);
+    }
   };
 
   return (
@@ -238,11 +309,14 @@ export function GamePage() {
             </span>
             Selecciona el juego
           </h2>
-          <GameSelector games={games} selectedId={game.id} onSelect={selectGame} />
+          <GameSelector games={games} selectedId={game.id} onSelect={selectGame}
+            onEnd={loadMoreGames}
+            hasMore={!carouselStarted || familyCatalog.hasMore || Boolean(familyCatalog.error)}
+            isLoadingMore={carouselStarted && familyCatalog.isFetching} />
         </section>
 
-        {/* Paso 2 — ID de jugador */}
-        <section className="mb-6">
+        {/* Paso 2 — datos de la cuenta. Las gift cards y keys no los piden. */}
+        {requiresPlayerData && primaryField && <section className="mb-6">
           <h2 className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400">
             <span className="flex h-5 w-5 items-center justify-center rounded-md bg-brand-gradient text-[10px] font-black text-white">
               2
@@ -262,11 +336,36 @@ export function GamePage() {
             <PlayerFields
               fields={fields}
               values={playerValues}
-              onChange={setPlayerValues}
+              onChange={(next) => {
+                setPlayerValues(next);
+                if (next[primaryField.key] !== playerValidation?.playerId) setPlayerValidation(null);
+              }}
               showErrors={touched}
               onBlur={() => setTouched(true)}
               idPrefix="compra"
             />
+
+            {requiresFazerValidation && (
+              <div className="mt-3 space-y-2">
+                <Button
+                  variant={playerIdVerified ? 'success' : 'secondary'}
+                  size="sm"
+                  type="button"
+                  onClick={verifyFreeFireId}
+                  disabled={!idIsValid || validatingPlayer}
+                >
+                  {validatingPlayer ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <BadgeCheck className="h-4 w-4" aria-hidden />}
+                  {validatingPlayer ? 'Verificando ID…' : playerIdVerified ? 'ID verificado' : 'Verificar ID'}
+                </Button>
+                {playerIdVerified && (
+                  <p className="flex items-center gap-1.5 text-xs text-emerald-300" role="status">
+                    <BadgeCheck className="h-4 w-4" aria-hidden />
+                    Cuenta verificada{playerValidation?.playerName ? `: ${playerValidation.playerName}` : ''}
+                    {playerValidation?.region ? ` · ${playerValidation.region}` : ''}
+                  </p>
+                )}
+              </div>
+            )}
 
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <button
@@ -307,7 +406,7 @@ export function GamePage() {
               )}
             </div>
 
-            {game.validatesPlayerId === false && (
+            {game.validatesPlayerId === false && !requiresFazerValidation && (
               <p className="mt-3 flex items-start gap-1.5 rounded-xl bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
                 <span>
@@ -317,7 +416,7 @@ export function GamePage() {
               </p>
             )}
           </div>
-        </section>
+        </section>}
 
         {/* Códigos. Van ANTES de los paquetes y siempre abiertos: escondidos
             tras un enlace y debajo de la lista, la gente no los veía y acababa

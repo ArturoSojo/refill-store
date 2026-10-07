@@ -142,7 +142,7 @@ export function StoreModals() {
 
   const isHome = pathname === '/';
 
-  const all = useMemo(() => data?.modals ?? [], [data]);
+  const all = useMemo(() => (data?.modals ?? []).filter((modal) => !modal.audience || modal.audience === 'both' || modal.audience === 'web'), [data]);
 
   /** Los que pueden abrirse SOLOS en esta pantalla. */
   const forHere = useMemo(

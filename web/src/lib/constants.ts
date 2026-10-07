@@ -5,6 +5,7 @@ export const APP_NAME = 'Refill Store';
 /** Rutas de la tienda, centralizadas para no repetir cadenas por todo el árbol. */
 export const ROUTES = {
   home: '/',
+  family: (family: 'topup' | 'gift_card' | 'game_key') => `/familia/${family}`,
   game: (slug: string) => `/juego/${slug}`,
   checkout: (productId: string) => `/comprar/${productId}`,
   order: (orderId: string) => `/orden/${orderId}`,
@@ -29,12 +30,14 @@ export const ROUTES = {
   adminTickets: '/admin/soporte',
   adminTicket: (id: string) => `/admin/soporte/${id}`,
   adminAlerts: '/admin/avisos',
+  adminPushNotifications: '/admin/notificaciones-push',
   creator: '/cuenta/creador',
   adminCreators: '/admin/creadores',
   adminCreator: (uid: string) => `/admin/creadores/${uid}`,
   adminModals: '/admin/modales',
   adminTiers: '/admin/niveles',
   adminSettings: '/admin/configuracion',
+  adminChatbot: '/admin/chatbot',
   adminLogs: '/admin/bitacora',
 } as const;
 

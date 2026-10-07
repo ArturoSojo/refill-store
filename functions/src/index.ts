@@ -11,6 +11,7 @@ import { onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import {
   API_SECRETS,
+  FAZERCARDS_API_KEY,
   GMAIL_APP_PASSWORD,
   INEFABLE_API_KEY,
   PABILO_API_KEY,
@@ -77,7 +78,7 @@ export const resolveDispatches = onSchedule(
     timeoutSeconds: 300,
     // Los secretos se montan por función: sin declararlos aquí, la consulta al
     // proveedor saldría sin clave y el correo de entrega no se enviaría.
-    secrets: [INEFABLE_API_KEY, TELEGRAM_BOT_TOKEN, GMAIL_APP_PASSWORD],
+    secrets: [INEFABLE_API_KEY, FAZERCARDS_API_KEY, TELEGRAM_BOT_TOKEN, GMAIL_APP_PASSWORD],
   },
   async () => {
     const resultado = await resolveProcessingOrders();
