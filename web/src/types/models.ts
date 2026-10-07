@@ -487,6 +487,7 @@ export interface Coupon {
   validUntil: TimestampLike;
   gameIds: string[];
   productIds: string[];
+  audience?: 'web' | 'app' | 'both';
   active: boolean;
   createdAt: TimestampLike;
   createdBy: string | null;

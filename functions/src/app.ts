@@ -16,6 +16,7 @@ import { meRouter } from './routes/me.routes';
 import { adminRouter } from './routes/admin.routes';
 import { webhooksRouter } from './routes/webhooks.routes';
 import { setupRouter } from './routes/setup.routes';
+import { authRouter } from './routes/auth.routes';
 
 export function createApp() {
   const app = express();
@@ -74,6 +75,7 @@ export function createApp() {
   };
 
   mount('/', publicRouter);
+  mount('/auth', authRouter);
   mount('/orders', ordersRouter);
   mount('/me', meRouter);
   mount('/admin', adminRouter);

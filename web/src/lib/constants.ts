@@ -30,6 +30,7 @@ export const ROUTES = {
   adminTickets: '/admin/soporte',
   adminTicket: (id: string) => `/admin/soporte/${id}`,
   adminAlerts: '/admin/avisos',
+  adminPushNotifications: '/admin/notificaciones-push',
   creator: '/cuenta/creador',
   adminCreators: '/admin/creadores',
   adminCreator: (uid: string) => `/admin/creadores/${uid}`,

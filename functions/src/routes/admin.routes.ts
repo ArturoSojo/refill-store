@@ -6,6 +6,7 @@
  */
 import { Router } from 'express';
 import { z } from 'zod';
+import { getMessaging } from 'firebase-admin/messaging';
 import {
   games,
   products,
@@ -23,6 +24,7 @@ import { applyMargin, round } from '../lib/money';
 import { slugify } from '../lib/ids';
 import { MAX_DISCOUNT_PERCENT, TIER_ORDER, normalizeLadder } from '../lib/tiers';
 import { requireAuth, requireStaff, requireAdmin, currentUser } from '../middleware/auth';
+import { rateLimit } from '../middleware/rateLimit';
 import * as ordersService from '../services/orders';
 import * as usersService from '../services/users';
 import * as catalog from '../services/catalog';
@@ -48,6 +50,43 @@ import { DEFAULT_PLAYER_FIELD } from '../types/models';
 import type { Coupon, Order, Ticket, UserProfile } from '../types/models';
 
 export const adminRouter = Router();
+
+const pushSchema = z.object({
+  title: z.string().trim().min(3).max(60),
+  body: z.string().trim().min(3).max(220),
+  link: z.string().trim().max(160).optional().nullable().refine(
+    (value) => !value || (value.startsWith('/') && !value.startsWith('//')),
+    'El enlace debe ser una ruta interna de la app.'
+  ),
+});
+
+adminRouter.post(
+  '/push',
+  requireAuth,
+  requireAdmin,
+  rateLimit({ name: 'admin_app_push', max: 5, windowSeconds: 3600 }),
+  asyncHandler(async (req, res) => {
+    const body = parseBody(req, pushSchema);
+    const messageId = await getMessaging().send({
+      topic: 'refill-store-app',
+      notification: { title: body.title, body: body.body },
+      data: { link: body.link ?? '' },
+      android: { priority: 'high' },
+      apns: { payload: { aps: { sound: 'default' } } },
+    });
+
+    await audit.record({
+      action: 'push.app.sent',
+      actorUid: currentUser(req).uid,
+      actorEmail: currentUser(req).email,
+      targetType: 'push',
+      targetId: messageId,
+      summary: `Notificación enviada a los usuarios de la app: ${body.title}.`,
+      ip: clientIp(req),
+    });
+    ok(res, { messageId });
+  })
+);
 
 adminRouter.use(requireAuth, requireStaff);
 
@@ -1605,6 +1644,7 @@ const couponSchema = z.object({
   validUntilMillis: z.coerce.number().int().nullable().optional(),
   gameIds: z.array(z.string()).max(20).default([]),
   productIds: z.array(z.string()).max(100).default([]),
+  audience: z.enum(['web', 'app', 'both']).default('both'),
   active: z.boolean().default(true),
 });
 
@@ -1637,6 +1677,7 @@ adminRouter.post(
         validUntil: body.validUntilMillis ? Timestamp.fromMillis(body.validUntilMillis) : null,
         gameIds: body.gameIds,
         productIds: body.productIds,
+        audience: body.audience,
         active: body.active,
         createdAt: now(),
         createdBy: currentUser(req).uid,

@@ -25,9 +25,10 @@ import {
   useMarkAlertsRead,
   useTestAlert,
 } from '@/hooks/useAdmin';
+import { useAuth } from '@/providers/AuthProvider';
 import { useDocumentTitle } from '@/hooks/useMisc';
 import { Card } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
+import { Button, ButtonLink } from '@/components/ui/Button';
 import { Badge, EmptyState, Skeleton } from '@/components/ui/Feedback';
 import { LoadMore } from '@/components/common/LoadMore';
 import { ROUTES } from '@/lib/constants';
@@ -73,6 +74,7 @@ function DeliveryTag({ channel, state }: { channel: string; state: string }) {
 export function AdminAlerts() {
   useDocumentTitle('Panel · Avisos');
   const [onlyUnread, setOnlyUnread] = useState(false);
+  const { isAdmin } = useAuth();
 
   const alerts = useAdminAlerts({ onlyUnread, limit: 60 });
   const markAll = useMarkAlertsRead();
@@ -93,6 +95,16 @@ export function AdminAlerts() {
         </div>
 
         <div className="flex flex-wrap gap-2">
+          {isAdmin && (
+            <ButtonLink
+              to={ROUTES.adminPushNotifications}
+              size="sm"
+              variant="secondary"
+              leftIcon={<BellRing className="h-4 w-4" aria-hidden />}
+            >
+              Notificaciones push
+            </ButtonLink>
+          )}
           <Button
             size="sm"
             variant="secondary"

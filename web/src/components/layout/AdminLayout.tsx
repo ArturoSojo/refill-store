@@ -13,6 +13,7 @@ import {
   Menu,
   Package,
   Receipt,
+  Send,
   ScrollText,
   Settings,
   Store,
@@ -30,6 +31,7 @@ const NAV = [
   { to: ROUTES.admin, label: 'Resumen', icon: LayoutDashboard, end: true },
   { to: ROUTES.adminOrders, label: 'Órdenes', icon: Receipt, end: false },
   { to: ROUTES.adminAlerts, label: 'Avisos', icon: BellRing, end: false },
+  { to: ROUTES.adminPushNotifications, label: 'Notificaciones push', icon: Send, end: false },
   { to: ROUTES.adminProducts, label: 'Productos', icon: Package, end: false },
   { to: ROUTES.adminGames, label: 'Juegos', icon: Gamepad2, end: false },
   { to: ROUTES.adminUsers, label: 'Usuarios', icon: Users, end: false },
@@ -53,8 +55,8 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <ul className="space-y-1">
       {NAV.map((item) => {
-        // La bitácora y la configuración son sólo para administradores.
-        const adminOnly = item.to === ROUTES.adminLogs;
+        // La bitácora, configuración y push global son sólo para administradores.
+        const adminOnly = item.to === ROUTES.adminLogs || item.to === ROUTES.adminPushNotifications;
         if (adminOnly && !isAdmin) return null;
 
         const badge = item.to === ROUTES.adminAlerts && unread > 0 ? unread : null;

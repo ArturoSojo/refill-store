@@ -747,6 +747,8 @@ export interface Coupon {
   /** Restricciones opcionales; vacío = aplica a todo. */
   gameIds: string[];
   productIds: string[];
+  /** Dónde se permite usar este cupón. Los documentos antiguos aplican en ambos. */
+  audience?: 'web' | 'app' | 'both';
   active: boolean;
   createdAt: TimestampLike;
   createdBy: string | null;

@@ -17,6 +17,7 @@ interface CouponForm {
   code: string;
   description: string;
   type: 'percent' | 'fixed';
+  audience: 'web' | 'app' | 'both';
   value: string;
   minOrderUsd: string;
   maxDiscountUsd: string;
@@ -31,6 +32,7 @@ const EMPTY: CouponForm = {
   code: '',
   description: '',
   type: 'percent',
+  audience: 'both',
   value: '10',
   minOrderUsd: '0',
   maxDiscountUsd: '',
@@ -66,6 +68,7 @@ export function AdminCoupons() {
     const data: Record<string, unknown> = {
       description: form.description.trim(),
       type: form.type,
+      audience: form.audience,
       value: Number(form.value),
       minOrderUsd: Number(form.minOrderUsd) || 0,
       maxDiscountUsd: form.maxDiscountUsd ? Number(form.maxDiscountUsd) : null,
@@ -153,6 +156,7 @@ export function AdminCoupons() {
                       : `${formatUsd(coupon.value)} de descuento`}
                     {coupon.minOrderUsd > 0 && ` · mínimo ${formatUsd(coupon.minOrderUsd)}`}
                     {coupon.validUntil && ` · hasta ${formatDate(coupon.validUntil)}`}
+                    {' · '}{coupon.audience === 'app' ? 'Sólo app' : coupon.audience === 'web' ? 'Sólo web' : 'Web y app'}
                   </p>
                 </div>
 
@@ -178,6 +182,7 @@ export function AdminCoupons() {
                           code: coupon.code,
                           description: coupon.description ?? '',
                           type: coupon.type,
+                          audience: coupon.audience ?? 'both',
                           value: String(coupon.value),
                           minOrderUsd: String(coupon.minOrderUsd),
                           maxDiscountUsd:
@@ -268,6 +273,17 @@ export function AdminCoupons() {
               onChange={(event) => setForm({ ...form, value: event.target.value })}
             />
           </div>
+
+          <Select
+            label="Dónde se puede usar"
+            value={form.audience}
+            onChange={(event) => setForm({ ...form, audience: event.target.value as CouponForm['audience'] })}
+            options={[
+              { value: 'both', label: 'Web y app' },
+              { value: 'app', label: 'Sólo en la app' },
+              { value: 'web', label: 'Sólo en la web' },
+            ]}
+          />
 
           <div className="grid gap-4 sm:grid-cols-2">
             <Input

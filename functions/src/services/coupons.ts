@@ -81,6 +81,7 @@ export async function evaluate(options: {
    * importa.
    */
   playerId?: string | null;
+  clientPlatform?: 'web' | 'app';
 }): Promise<CouponEvaluation> {
   const code = options.code.trim().toUpperCase();
   const snap = await coupons().doc(code).get();
@@ -89,6 +90,14 @@ export async function evaluate(options: {
   const coupon = { code: snap.id, ...snap.data() } as Coupon;
 
   if (!coupon.active) throw failedPrecondition('Ese cupón ya no está activo.');
+  const audience = coupon.audience ?? 'both';
+  if (audience !== 'both' && audience !== (options.clientPlatform ?? 'web')) {
+    throw failedPrecondition(
+      audience === 'app'
+        ? 'Ese cupón sólo se puede usar desde la app.'
+        : 'Ese cupón sólo se puede usar desde la web.'
+    );
+  }
 
   const nowMs = Date.now();
   const from = toMillis(coupon.validFrom);

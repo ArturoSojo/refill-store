@@ -99,7 +99,7 @@ export function LoginPage() {
 
     try {
       await resetPassword(email);
-      toast.success('Te enviamos un correo para restablecer la contraseña.');
+      toast.success('Si ese correo tiene una cuenta, recibirás instrucciones para restablecer la contraseña.');
     } catch (error) {
       toast.error(authErrorMessage(error));
     }

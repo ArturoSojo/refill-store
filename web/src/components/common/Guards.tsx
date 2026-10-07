@@ -56,6 +56,41 @@ export function RequireStaff({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+/** Exige el rol de administrador para acciones globales del sistema. */
+export function RequireAdmin({ children }: { children: ReactNode }) {
+  const { user, isAdmin, loading, profileLoading } = useAuth();
+  const location = useLocation();
+
+  if (loading || (user && profileLoading)) {
+    return <FullPageLoader label="Comprobando permisos…" />;
+  }
+
+  if (!user) {
+    return <Navigate to={ROUTES.login} state={{ from: location.pathname }} replace />;
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="mx-auto max-w-md px-4 py-16">
+        <ErrorState
+          title="Acceso restringido"
+          message="Sólo los administradores pueden enviar notificaciones push a la app."
+          action={
+            <ButtonLink to={ROUTES.admin} variant="secondary">
+              Volver al panel
+            </ButtonLink>
+          }
+        />
+        <div className="mt-4 flex justify-center text-slate-600">
+          <ShieldAlert className="h-5 w-5" aria-hidden />
+        </div>
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+}
+
 /** Sube al inicio al cambiar de ruta (los móviles conservan el scroll). */
 export function ScrollToTop() {
   const { pathname } = useLocation();

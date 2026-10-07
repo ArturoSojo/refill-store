@@ -227,6 +227,7 @@ export interface CreateOrderInput {
   playerFields: Record<string, string> | string;
   quantity: number;
   couponCode?: string | null;
+  clientPlatform?: 'web' | 'app';
   /** Código del creador de contenido que trajo la venta. */
   creatorCode?: string | null;
   /** Cómo va a pagar. Por defecto, Pago Móvil. */
@@ -336,6 +337,7 @@ export async function createOrder(
       gameId: game.id,
       productId: product.id,
       playerId: playerData.playerId,
+      clientPlatform: input.clientPlatform ?? 'web',
     });
     discountUsd = round(discountUsd + evaluation.discountUsd, 2);
     couponCode = evaluation.coupon.code;
