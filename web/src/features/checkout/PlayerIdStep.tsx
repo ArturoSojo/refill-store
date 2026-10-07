@@ -131,6 +131,19 @@ export function PlayerIdStep({
           </Badge>
         </div>
 
+        {(product.isRegionLocked || product.regionNotice) && (
+          <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-relaxed text-amber-200">
+            <div className="flex gap-2">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" aria-hidden />
+              <p>
+                <strong>Importante:</strong>{' '}
+                {product.regionNotice ||
+                  `Este producto solo es canjeable en cuentas de región ${product.region || 'indicada'}. Asegúrate de que tu cuenta coincida antes de comprar.`}
+              </p>
+            </div>
+          </div>
+        )}
+
         {requiresPlayerData ? <PlayerFields
           fields={fields}
           values={values}

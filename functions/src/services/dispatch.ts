@@ -26,6 +26,7 @@ import * as stats from './stats';
 import * as usersService from './users';
 import * as creatorsService from './creators';
 import { addEvent } from './orderEvents';
+import { refundWalletIfApplied } from './orders';
 import { getConfig } from './settings';
 import { sendOrderEmail } from './orderEmails';
 import { resolvePlayerFields } from './catalog';
@@ -613,19 +614,24 @@ async function finalizeDispatch(
   } else {
     void sendOrderEmail('dispatch_failed', orderId);
 
+    const refundedAmount = await refundWalletIfApplied(order, failure ?? 'Despacho fallido');
+
     await addEvent({
       orderId,
       type: 'dispatch_failed',
-      message:
-        'No pudimos completar la entrega. Nuestro equipo ya fue notificado y lo resolverá.',
+      message: refundedAmount > 0 
+        ? 'No pudimos completar la entrega. Tu saldo ha sido reembolsado para que puedas intentar nuevamente.'
+        : 'No pudimos completar la entrega. Nuestro equipo ya fue notificado y lo resolverá.',
       status: 'failed',
     });
 
     await Promise.all([
       notifications.notify({
         uid: order.uid,
-        title: 'Estamos resolviendo tu recarga',
-        body: `Tu pago de ${describeOrder(order)} está confirmado. Hubo un problema al entregar y ya lo estamos atendiendo.`,
+        title: refundedAmount > 0 ? 'Recarga fallida - Saldo reembolsado' : 'Estamos resolviendo tu recarga',
+        body: refundedAmount > 0 
+          ? 'No pudimos confirmar tu cuenta de juego o hubo un problema con el proveedor. Revisa que el ID sea correcto e intenta nuevamente. Tu saldo ha sido reembolsado.'
+          : `Tu pago de ${describeOrder(order)} está confirmado. Hubo un problema al entregar y ya lo estamos atendiendo.`,
         type: 'order',
         link: `/orden/${orderId}`,
       }),

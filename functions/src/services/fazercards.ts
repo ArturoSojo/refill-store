@@ -50,7 +50,7 @@ export interface FazerPlayerValidation {
 }
 
 const successStatuses = new Set(['completed', 'complete', 'delivered', 'success', 'done', 'fulfilled', 'ok']);
-const failureStatuses = new Set(['failed', 'error', 'rejected', 'cancelled', 'canceled', 'refunded', 'declined', 'expired']);
+const failureStatuses = new Set(['failed', 'error', 'rejected', 'cancelled', 'canceled', 'refunded', 'refund', 'declined', 'expired']);
 const pendingStatuses = new Set(['processing', 'pending', 'created', 'queued', 'in_progress', 'accepted', 'new', 'waiting']);
 
 const str = (value: unknown): string | null =>

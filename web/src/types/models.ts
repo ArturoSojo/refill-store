@@ -146,6 +146,9 @@ export interface Product {
   stock: number | null;
   deliveryEtaMinutes: number;
   providerOfferId?: string | null;
+  region?: string;
+  regionNotice?: string;
+  isRegionLocked?: boolean;
   createdAt: TimestampLike;
   updatedAt: TimestampLike;
 }
@@ -167,6 +170,9 @@ export interface PublicProduct {
   compareAtUsd: number | null;
   imageUrl: string;
   badge: string | null;
+  region?: string;
+  regionNotice?: string;
+  isRegionLocked?: boolean;
   active: boolean;
   featured: boolean;
   sortOrder: number;
@@ -241,6 +247,8 @@ export interface OrderPricing {
   /** Sólo presente para staff. */
   costUsd?: number;
   profitUsd?: number;
+  /** Marca si el saldo descontado ya fue devuelto tras fallar la orden. */
+  walletRefunded?: boolean;
 }
 
 export interface OrderPayment {

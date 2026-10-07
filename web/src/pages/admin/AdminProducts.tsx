@@ -43,6 +43,9 @@ interface ProductFormState {
   stock: string;
   deliveryEtaMinutes: string;
   calls: DispatchCall[];
+  region: string;
+  regionNotice: string;
+  isRegionLocked: boolean;
 }
 
 const EMPTY_FORM: ProductFormState = {
@@ -66,6 +69,9 @@ const EMPTY_FORM: ProductFormState = {
   stock: '',
   deliveryEtaMinutes: '2',
   calls: [{ packageId: 1, quantity: 1 }],
+  region: '',
+  regionNotice: '',
+  isRegionLocked: false,
 };
 
 function toForm(product: Product): ProductFormState {
@@ -90,6 +96,9 @@ function toForm(product: Product): ProductFormState {
     stock: product.stock === null ? '' : String(product.stock),
     deliveryEtaMinutes: String(product.deliveryEtaMinutes),
     calls: product.calls.length > 0 ? product.calls : [],
+    region: product.region ?? '',
+    regionNotice: product.regionNotice ?? '',
+    isRegionLocked: product.isRegionLocked ?? false,
   };
 }
 
@@ -261,6 +270,9 @@ export function AdminProducts() {
       sortOrder: Number(form.sortOrder) || 99,
       stock: form.stock === '' ? null : Number(form.stock),
       deliveryEtaMinutes: Number(form.deliveryEtaMinutes) || 2,
+      region: form.region.trim() || undefined,
+      regionNotice: form.regionNotice.trim() || undefined,
+      isRegionLocked: form.isRegionLocked,
     };
 
     saveProduct.mutate(
@@ -437,13 +449,37 @@ export function AdminProducts() {
             />
           </div>
 
-          <Input
-            label="Nombre"
-            value={form.name}
-            onChange={(event) => setForm({ ...form, name: event.target.value })}
-            placeholder="310 + 31 Diamantes"
-            required
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Input
+              label="Nombre"
+              value={form.name}
+              onChange={(event) => setForm({ ...form, name: event.target.value })}
+              placeholder="310 + 31 Diamantes"
+              required
+            />
+            <Input
+              label="Región (Ej. USA, Global)"
+              value={form.region}
+              onChange={(event) => setForm({ ...form, region: event.target.value })}
+              placeholder="Global"
+            />
+          </div>
+
+          <Switch
+            label="¿Bloqueado por región?"
+            checked={form.isRegionLocked}
+            onChange={(checked) => setForm({ ...form, isRegionLocked: checked })}
           />
+
+          {form.isRegionLocked && (
+            <Textarea
+              label="Aviso de Región"
+              value={form.regionNotice}
+              onChange={(event) => setForm({ ...form, regionNotice: event.target.value })}
+              placeholder="Solo canjeable en cuentas con región Estados Unidos."
+              rows={2}
+            />
+          )}
 
           <Textarea
             label="Descripción"

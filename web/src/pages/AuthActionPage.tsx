@@ -249,8 +249,8 @@ export function AuthActionPage() {
 
         <p className="mt-6 border-t border-base-600 pt-4 text-center text-xs text-slate-500">
           ¿Necesitas ayuda? Escríbenos a{' '}
-          <a className="font-semibold text-slate-300 hover:text-white" href="mailto:layankrach@gmail.com">
-            layankrach@gmail.com
+          <a className="font-semibold text-slate-300 hover:text-white" href="mailto:recargasrefillstore@gmail.com">
+            recargasrefillstore@gmail.com
           </a>
         </p>
       </motion.section>

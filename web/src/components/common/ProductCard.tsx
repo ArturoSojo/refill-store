@@ -42,7 +42,7 @@ export function ProductCard({ product, game, currencyIcon, className }: ProductC
         soldOut ? undefined : { boxShadow: `0 8px 32px -22px rgba(${hexToRgb(accent)}, 0.9)` }
       }
     >
-      {(product.badge || product.featured) && (
+      {(product.badge || product.featured || product.region) && (
         <span className="absolute right-0 top-3 flex flex-col items-end gap-1">
           {product.badge && (
             <span
@@ -56,6 +56,11 @@ export function ProductCard({ product, game, currencyIcon, className }: ProductC
             <span className="flex items-center gap-0.5 rounded-l-full bg-amber-400 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-base-900">
               <Star className="h-2.5 w-2.5 fill-current" aria-hidden />
               Destacado
+            </span>
+          )}
+          {product.region && (
+            <span className="flex items-center gap-0.5 rounded-l-full bg-amber-500/20 border border-amber-500/30 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-500">
+              {product.isRegionLocked ? '⚠️ ' : ''}{product.region}
             </span>
           )}
         </span>

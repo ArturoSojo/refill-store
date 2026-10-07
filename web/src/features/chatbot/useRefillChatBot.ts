@@ -420,6 +420,10 @@ export function useRefillChatBot() {
       lines.push(`• Cuenta: ${values['_nick']}`);
     }
 
+    if (chosen.isRegionLocked || chosen.regionNotice) {
+      lines.unshift(`⚠️ IMPORTANTE: ${chosen.regionNotice || `Este producto solo es canjeable en cuentas de región ${chosen.region || 'indicada'}.`}\n`);
+    }
+
     fetchPreview(selected, chosen, values, (quote) => {
       let notice = '';
       if (quote?.couponError && couponRef.current) {

@@ -235,6 +235,9 @@ export interface Product {
   deliveryEtaMinutes: number;
   /** Identificador del catálogo de FazerCards, útil para conciliación. */
   providerOfferId?: string | null;
+  region?: string;
+  regionNotice?: string;
+  isRegionLocked?: boolean;
   createdAt: TimestampLike;
   updatedAt: TimestampLike;
 }
@@ -355,6 +358,8 @@ export interface OrderPricing {
   /** Costo del proveedor, para calcular utilidad. Sólo lo ve el staff. */
   costUsd: number;
   profitUsd: number;
+  /** Marca si el saldo descontado ya fue devuelto tras fallar la orden. */
+  walletRefunded?: boolean;
 }
 
 export interface OrderPayment {

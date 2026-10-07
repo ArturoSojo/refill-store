@@ -1100,7 +1100,7 @@ export async function verifyPayment(
  * `pricing.walletRefunded` para que un segundo cierre de la misma orden no
  * regale el saldo dos veces.
  */
-async function refundWalletIfApplied(order: Order, reason: string): Promise<number> {
+export async function refundWalletIfApplied(order: Order, reason: string): Promise<number> {
   const alreadyRefunded = (order.pricing as { walletRefunded?: boolean })?.walletRefunded === true;
   if (alreadyRefunded) return 0;
 
