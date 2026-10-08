@@ -58,6 +58,7 @@ const HOME_CATEGORY_ORDER: Partial<Record<Family, Record<string, number>>> = {
     'fz-topup-mobile-legends-global': 40,
     'fz-topup-delta-force': 50,
     'fz-topup-genshin-impact-global': 60,
+    'fz-topup-farlight-84': 70,
   },
   gift_card: {
     'fz-gift_card-google-play-es': 10,

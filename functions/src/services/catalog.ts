@@ -25,6 +25,7 @@ const HOME_PRIORITY: Partial<Record<FazerFamily, string[]>> = {
     'fz-topup-mobile-legends-global',
     'fz-topup-delta-force',
     'fz-topup-genshin-impact-global',
+    'fz-topup-farlight-84',
   ],
   gift_card: [
     'fz-gift_card-google-play-es',

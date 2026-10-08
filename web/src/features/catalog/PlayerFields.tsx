@@ -112,11 +112,12 @@ export function PlayerFields({
             placeholder={field.placeholder || field.label}
             value={value}
             onChange={(event) => {
-              // Los campos numéricos filtran en el momento: evita que un espacio
-              // pegado desde el juego invalide un ID que sí es correcto.
+              // Los identificadores se conservan como texto: convertirlos a
+              // number pierde precisión en IDs largos, y un límite fijo puede
+              // recortar IDs válidos (por ejemplo, los de Delta Force).
               const next =
                 field.type === 'number'
-                  ? onlyDigits(event.target.value).slice(0, 20)
+                  ? onlyDigits(event.target.value).slice(0, 120)
                   : event.target.value.slice(0, 120);
               onChange({ ...values, [field.key]: next });
             }}
