@@ -7,10 +7,12 @@ import {
   Mail,
   Megaphone,
   Percent,
+  Plus,
   RefreshCw,
   Save,
   Send,
   Settings2,
+  Trash2,
   TrendingUp,
   Zap,
 } from 'lucide-react';
@@ -1024,36 +1026,137 @@ export function AdminSettings() {
       {/* --- Anuncio --- */}
       <Card>
         <CardHeader
-          title="Aviso en la tienda"
-          description="Barra superior visible para todos"
+          title="Avisos dinámicos"
+          description="Barra superior rotativa visible para todos"
           icon={<Megaphone className="h-4 w-4" aria-hidden />}
         />
         <div className="space-y-4">
-          <Switch
-            checked={sectionValue('announcement', 'enabled', config.announcement.enabled)}
-            onChange={(enabled) => patch('announcement', { enabled })}
-            disabled={!isAdmin}
-            label="Mostrar aviso"
-          />
-          <Input
-            label="Texto"
-            defaultValue={config.announcement.text}
-            onChange={(event) => patch('announcement', { text: event.target.value })}
-            placeholder="Ej: Promoción de fin de semana en Free Fire"
-            disabled={!isAdmin}
-          />
-          <Select
-            label="Estilo"
-            defaultValue={config.announcement.type}
-            onChange={(event) => patch('announcement', { type: event.target.value })}
-            options={[
-              { value: 'info', label: 'Informativo (azul)' },
-              { value: 'success', label: 'Positivo (verde)' },
-              { value: 'warning', label: 'Advertencia (ámbar)' },
-            ]}
-            containerClassName="max-w-xs"
-            disabled={!isAdmin}
-          />
+          <div className="flex gap-4">
+            <Switch
+              checked={sectionValue('announcement', 'enabled', config.announcement.enabled)}
+              onChange={(enabled) => patch('announcement', { enabled })}
+              disabled={!isAdmin}
+              label="Mostrar barra superior"
+            />
+            <Input
+              type="number"
+              label="Intervalo de rotación (s)"
+              defaultValue={config.announcement.intervalSeconds || 5}
+              onChange={(e) => patch('announcement', { intervalSeconds: Number(e.target.value) })}
+              disabled={!isAdmin}
+              containerClassName="max-w-[150px]"
+            />
+          </div>
+          
+          <div className="space-y-3">
+            <label className="text-sm font-medium">Avisos</label>
+            {(sectionValue('announcement', 'notices', config.announcement.notices) || []).map((notice: any, index: number) => (
+              <div key={notice.id} className="flex flex-col gap-3 rounded-lg border border-base-600 bg-base-900/50 p-4 relative">
+                <div className="flex gap-2 justify-end absolute top-2 right-2">
+                  <Switch
+                    checked={notice.active}
+                    onChange={(active) => {
+                      const newNotices = [...sectionValue<any[]>('announcement', 'notices', config.announcement.notices)];
+                      newNotices[index] = { ...notice, active };
+                      patch('announcement', { notices: newNotices });
+                    }}
+                    disabled={!isAdmin}
+                    label="Activo"
+                  />
+                  <Button
+                    variant="danger"
+                    size="icon"
+                    onClick={() => {
+                      const newNotices = sectionValue<any[]>('announcement', 'notices', config.announcement.notices).filter((n) => n.id !== notice.id);
+                      patch('announcement', { notices: newNotices });
+                    }}
+                    disabled={!isAdmin}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+                
+                <div className="grid gap-4 sm:grid-cols-2 mt-4">
+                  <Input
+                    label="Texto principal"
+                    value={notice.text}
+                    onChange={(e) => {
+                      const newNotices = [...sectionValue<any[]>('announcement', 'notices', config.announcement.notices)];
+                      newNotices[index] = { ...notice, text: e.target.value };
+                      patch('announcement', { notices: newNotices });
+                    }}
+                    placeholder="Ej: 🔥 Promoción especial"
+                    disabled={!isAdmin}
+                  />
+                  <Input
+                    label="Texto destacado (opcional)"
+                    value={notice.highlightText || ''}
+                    onChange={(e) => {
+                      const newNotices = [...sectionValue<any[]>('announcement', 'notices', config.announcement.notices)];
+                      newNotices[index] = { ...notice, highlightText: e.target.value };
+                      patch('announcement', { notices: newNotices });
+                    }}
+                    placeholder="Ej: 50% de descuento"
+                    disabled={!isAdmin}
+                  />
+                  <Input
+                    label="Etiqueta / Badge (opcional)"
+                    value={notice.badge || ''}
+                    onChange={(e) => {
+                      const newNotices = [...sectionValue<any[]>('announcement', 'notices', config.announcement.notices)];
+                      newNotices[index] = { ...notice, badge: e.target.value };
+                      patch('announcement', { notices: newNotices });
+                    }}
+                    placeholder="Ej: NUEVO"
+                    disabled={!isAdmin}
+                  />
+                  <div className="flex gap-2">
+                    <Input
+                      label="Texto enlace (opcional)"
+                      value={notice.linkText || ''}
+                      onChange={(e) => {
+                        const newNotices = [...sectionValue<any[]>('announcement', 'notices', config.announcement.notices)];
+                        newNotices[index] = { ...notice, linkText: e.target.value };
+                        patch('announcement', { notices: newNotices });
+                      }}
+                      placeholder="Ej: Ver promoción"
+                      disabled={!isAdmin}
+                      containerClassName="flex-1"
+                    />
+                    <Input
+                      label="URL destino (opcional)"
+                      value={notice.linkUrl || ''}
+                      onChange={(e) => {
+                        const newNotices = [...sectionValue<any[]>('announcement', 'notices', config.announcement.notices)];
+                        newNotices[index] = { ...notice, linkUrl: e.target.value };
+                        patch('announcement', { notices: newNotices });
+                      }}
+                      placeholder="Ej: https://..."
+                      disabled={!isAdmin}
+                      containerClassName="flex-1"
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+            
+            <Button
+              variant="outline"
+              onClick={() => {
+                const currentNotices = sectionValue<any[]>('announcement', 'notices', config.announcement.notices) || [];
+                const newNotice = {
+                  id: Math.random().toString(36).substring(2, 9),
+                  text: '',
+                  active: true
+                };
+                patch('announcement', { notices: [...currentNotices, newNotice] });
+              }}
+              disabled={!isAdmin}
+              className="w-full"
+            >
+              <Plus className="mr-2 h-4 w-4" /> Agregar aviso
+            </Button>
+          </div>
         </div>
       </Card>
 

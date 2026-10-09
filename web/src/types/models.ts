@@ -509,6 +509,17 @@ export interface BankInfo {
   holder: string;
 }
 
+export interface StoreNotice {
+  id: string;
+  text: string;
+  highlightText?: string;
+  badge?: string;
+  linkUrl?: string;
+  linkText?: string;
+  icon?: string;
+  active: boolean;
+}
+
 export interface PublicConfig {
   storeName: string;
   tagline: string;
@@ -543,8 +554,8 @@ export interface PublicConfig {
   };
   announcement: {
     enabled: boolean;
-    text: string;
-    type: 'info' | 'success' | 'warning';
+    intervalSeconds: number;
+    notices: StoreNotice[];
   };
   contact: {
     email: string;

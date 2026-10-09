@@ -763,6 +763,17 @@ export interface Coupon {
 // Configuración de la tienda (`config/app`)
 // ---------------------------------------------------------------------------
 
+export interface StoreNotice {
+  id: string;
+  text: string;
+  highlightText?: string;
+  badge?: string;
+  linkUrl?: string;
+  linkText?: string;
+  icon?: string;
+  active: boolean;
+}
+
 export interface AppConfig {
   storeName: string;
   tagline: string;
@@ -868,8 +879,8 @@ export interface AppConfig {
   };
   announcement: {
     enabled: boolean;
-    text: string;
-    type: 'info' | 'success' | 'warning';
+    intervalSeconds: number;
+    notices: StoreNotice[];
   };
   pricing: {
     /** Margen por defecto al sembrar o recalcular precios. */

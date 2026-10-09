@@ -14,7 +14,9 @@ import {
   Menu,
   LifeBuoy,
   Wallet,
+  ChevronRight,
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/providers/AuthProvider';
 import { useConfig } from '@/providers/ConfigProvider';
 import { BrandMark, BrandLockup } from '@/components/common/Brand';
@@ -427,20 +429,72 @@ function Footer() {
 function AnnouncementBar() {
   const { config } = useConfig();
   const location = useLocation();
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isHovered, setIsHovered] = useState(false);
 
-  if (!config?.announcement.enabled || !config.announcement.text) return null;
+  if (!config?.announcement.enabled || !config.announcement.notices || config.announcement.notices.length === 0) return null;
   // En el checkout distrae: allí lo que importa es el monto y la referencia.
   if (location.pathname.startsWith('/comprar')) return null;
 
-  const styles = {
-    info: 'bg-blue-500/15 text-blue-200 border-blue-500/25',
-    success: 'bg-emerald-500/15 text-emerald-200 border-emerald-500/25',
-    warning: 'bg-amber-500/15 text-amber-200 border-amber-500/25',
-  };
+  const activeNotices = config.announcement.notices.filter((n: any) => n.active);
+  if (activeNotices.length === 0) return null;
+
+  const interval = (config.announcement.intervalSeconds || 5) * 1000;
+
+  useEffect(() => {
+    if (activeNotices.length <= 1 || isHovered) return;
+    
+    const timer = setInterval(() => {
+      setCurrentIndex((prev) => (prev + 1) % activeNotices.length);
+    }, interval);
+    
+    return () => clearInterval(timer);
+  }, [activeNotices.length, isHovered, interval]);
+
+  const notice = activeNotices[currentIndex];
+  if (!notice) return null;
+
+  const content = (
+    <motion.div
+      key={notice.id}
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      transition={{ duration: 0.3 }}
+      className="flex flex-wrap items-center justify-center gap-1.5"
+    >
+      {notice.badge && (
+        <span className="rounded bg-white/20 px-1.5 py-0.5 text-[10px] font-bold tracking-wider text-white">
+          {notice.badge}
+        </span>
+      )}
+      <span>
+        {notice.text}{' '}
+        {notice.highlightText && <strong className="font-semibold">{notice.highlightText}</strong>}
+      </span>
+      {notice.linkText && (
+        <span className="ml-1 inline-flex items-center gap-0.5 font-medium underline underline-offset-2">
+          {notice.linkText} <ChevronRight className="h-3 w-3" />
+        </span>
+      )}
+    </motion.div>
+  );
 
   return (
-    <div className={cn('border-b px-4 py-2 text-center text-sm', styles[config.announcement.type])}>
-      {config.announcement.text}
+    <div 
+      className="relative z-10 flex min-h-[40px] items-center justify-center overflow-hidden border-b border-white/10 bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-2 text-center text-sm text-white"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      <AnimatePresence mode="wait">
+        {notice.linkUrl ? (
+          <a href={notice.linkUrl} target={notice.linkUrl.startsWith('http') ? "_blank" : undefined} rel={notice.linkUrl.startsWith('http') ? "noopener noreferrer" : undefined} className="block hover:opacity-90">
+            {content}
+          </a>
+        ) : (
+          content
+        )}
+      </AnimatePresence>
     </div>
   );
 }
