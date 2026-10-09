@@ -40,6 +40,7 @@ import { Input, Select, Switch, Textarea } from '@/components/ui/Field';
 import { Badge, FullPageLoader } from '@/components/ui/Feedback';
 import { formatBs, formatDateTime, formatUsd } from '@/lib/format';
 import { errorMessage } from '@/lib/utils';
+import type { StoreNotice } from '@/types/models';
 
 export function AdminSettings() {
   useDocumentTitle('Panel · Configuración');
@@ -90,8 +91,36 @@ export function AdminSettings() {
       return;
     }
 
+    const pendingNotices = (form.announcement as { notices?: unknown } | undefined)?.notices;
+    if (Array.isArray(pendingNotices) && pendingNotices.some((notice) =>
+      !notice || typeof notice !== 'object' ||
+      typeof (notice as StoreNotice).id !== 'string' ||
+      !(notice as StoreNotice).text?.trim() ||
+      typeof (notice as StoreNotice).active !== 'boolean'
+    )) {
+      toast.error('Completa el texto principal de cada aviso antes de guardar.');
+      return;
+    }
+
     updateConfig.mutate(form, {
-      onSuccess: () => {
+      onSuccess: (result) => {
+        const announcementPatch = form.announcement as Record<string, unknown> | undefined;
+        const savedAnnouncement = result.config.announcement as unknown as Record<string, unknown>;
+        const canonical = (value: unknown): unknown => {
+          if (typeof value === 'string') return value.trim();
+          if (Array.isArray(value)) return value.map(canonical);
+          if (value && typeof value === 'object') {
+            return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, canonical(item)]));
+          }
+          return value;
+        };
+        const announcementConfirmed = !announcementPatch || Object.entries(announcementPatch).every(
+          ([key, value]) => JSON.stringify(canonical(savedAnnouncement[key])) === JSON.stringify(canonical(value))
+        );
+        if (!announcementConfirmed) {
+          toast.error('El servidor no confirmó todos los avisos. Tus cambios siguen pendientes.');
+          return;
+        }
         toast.success('Configuración guardada.');
         setForm({});
       },
@@ -100,6 +129,37 @@ export function AdminSettings() {
   };
 
   const dirty = Object.keys(form).length > 0;
+  const savedNotices = config.announcement.notices ?? [];
+  const fallbackNotices: StoreNotice[] = savedNotices.length === 0 && config.announcement.text?.trim()
+    ? [{ id: 'legacy-announcement', text: config.announcement.text, active: true }]
+    : savedNotices;
+  const announcementNotices = sectionValue<StoreNotice[]>(
+    'announcement',
+    'notices',
+    fallbackNotices
+  );
+  const announcementInterval = sectionValue<number>(
+    'announcement',
+    'intervalSeconds',
+    config.announcement.intervalSeconds ?? 5
+  );
+
+  const updateNotice = (index: number, values: Partial<StoreNotice>) => {
+    const notices = [...announcementNotices];
+    notices[index] = { ...notices[index], ...values };
+    patch('announcement', {
+      notices,
+      text: notices.find((notice) => notice.active && notice.text.trim())?.text ?? '',
+    });
+  };
+
+  const removeNotice = (index: number) => {
+    const notices = announcementNotices.filter((_, current) => current !== index);
+    patch('announcement', {
+      notices,
+      text: notices.find((notice) => notice.active && notice.text.trim())?.text ?? '',
+    });
+  };
 
   const syncFazerCatalog = async () => {
     const families = [
@@ -1032,148 +1092,76 @@ export function AdminSettings() {
           icon={<Megaphone className="h-4 w-4" aria-hidden />}
         />
         <div className="space-y-4">
-          <div className="flex gap-4">
-            <Switch
-              checked={sectionValue('announcement', 'enabled', config.announcement.enabled)}
-              onChange={(enabled) => patch('announcement', { enabled })}
-              disabled={!isAdmin}
-              label="Mostrar barra superior"
-            />
-            <Input
-              type="number"
-              label="Intervalo de rotación (s)"
-              defaultValue={config.announcement.intervalSeconds || 5}
-              onChange={(e) => patch('announcement', { intervalSeconds: Number(e.target.value) })}
-              disabled={!isAdmin}
-              containerClassName="max-w-[150px]"
-            />
-          </div>
-          
+          <Switch
+            checked={sectionValue('announcement', 'enabled', config.announcement.enabled)}
+            onChange={(enabled) => patch('announcement', { enabled })}
+            disabled={!isAdmin}
+            label="Mostrar barra superior"
+          />
+          <Input
+            label="Intervalo de rotación (s)"
+            type="number"
+            min={2}
+            max={60}
+            value={announcementInterval}
+            onChange={(event) => patch('announcement', {
+              intervalSeconds: Math.min(60, Math.max(2, Number(event.target.value) || 2)),
+            })}
+            hint="Cada cuánto cambia el aviso."
+            containerClassName="max-w-[150px]"
+            disabled={!isAdmin}
+          />
+
           <div className="space-y-3">
-            <label className="text-sm font-medium">Avisos</label>
-            {(sectionValue('announcement', 'notices', config.announcement.notices) || []).map((notice: any, index: number) => (
-              <div key={notice.id} className="flex flex-col gap-3 rounded-lg border border-base-600 bg-base-900/50 p-4 relative pt-12">
-                <div className="flex gap-2 justify-end absolute top-2 right-2">
+            <p className="text-sm font-medium">Avisos</p>
+            {announcementNotices.map((notice, index) => (
+              <div key={notice.id} className="relative flex flex-col gap-3 rounded-lg border border-base-600 bg-base-900/50 p-4 pt-12">
+                <div className="absolute right-3 top-2 flex items-center gap-2">
                   <Switch
                     checked={notice.active}
-                    onChange={(active) => {
-                      const newNotices = [...sectionValue<any[]>('announcement', 'notices', config.announcement.notices)];
-                      newNotices[index] = { ...notice, active };
-                      patch('announcement', { notices: newNotices });
-                    }}
+                    onChange={(active) => updateNotice(index, { active })}
                     disabled={!isAdmin}
                     label="Activo"
                   />
                   <Button
                     variant="danger"
                     size="icon"
-                    onClick={() => {
-                      const newNotices = sectionValue<any[]>('announcement', 'notices', config.announcement.notices).filter((n) => n.id !== notice.id);
-                      patch('announcement', { notices: newNotices });
-                    }}
+                    onClick={() => removeNotice(index)}
                     disabled={!isAdmin}
+                    aria-label={`Eliminar aviso ${index + 1}`}
                   >
-                    <Trash2 className="h-4 w-4" />
+                    <Trash2 className="h-4 w-4" aria-hidden />
                   </Button>
                 </div>
-                
-                {/* Vista Previa */}
-                <div className="mt-2 flex min-h-[40px] w-full flex-wrap items-center justify-center gap-1.5 rounded-lg border border-white/10 bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-2 text-center text-sm text-white shadow-sm">
-                  {notice.badge && (
-                    <span className="rounded bg-white/20 px-1.5 py-0.5 text-[10px] font-bold tracking-wider text-white">
-                      {notice.badge}
-                    </span>
-                  )}
-                  <span>
-                    {notice.text || 'Ej: 🔥 Promoción especial'}{' '}
-                    {notice.highlightText && <strong className="font-semibold">{notice.highlightText}</strong>}
-                  </span>
-                  {notice.linkText && (
-                    <span className="ml-1 inline-flex items-center gap-0.5 font-medium underline underline-offset-2">
-                      {notice.linkText} <ChevronRight className="h-3 w-3" />
-                    </span>
-                  )}
+
+                <div className="flex min-h-[40px] w-full flex-wrap items-center justify-center gap-1.5 rounded-lg border border-white/10 bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-2 text-center text-sm text-white shadow-sm">
+                  {notice.badge && <span className="rounded bg-white/20 px-1.5 py-0.5 text-[10px] font-bold tracking-wider">{notice.badge}</span>}
+                  <span>{notice.text || 'Ej: 🔥 Promoción especial'} {notice.highlightText && <strong>{notice.highlightText}</strong>}</span>
+                  {notice.linkText && <span className="ml-1 inline-flex items-center gap-0.5 font-medium underline underline-offset-2">{notice.linkText} <ChevronRight className="h-3 w-3" aria-hidden /></span>}
                 </div>
 
-                <div className="grid gap-4 sm:grid-cols-2 mt-2">
-                  <Input
-                    label="Texto principal"
-                    value={notice.text}
-                    onChange={(e) => {
-                      const newNotices = [...sectionValue<any[]>('announcement', 'notices', config.announcement.notices)];
-                      newNotices[index] = { ...notice, text: e.target.value };
-                      patch('announcement', { notices: newNotices });
-                    }}
-                    placeholder="Ej: 🔥 Promoción especial"
-                    disabled={!isAdmin}
-                  />
-                  <Input
-                    label="Texto destacado (opcional)"
-                    value={notice.highlightText || ''}
-                    onChange={(e) => {
-                      const newNotices = [...sectionValue<any[]>('announcement', 'notices', config.announcement.notices)];
-                      newNotices[index] = { ...notice, highlightText: e.target.value };
-                      patch('announcement', { notices: newNotices });
-                    }}
-                    placeholder="Ej: 50% de descuento"
-                    disabled={!isAdmin}
-                  />
-                  <Input
-                    label="Etiqueta / Badge (opcional)"
-                    value={notice.badge || ''}
-                    onChange={(e) => {
-                      const newNotices = [...sectionValue<any[]>('announcement', 'notices', config.announcement.notices)];
-                      newNotices[index] = { ...notice, badge: e.target.value };
-                      patch('announcement', { notices: newNotices });
-                    }}
-                    placeholder="Ej: NUEVO"
-                    disabled={!isAdmin}
-                  />
-                  <div className="flex gap-2">
-                    <Input
-                      label="Texto enlace (opcional)"
-                      value={notice.linkText || ''}
-                      onChange={(e) => {
-                        const newNotices = [...sectionValue<any[]>('announcement', 'notices', config.announcement.notices)];
-                        newNotices[index] = { ...notice, linkText: e.target.value };
-                        patch('announcement', { notices: newNotices });
-                      }}
-                      placeholder="Ej: Ver promoción"
-                      disabled={!isAdmin}
-                      containerClassName="flex-1"
-                    />
-                    <Input
-                      label="URL destino (opcional)"
-                      value={notice.linkUrl || ''}
-                      onChange={(e) => {
-                        const newNotices = [...sectionValue<any[]>('announcement', 'notices', config.announcement.notices)];
-                        newNotices[index] = { ...notice, linkUrl: e.target.value };
-                        patch('announcement', { notices: newNotices });
-                      }}
-                      placeholder="Ej: https://..."
-                      disabled={!isAdmin}
-                      containerClassName="flex-1"
-                    />
-                  </div>
+                <div className="mt-2 grid gap-4 sm:grid-cols-2">
+                  <Input label="Texto principal" value={notice.text} maxLength={200} onChange={(event) => updateNotice(index, { text: event.target.value })} placeholder="Ej: 🔥 Promoción especial" disabled={!isAdmin} />
+                  <Input label="Texto destacado (opcional)" value={notice.highlightText || ''} maxLength={120} onChange={(event) => updateNotice(index, { highlightText: event.target.value })} placeholder="Ej: 50% de descuento" disabled={!isAdmin} />
+                  <Input label="Etiqueta / Badge (opcional)" value={notice.badge || ''} maxLength={30} onChange={(event) => updateNotice(index, { badge: event.target.value })} placeholder="Ej: NUEVO" disabled={!isAdmin} />
+                  <Input label="Icono (opcional)" value={notice.icon || ''} maxLength={40} onChange={(event) => updateNotice(index, { icon: event.target.value })} placeholder="Ej: 🔥" disabled={!isAdmin} />
+                  <Input label="Texto enlace (opcional)" value={notice.linkText || ''} maxLength={60} onChange={(event) => updateNotice(index, { linkText: event.target.value })} placeholder="Ej: Ver promoción" disabled={!isAdmin} />
+                  <Input label="URL destino (opcional)" value={notice.linkUrl || ''} maxLength={500} onChange={(event) => updateNotice(index, { linkUrl: event.target.value })} placeholder="Ej: /familia/topup o https://..." disabled={!isAdmin} />
                 </div>
               </div>
             ))}
-            
+
             <Button
               variant="outline"
-              onClick={() => {
-                const currentNotices = sectionValue<any[]>('announcement', 'notices', config.announcement.notices) || [];
-                const newNotice = {
-                  id: Math.random().toString(36).substring(2, 9),
-                  text: '',
-                  active: true
-                };
-                patch('announcement', { notices: [...currentNotices, newNotice] });
-              }}
-              disabled={!isAdmin}
+              onClick={() => patch('announcement', {
+                notices: [...announcementNotices, {
+                  id: crypto.randomUUID(), text: '', active: true,
+                }],
+              })}
+              disabled={!isAdmin || announcementNotices.length >= 20}
               className="w-full"
             >
-              <Plus className="mr-2 h-4 w-4" /> Agregar aviso
+              <Plus className="mr-2 h-4 w-4" aria-hidden /> Agregar aviso
             </Button>
           </div>
         </div>

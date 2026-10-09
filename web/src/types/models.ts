@@ -556,6 +556,9 @@ export interface PublicConfig {
     enabled: boolean;
     intervalSeconds: number;
     notices: StoreNotice[];
+    /** Compatibilidad con clientes anteriores a los avisos rotativos. */
+    text?: string;
+    type?: 'info' | 'success' | 'warning';
   };
   contact: {
     email: string;

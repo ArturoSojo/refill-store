@@ -1512,6 +1512,20 @@ const configPatchSchema = z.object({
       enabled: z.boolean(),
       text: z.string().trim().max(200),
       type: z.enum(['info', 'success', 'warning']),
+      notices: z.array(z.object({
+        id: z.string().trim().min(1).max(80),
+        text: z.string().trim().min(1).max(200),
+        highlightText: z.string().trim().max(120).optional(),
+        badge: z.string().trim().max(30).optional(),
+        linkUrl: z.string().trim().max(500).refine(
+          (value) => !value || (/^\/(?!\/)/.test(value) || /^https:\/\/[^\s]+$/i.test(value)),
+          'El enlace debe ser una ruta interna o una URL HTTPS.'
+        ).optional(),
+        linkText: z.string().trim().max(60).optional(),
+        icon: z.string().trim().max(40).optional(),
+        active: z.boolean(),
+      })).max(20),
+      intervalSeconds: z.coerce.number().int().min(2).max(60),
     })
     .partial()
     .optional(),

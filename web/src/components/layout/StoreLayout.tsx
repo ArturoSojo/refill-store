@@ -1,5 +1,5 @@
 /** Cascarón de la tienda: cabecera, contenido, navegación inferior y pie. */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
   Bell,
@@ -27,6 +27,7 @@ import { StoreModals } from '@/components/common/StoreModals';
 import { RefillChatbot } from '@/features/chatbot';
 import { formatBs, formatUsd } from '@/lib/format';
 import { Button, ButtonLink } from '@/components/ui/Button';
+import type { StoreNotice } from '@/types/models';
 
 function Logo() {
   return (
@@ -429,31 +430,33 @@ function Footer() {
 function AnnouncementBar() {
   const { config } = useConfig();
   const location = useLocation();
+  const activeNotices = useMemo<StoreNotice[]>(() => {
+    const stored = Array.isArray(config?.announcement.notices) ? config.announcement.notices : [];
+    if (stored.length === 0) {
+      const legacyText = config?.announcement.text?.trim();
+      return legacyText ? [{ id: 'legacy-announcement', text: legacyText, active: true }] : [];
+    }
+    const active = stored.filter((notice) => notice.active && notice.text.trim());
+    return active;
+  }, [config?.announcement.notices, config?.announcement.text]);
+  const intervalMs = Math.min(60, Math.max(2, config?.announcement.intervalSeconds ?? 5)) * 1000;
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
 
-  if (!config?.announcement.enabled || !config.announcement.notices || config.announcement.notices.length === 0) return null;
+  useEffect(() => {
+    setCurrentIndex(0);
+    if (activeNotices.length <= 1 || isHovered) return;
+    const timer = window.setInterval(() => {
+      setCurrentIndex((index) => (index + 1) % activeNotices.length);
+    }, intervalMs);
+    return () => window.clearInterval(timer);
+  }, [activeNotices, intervalMs, isHovered]);
+
+  if (!config?.announcement.enabled || activeNotices.length === 0) return null;
   // En el checkout distrae: allí lo que importa es el monto y la referencia.
   if (location.pathname.startsWith('/comprar')) return null;
 
-  const activeNotices = config.announcement.notices.filter((n: any) => n.active);
-  if (activeNotices.length === 0) return null;
-
-  const interval = (config.announcement.intervalSeconds || 5) * 1000;
-
-  useEffect(() => {
-    if (activeNotices.length <= 1 || isHovered) return;
-    
-    const timer = setInterval(() => {
-      setCurrentIndex((prev) => (prev + 1) % activeNotices.length);
-    }, interval);
-    
-    return () => clearInterval(timer);
-  }, [activeNotices.length, isHovered, interval]);
-
-  const notice = activeNotices[currentIndex];
-  if (!notice) return null;
-
+  const notice = activeNotices[currentIndex] ?? activeNotices[0];
   const content = (
     <motion.div
       key={notice.id}
@@ -463,37 +466,27 @@ function AnnouncementBar() {
       transition={{ duration: 0.3 }}
       className="flex flex-wrap items-center justify-center gap-1.5"
     >
-      {notice.badge && (
-        <span className="rounded bg-white/20 px-1.5 py-0.5 text-[10px] font-bold tracking-wider text-white">
-          {notice.badge}
-        </span>
-      )}
-      <span>
-        {notice.text}{' '}
-        {notice.highlightText && <strong className="font-semibold">{notice.highlightText}</strong>}
-      </span>
-      {notice.linkText && (
-        <span className="ml-1 inline-flex items-center gap-0.5 font-medium underline underline-offset-2">
-          {notice.linkText} <ChevronRight className="h-3 w-3" />
-        </span>
-      )}
+      {notice.icon && <span aria-hidden="true">{notice.icon}</span>}
+      {notice.badge && <span className="rounded bg-white/20 px-1.5 py-0.5 text-[10px] font-bold tracking-wider text-white">{notice.badge}</span>}
+      <span>{notice.text} {notice.highlightText && <strong className="font-semibold">{notice.highlightText}</strong>}</span>
+      {notice.linkText && <span className="ml-1 inline-flex items-center gap-0.5 font-medium underline underline-offset-2">{notice.linkText} <ChevronRight className="h-3 w-3" aria-hidden="true" /></span>}
     </motion.div>
   );
 
   return (
-    <div 
+    <div
       className="relative z-10 flex min-h-[40px] items-center justify-center overflow-hidden border-b border-white/10 bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-2 text-center text-sm text-white"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      aria-live="polite"
+      aria-atomic="true"
     >
       <AnimatePresence mode="wait">
         {notice.linkUrl ? (
-          <a href={notice.linkUrl} target={notice.linkUrl.startsWith('http') ? "_blank" : undefined} rel={notice.linkUrl.startsWith('http') ? "noopener noreferrer" : undefined} className="block hover:opacity-90">
+          <a href={notice.linkUrl} target={notice.linkUrl.startsWith('https://') ? '_blank' : undefined} rel={notice.linkUrl.startsWith('https://') ? 'noopener noreferrer' : undefined} className="block hover:opacity-90">
             {content}
           </a>
-        ) : (
-          content
-        )}
+        ) : content}
       </AnimatePresence>
     </div>
   );

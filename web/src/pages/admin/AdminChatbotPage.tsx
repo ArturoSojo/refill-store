@@ -20,11 +20,15 @@ export function AdminChatbotPage() {
   
   const [uploading, setUploading] = useState(false);
   const legacyMigrationAttempted = useRef(false);
+  const avatarDraftsInitialized = useRef(false);
 
   useEffect(() => {
-    if (!dualConfig) return;
+    // Refetches (including focus/reconnect) must not overwrite an image URL
+    // uploaded or edited locally but not yet saved.
+    if (!dualConfig || avatarDraftsInitialized.current) return;
     setRefillAvatarUrl(dualConfig.chatbot.avatarUrl || '');
     setSupportAvatarUrl(dualConfig.supportBot.avatarUrl || '');
+    avatarDraftsInitialized.current = true;
   }, [dualConfig]);
 
   useEffect(() => {
@@ -65,7 +69,9 @@ export function AdminChatbotPage() {
       };
 
       updateConfig.mutate(migrated, {
-        onSuccess: () => {
+        onSuccess: (result) => {
+          setRefillAvatarUrl(result.config.chatbot.avatarUrl || '');
+          setSupportAvatarUrl(result.config.supportBot.avatarUrl || '');
           localStorage.removeItem('refill_dualbot_config');
           toast.success('La configuración anterior de los asistentes se guardó en la tienda.');
         },
@@ -137,7 +143,17 @@ export function AdminChatbotPage() {
     };
 
     updateConfig.mutate(payload, {
-      onSuccess: () => toast.success('Configuración de asistentes guardada.'),
+      onSuccess: (result) => {
+        const savedRefillAvatar = result.config.chatbot.avatarUrl || '';
+        const savedSupportAvatar = result.config.supportBot.avatarUrl || '';
+        if (savedRefillAvatar !== refillConfig.avatarUrl || savedSupportAvatar !== supportConfig.avatarUrl) {
+          toast.error('El servidor no confirmó las imágenes. No cierres la página y vuelve a guardar.');
+          return;
+        }
+        setRefillAvatarUrl(savedRefillAvatar);
+        setSupportAvatarUrl(savedSupportAvatar);
+        toast.success('Configuración e imágenes de los asistentes guardadas.');
+      },
       onError: (err) => {
         toast.error(err instanceof Error ? err.message : 'Error al guardar.');
       },

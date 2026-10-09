@@ -881,6 +881,9 @@ export interface AppConfig {
     enabled: boolean;
     intervalSeconds: number;
     notices: StoreNotice[];
+    /** Compatibilidad con clientes anteriores a los avisos rotativos. */
+    text?: string;
+    type?: 'info' | 'success' | 'warning';
   };
   pricing: {
     /** Margen por defecto al sembrar o recalcular precios. */

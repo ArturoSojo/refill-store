@@ -89,6 +89,8 @@ export const DEFAULT_CONFIG: AppConfig = {
     enabled: false,
     intervalSeconds: 5,
     notices: [],
+    text: '',
+    type: 'info',
   },
   pricing: {
     defaultMarginPercent: 25,
