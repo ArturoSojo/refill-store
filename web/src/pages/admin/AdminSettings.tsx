@@ -15,6 +15,7 @@ import {
   Trash2,
   TrendingUp,
   Zap,
+  ChevronRight,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
@@ -1051,7 +1052,7 @@ export function AdminSettings() {
           <div className="space-y-3">
             <label className="text-sm font-medium">Avisos</label>
             {(sectionValue('announcement', 'notices', config.announcement.notices) || []).map((notice: any, index: number) => (
-              <div key={notice.id} className="flex flex-col gap-3 rounded-lg border border-base-600 bg-base-900/50 p-4 relative">
+              <div key={notice.id} className="flex flex-col gap-3 rounded-lg border border-base-600 bg-base-900/50 p-4 relative pt-12">
                 <div className="flex gap-2 justify-end absolute top-2 right-2">
                   <Switch
                     checked={notice.active}
@@ -1076,7 +1077,25 @@ export function AdminSettings() {
                   </Button>
                 </div>
                 
-                <div className="grid gap-4 sm:grid-cols-2 mt-4">
+                {/* Vista Previa */}
+                <div className="mt-2 flex min-h-[40px] w-full flex-wrap items-center justify-center gap-1.5 rounded-lg border border-white/10 bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-2 text-center text-sm text-white shadow-sm">
+                  {notice.badge && (
+                    <span className="rounded bg-white/20 px-1.5 py-0.5 text-[10px] font-bold tracking-wider text-white">
+                      {notice.badge}
+                    </span>
+                  )}
+                  <span>
+                    {notice.text || 'Ej: 🔥 Promoción especial'}{' '}
+                    {notice.highlightText && <strong className="font-semibold">{notice.highlightText}</strong>}
+                  </span>
+                  {notice.linkText && (
+                    <span className="ml-1 inline-flex items-center gap-0.5 font-medium underline underline-offset-2">
+                      {notice.linkText} <ChevronRight className="h-3 w-3" />
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2 mt-2">
                   <Input
                     label="Texto principal"
                     value={notice.text}
