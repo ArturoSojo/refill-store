@@ -9,10 +9,11 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
   AlertTriangle,
   BadgeCheck,
+  ChevronDown,
   ChevronLeft,
   HelpCircle,
   Loader2,
@@ -72,6 +73,7 @@ export function GamePage() {
   const [couponCode, setCouponCode] = useState('');
   // Precargado desde el enlace del creador: sin esto nadie lo escribiría.
   const [creatorCode, setCreatorCode] = useState(() => readCreatorCode());
+  const [codesOpen, setCodesOpen] = useState(false);
   const [useWallet, setUseWallet] = useState(false);
   const [preview, setPreview] = useState<PricePreview | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -418,59 +420,7 @@ export function GamePage() {
           </div>
         </section>}
 
-        {/* Códigos. Van ANTES de los paquetes y siempre abiertos: escondidos
-            tras un enlace y debajo de la lista, la gente no los veía y acababa
-            pagando sin su descuento. */}
-        {config?.features.couponsEnabled && (
-          <section className="mb-6">
-            <div className="rounded-2xl border border-base-600 bg-base-800/70 p-3">
-              <p className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-400">
-                <Tag className="h-3.5 w-3.5 text-neon-crimson" aria-hidden />
-                ¿Tienes un código?
-              </p>
-
-              <Input
-                label="Código de descuento"
-                placeholder="CODIGO"
-                value={couponCode}
-                onChange={(event) => setCouponCode(event.target.value.toUpperCase().slice(0, 24))}
-                leftIcon={<Tag className="h-4 w-4" aria-hidden />}
-                className="uppercase"
-                error={preview?.couponError ?? null}
-                hint={
-                  preview?.couponCode
-                    ? `Cupón ${preview.couponCode} aplicado.`
-                    : !user
-                      ? 'Escríbelo ahora: se aplica al iniciar sesión para pagar.'
-                      : selected
-                        ? undefined
-                        : 'Escríbelo ahora: se aplica al elegir tu paquete.'
-                }
-              />
-
-              {config?.features.creatorsEnabled && (
-                <div className="mt-3">
-                  <Input
-                    label="Código de creador (opcional)"
-                    placeholder="CREADOR"
-                    value={creatorCode}
-                    onChange={(event) =>
-                      setCreatorCode(event.target.value.toUpperCase().slice(0, 24))
-                    }
-                    leftIcon={<Sparkles className="h-4 w-4" aria-hidden />}
-                    className="uppercase"
-                    error={preview?.creatorError ?? null}
-                    hint={
-                      preview?.creatorCode
-                        ? `Apoyando a ${preview.creatorCode}.`
-                        : 'Si viste la tienda en un vídeo, pon aquí el código.'
-                    }
-                  />
-                </div>
-              )}
-            </div>
-          </section>
-        )}
+        {/* Códigos se movieron debajo de los paquetes */}
 
         {/* Paso 3 — paquete */}
         <section>
@@ -521,6 +471,99 @@ export function GamePage() {
             </p>
           )}
 
+          {/* CÓDIGOS DE DESCUENTO (Alineado a la izquierda, ancho completo) */}
+          {config?.features.couponsEnabled && (
+            <div className="mb-5 flex flex-col items-start w-full">
+              <button
+                type="button"
+                onClick={() => setCodesOpen(!codesOpen)}
+                className="flex items-center gap-1.5 text-sm text-slate-400 transition-colors hover:text-white"
+              >
+                ¿Tienes un código de descuento?
+                <ChevronDown
+                  className={cn("h-4 w-4 transition-transform", codesOpen && "rotate-180")}
+                  aria-hidden
+                />
+              </button>
+              {(!codesOpen && (couponCode || creatorCode)) && (
+                <p className="mt-1 text-xs text-emerald-400">
+                  {[couponCode, creatorCode].filter(Boolean).join(' · ')} aplicado
+                </p>
+              )}
+
+              <AnimatePresence>
+                {codesOpen && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="w-full overflow-hidden"
+                  >
+                    <div className="mt-4 w-full rounded-2xl border border-base-600 bg-base-900/50 p-4">
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <Input
+                          label="Código de descuento"
+                          placeholder="Ingresa tu cupón"
+                          value={couponCode}
+                          onChange={(event) => setCouponCode(event.target.value.toUpperCase().slice(0, 24))}
+                          leftIcon={<Tag className="h-4 w-4" aria-hidden />}
+                          className="uppercase"
+                          error={preview?.couponError ?? null}
+                          rightSlot={
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={preview?.couponCode && preview.couponCode === couponCode ? 'success' : 'secondary'}
+                              className="h-7 px-3 text-[11px]"
+                              disabled={pricePreview.isPending || !couponCode}
+                            >
+                              {pricePreview.isPending ? 'Verificando...' : (preview?.couponCode && preview.couponCode === couponCode) ? 'Aplicado' : 'Aplicar'}
+                            </Button>
+                          }
+                          hint={
+                            preview?.couponCode
+                              ? <span className="text-emerald-400">Cupón {preview.couponCode} aplicado exitosamente.</span>
+                              : !user
+                                ? 'Se aplicará al iniciar sesión para pagar.'
+                                : 'Escríbelo para aplicarlo al total.'
+                          }
+                        />
+
+                        {config?.features.creatorsEnabled && (
+                          <Input
+                            label="Código de creador (opcional)"
+                            placeholder="Apoya a un creador"
+                            value={creatorCode}
+                            onChange={(event) => setCreatorCode(event.target.value.toUpperCase().slice(0, 24))}
+                            leftIcon={<Sparkles className="h-4 w-4" aria-hidden />}
+                            className="uppercase"
+                            error={preview?.creatorError ?? null}
+                            rightSlot={
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant={preview?.creatorCode && preview.creatorCode === creatorCode ? 'success' : 'secondary'}
+                                className="h-7 px-3 text-[11px]"
+                                disabled={pricePreview.isPending || !creatorCode}
+                              >
+                                {pricePreview.isPending ? 'Verificando...' : (preview?.creatorCode && preview.creatorCode === creatorCode) ? 'Aplicado' : 'Aplicar'}
+                              </Button>
+                            }
+                            hint={
+                              preview?.creatorCode
+                                ? <span className="text-emerald-400">Apoyando a {preview.creatorCode}.</span>
+                                : 'Si viste la tienda en un vídeo, ingresa el código aquí.'
+                            }
+                          />
+                        )}
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
+
           {visible.length === 0 ? (
             <EmptyState
               title="Sin paquetes disponibles"
@@ -543,6 +586,8 @@ export function GamePage() {
             </AnimatePresence>
           )}
         </section>
+
+        {/* Saldo a favor se renderiza abajo */}
 
         {/* Saldo a favor */}
         {preview && preview.walletEnabled && preview.walletBalanceUsd > 0 && selected && (
