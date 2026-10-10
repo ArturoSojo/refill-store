@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import { ChevronDown, HelpCircle } from 'lucide-react';
 import { useConfig } from '@/providers/ConfigProvider';
 import { useDocumentTitle } from '@/hooks/useMisc';
@@ -7,44 +8,63 @@ import { cn } from '@/lib/utils';
 
 const FAQS = [
   {
+    id: 'tiempo-entrega',
     q: '¿Cuánto tarda en llegar mi recarga?',
     a: 'Las recargas automáticas se despachan después de verificar el pago. A veces el proveedor tarda en procesarlas. Los productos manuales quedan en gestión y te avisamos cuando se completen.',
   },
   {
+    id: 'pago-error',
     q: '¿Qué pasa si pago menos o más del monto?',
     a: 'Si el verificador encuentra un pago menor, se guarda como pago parcial de la misma orden. Paga la diferencia y verifica la nueva referencia allí. Si cubres el total, la orden puede continuar; cualquier excedente queda registrado para revisión.',
   },
   {
+    id: 'donde-referencia',
     q: '¿Dónde consigo el número de referencia?',
     a: 'Es el número que te muestra tu banco al confirmar el Pago Móvil. Aparece en el comprobante y en el historial de la app del banco. Escribe sólo los dígitos, sin espacios ni guiones.',
   },
   {
+    id: 'id-equivocado',
     q: 'Me equivoqué de ID de jugador, ¿qué hago?',
     a: 'Si la orden aún no está pagada, cancélala y crea una nueva con el ID correcto. Si ya se despachó, escríbenos por WhatsApp lo antes posible: dependiendo del juego a veces se puede gestionar, aunque no está garantizado.',
   },
   {
+    id: 'referencia-doble',
     q: '¿Puedo usar la misma referencia dos veces?',
     a: 'No. Cada referencia bancaria sólo puede usarse en una orden. Si intentas repetirla, el sistema la rechaza automáticamente.',
   },
   {
+    id: 'orden-rechazada',
     q: 'Pagué pero la orden aparece rechazada.',
     a: 'Consulta el motivo en la orden y revisa la referencia. No hagas otro pago sólo porque la verificación falló. Si la referencia aparece como usada o el pago sigue sin encontrarse, escríbenos con el número de orden y el comprobante.',
   },
   {
+    id: 'iniciar-sesion',
     q: '¿Por qué tengo que iniciar sesión?',
     a: 'Para que tus órdenes queden asociadas a tu cuenta: así puedes ver el estado en tiempo real, consultar tu historial, guardar tus IDs y recibir soporte con todo el contexto.',
   },
   {
+    id: 'descuento-nivel',
     q: '¿Qué es el descuento por nivel?',
     a: 'Tu nivel depende de las compras acumuladas. Los niveles y descuentos vigentes se configuran en la tienda; puedes consultar tu nivel en Cuenta y ver el descuento antes de confirmar la compra.',
   },
 ];
 
-function FaqItem({ question, answer }: { question: string; answer: string }) {
+function FaqItem({ id, question, answer }: { id?: string; question: string; answer: string }) {
   const [open, setOpen] = useState(false);
+  const { hash } = useLocation();
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (id && hash === `#${id}`) {
+      setOpen(true);
+      setTimeout(() => {
+        ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+    }
+  }, [hash, id]);
 
   return (
-    <div className="card overflow-hidden p-0">
+    <div id={id} ref={ref} className="card overflow-hidden p-0 scroll-mt-20">
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
@@ -80,7 +100,7 @@ export function FaqPage() {
 
       <div className="space-y-2">
         {FAQS.map((faq) => (
-          <FaqItem key={faq.q} question={faq.q} answer={faq.a} />
+          <FaqItem key={faq.q} id={faq.id} question={faq.q} answer={faq.a} />
         ))}
       </div>
 

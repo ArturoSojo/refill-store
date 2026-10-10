@@ -198,21 +198,21 @@ function Hero() {
           {[
             {
               icon: Clock,
-              title: 'Menos de 1 minuto',
+              title: 'Menos de 5 minutos',
               text: 'Pagas, pegas la referencia y la recarga sale sola.',
+              href: `${ROUTES.faq}#tiempo-entrega`,
             },
             {
               icon: ShieldCheck,
               title: 'Pago verificado',
               text: 'Validamos tu Pago Móvil BDV contra el banco antes de despachar.',
+              href: ROUTES.faq,
             },
             {
               icon: Sparkles,
               title: 'Sube de nivel',
-              // El nivel lo determina el TOTAL GASTADO, no los puntos. El texto
-              // anterior («cada compra suma puntos y te da descuento») atribuía
-              // el descuento a unos puntos que no se canjean por nada.
               text: 'Mientras más compras, mejor nivel y más descuento en cada recarga.',
+              href: `${ROUTES.faq}#descuento-nivel`,
             },
           ].map((item, index) => (
             <motion.div
@@ -221,15 +221,19 @@ function Hero() {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ delay: index * 0.1, duration: 0.35 }}
-              className="neon-card flex items-start gap-3 p-4"
             >
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-neon-red/15 text-neon-red">
-                <item.icon className="h-5 w-5" aria-hidden />
-              </span>
-              <div>
-                <p className="text-sm font-bold text-white">{item.title}</p>
-                <p className="mt-0.5 text-xs leading-relaxed text-slate-400">{item.text}</p>
-              </div>
+              <Link
+                to={item.href}
+                className="neon-card group flex h-full items-start gap-3 p-4 transition-all hover:-translate-y-1 hover:shadow-lg hover:shadow-neon-red/10"
+              >
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-neon-red/15 text-neon-red transition-colors group-hover:bg-neon-red/25">
+                  <item.icon className="h-5 w-5" aria-hidden />
+                </span>
+                <div>
+                  <p className="text-sm font-bold text-white transition-colors group-hover:text-neon-crimson">{item.title}</p>
+                  <p className="mt-0.5 text-xs leading-relaxed text-slate-400">{item.text}</p>
+                </div>
+              </Link>
             </motion.div>
           ))}
         </div>
