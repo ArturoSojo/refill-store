@@ -150,48 +150,24 @@ export function isFazerCardsConfigured(): boolean {
 
 /** Validates a Free Fire ID with FazerCards without creating or charging an order. */
 export async function validateFreeFirePlayerId(playerId: string): Promise<FazerPlayerValidation> {
-  const list = await call('/topups/validate-id');
-  if (list.httpStatus < 200 || list.httpStatus >= 300) {
-    throw new Error('No se pudo consultar los juegos que FazerCards permite validar.');
-  }
-
-  const candidates = pickArray(list.raw ?? {})
-    .map((item) => ({
-      id: str(item.category_id ?? item.game_id ?? item.id),
-      name: str(item.name ?? item.title) ?? '',
-      fields: Array.isArray(item.fields) ? (item.fields as Raw[]) : [],
-    }))
-    .filter((item) => item.id && /free\s*fire/i.test(item.name));
-
-  const category =
-    candidates.find((item) => /latam|latin.?america|américa latina/i.test(item.name)) ??
-    candidates.find((item) => /^free\s*fire$/i.test(item.name.trim())) ??
-    (candidates.length === 1 ? candidates[0] : null);
-  if (!category?.id) {
-    throw new Error(
-      candidates.length > 1
-        ? 'FazerCards tiene varias regiones de Free Fire y no pudimos identificar la de Latinoamérica.'
-        : 'FazerCards no ofrece validación de ID para Free Fire en este momento.'
-    );
-  }
-
-  const descriptors = category.fields;
-  const idField = descriptors.find((field) => /player.?id|account.?id/i.test(String(field.key ?? '')));
-  const fieldKey = str(idField?.key) ?? 'player_id';
-  const requiredOtherField = descriptors.some(
-    (field) => field.required === true && String(field.key ?? '') !== fieldKey
-  );
-  if (requiredOtherField) {
-    throw new Error('FazerCards solicita datos adicionales para validar esta cuenta.');
-  }
-
   const result = await call('/topups/validate-id', {
     method: 'POST',
-    body: { category_id: category.id, fields: { [fieldKey]: playerId } },
+    body: { category_id: 'free_fire', fields: { player_id: playerId } },
   });
+
   const raw = result.raw ?? {};
   const data = raw.data && typeof raw.data === 'object' ? (raw.data as Raw) : raw;
-  if (result.httpStatus < 200 || result.httpStatus >= 300 || raw.ok === false) {
+
+  // FazerCards responde 422 cuando el ID no existe o no pertenece a una cuenta activa
+  if (result.httpStatus === 422 || raw.ok === false || data.valid === false) {
+    return {
+      valid: false,
+      playerName: null,
+      region: null,
+    };
+  }
+
+  if (result.httpStatus < 200 || result.httpStatus >= 300) {
     throw new Error(result.message || 'FazerCards no pudo validar este ID.');
   }
 

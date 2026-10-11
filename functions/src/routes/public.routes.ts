@@ -212,7 +212,8 @@ publicRouter.post(
   asyncHandler(async (req, res) => {
     const { gameId } = parseParams(req, z.object({ gameId: z.string().min(1) }));
     const body = parseBody(req, z.object({ playerId: z.string().trim().regex(/^\d{8,12}$/) }));
-    if (resolveStorefront(req) !== 'fazercards' || gameId !== INEFABLE_FREE_FIRE_ID) {
+    const isFreeFireGame = gameId === INEFABLE_FREE_FIRE_ID || gameId === 'freefire' || gameId.includes('free-fire');
+    if (!isFreeFireGame || !fazerCards.isFazerCardsConfigured()) {
       throw failedPrecondition('La verificación de Free Fire no está disponible en esta tienda.');
     }
 
