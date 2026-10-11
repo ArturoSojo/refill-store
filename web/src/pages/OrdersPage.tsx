@@ -120,7 +120,11 @@ export function OrdersPage() {
               {CANCELLABLE.includes(order.status) && (
                 <div className="flex gap-2 border-t border-base-600 px-4 py-2.5">
                   <ButtonLink
-                    to={`${ROUTES.checkout(order.productId)}?orden=${order.id}`}
+                    to={
+                      order.gameId === 'wallet'
+                        ? `${ROUTES.wallet}?orden=${order.id}`
+                        : `${ROUTES.checkout(order.productId)}?orden=${order.id}`
+                    }
                     size="sm"
                     className="flex-1"
                   >

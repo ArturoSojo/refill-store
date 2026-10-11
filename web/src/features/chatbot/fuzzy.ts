@@ -160,3 +160,10 @@ export function matchCategory(query: string): { family: ChatFamily; score: numbe
   });
   return best;
 }
+
+/** Detecta si la consulta busca recargar saldo interno (RefillCoins). */
+export function isWalletQuery(query: string): boolean {
+  const norm = normalize(query);
+  const keywords = ['saldo', 'refillcoins', 'refillcoin', 'billetera', 'cartera'];
+  return keywords.some((kw) => norm.includes(kw));
+}

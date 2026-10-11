@@ -61,8 +61,8 @@ export function buildManualMessage(input: ManualMessageInput): string {
   return [
     '🛒 NUEVA RECARGA MANUAL - REFILL STORE',
     '',
-    `🎮 Juego: ${input.gameName}`,
-    `📦 Producto: ${input.productName}`,
+    `🎮 Producto: ${input.gameName}`,
+    `📦 Paquete: ${input.productName}`,
     `👤 Datos de la cuenta: ${input.playerId}`,
     ...extras,
     `💵 Monto Pagado: ${formatBs(input.amountBs)} Bs`,

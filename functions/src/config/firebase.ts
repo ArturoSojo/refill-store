@@ -6,7 +6,8 @@ import { getAuth, Auth } from 'firebase-admin/auth';
 let app: App;
 
 if (getApps().length === 0) {
-  app = initializeApp();
+  const isEmulator = process.env.FUNCTIONS_EMULATOR === 'true';
+  app = initializeApp(isEmulator ? { projectId: 'refill-e254f' } : undefined);
 } else {
   app = getApps()[0];
 }

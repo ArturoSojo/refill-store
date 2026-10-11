@@ -19,6 +19,7 @@ export type ChatStep =
   | 'method'
   | 'reference'
   | 'monitoring'
+  | 'wallet_amount'
   | 'done';
 
 /** Opción interactiva que se pinta como botón o tarjeta dentro de una burbuja del bot. */

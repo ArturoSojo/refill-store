@@ -4,7 +4,7 @@ import { AlertTriangle, HelpCircle, Loader2, Tag, Trash2, MessageCircle } from '
 import { ROUTES } from '@/lib/constants';
 import { readCreatorCode } from '@/lib/creatorCode';
 import { Button } from '@/components/ui/Button';
-import { Input, Switch } from '@/components/ui/Field';
+import { Input } from '@/components/ui/Field';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Feedback';
 import {
@@ -32,8 +32,6 @@ interface PlayerIdStepProps {
   needsPhone: boolean;
   contactPhone: string;
   onContactPhoneChange: (value: string) => void;
-  useWallet: boolean;
-  onUseWalletChange: (value: boolean) => void;
   onContinue: () => void;
   submitting: boolean;
   /** El usuario debe iniciar sesión antes de poder pagar. */
@@ -52,8 +50,6 @@ export function PlayerIdStep({
   needsPhone,
   contactPhone,
   onContactPhoneChange,
-  useWallet,
-  onUseWalletChange,
   onContinue,
   submitting,
   requiresLogin,
@@ -92,7 +88,6 @@ export function PlayerIdStep({
           productId: product.id,
           couponCode: couponCode.trim() || null,
           creatorCode: readCreatorCode() || null,
-          useWallet,
           // Sólo con los datos completos: valida el cupón contra esa cuenta del
           // juego antes de crear la orden.
           playerId: isValid && primaryField ? (values[primaryField.key] ?? null) : null,
@@ -105,7 +100,7 @@ export function PlayerIdStep({
     // `pricePreview` es una mutación estable de React Query; incluirla dispararía
     // el efecto en bucle.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, product.id, couponCode, useWallet, isValid, values]);
+  }, [user, product.id, couponCode, isValid, values]);
 
   const totalBs = preview?.totalBs ?? product.priceBs;
   const totalUsd = preview?.amountDueUsd ?? preview?.totalUsd ?? product.priceUsd;
@@ -245,23 +240,6 @@ export function PlayerIdStep({
                 : 'Opcional. Se valida al escribirlo.'
             }
             className="uppercase"
-          />
-        </div>
-      )}
-
-      {preview && preview.walletEnabled && preview.walletBalanceUsd > 0 && (
-        <div className="card border-emerald-500/30 bg-emerald-500/5">
-          <Switch
-            checked={useWallet}
-            onChange={onUseWalletChange}
-            label={`Usar mi saldo a favor (${formatUsd(preview.walletBalanceUsd)})`}
-            description={
-              useWallet && preview.walletAppliedUsd > 0
-                ? preview.amountDueUsd === 0
-                  ? 'Tu saldo cubre la compra completa: no tendrás que transferir nada.'
-                  : `Se descontarán ${formatUsd(preview.walletAppliedUsd)} y transferirás el resto.`
-                : 'Descuenta primero de tu saldo y transfiere sólo la diferencia.'
-            }
           />
         </div>
       )}

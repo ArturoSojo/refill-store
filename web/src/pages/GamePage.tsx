@@ -39,13 +39,12 @@ import {
   gameFields,
 } from '@/features/catalog/PlayerFields';
 import { AnimatedBackground } from '@/components/common/Decor';
-import { Input, Switch } from '@/components/ui/Field';
+import { Input } from '@/components/ui/Field';
 import { Modal, ConfirmDialog } from '@/components/ui/Modal';
 import { ErrorState, FullPageLoader, EmptyState } from '@/components/ui/Feedback';
 import { Button, ButtonLink } from '@/components/ui/Button';
 import { ROUTES } from '@/lib/constants';
 import { readCreatorCode } from '@/lib/creatorCode';
-import { formatUsd } from '@/lib/format';
 import { cn, hexToRgb } from '@/lib/utils';
 import type { PricePreview, PublicProduct } from '@/types/models';
 
@@ -74,7 +73,6 @@ export function GamePage() {
   // Precargado desde el enlace del creador: sin esto nadie lo escribiría.
   const [creatorCode, setCreatorCode] = useState(() => readCreatorCode());
   const [codesOpen, setCodesOpen] = useState(false);
-  const [useWallet, setUseWallet] = useState(false);
   const [preview, setPreview] = useState<PricePreview | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -173,7 +171,6 @@ export function GamePage() {
           quantity,
           couponCode: couponCode.trim() || null,
           creatorCode: creatorCode.trim() || null,
-          useWallet,
           // Sólo cuando el ID está completo: así el cupón se valida contra esa
           // cuenta del juego antes de llegar al pago.
           playerId: idIsValid && primaryField ? (playerValues[primaryField.key] ?? null) : null,
@@ -184,7 +181,7 @@ export function GamePage() {
 
     return () => clearTimeout(timeout);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, selected?.id, quantity, couponCode, creatorCode, useWallet, idIsValid, playerValues]);
+  }, [user, selected?.id, quantity, couponCode, creatorCode, idIsValid, playerValues]);
 
   if (catalog.isLoading || storefrontCatalog.isLoading) return <FullPageLoader label="Cargando el catálogo…" />;
 
@@ -231,7 +228,6 @@ export function GamePage() {
         quantity,
         couponCode: couponCode.trim() || null,
         creatorCode: creatorCode.trim() || null,
-        useWallet,
       },
     });
   };
@@ -586,26 +582,6 @@ export function GamePage() {
             </AnimatePresence>
           )}
         </section>
-
-        {/* Saldo a favor se renderiza abajo */}
-
-        {/* Saldo a favor */}
-        {preview && preview.walletEnabled && preview.walletBalanceUsd > 0 && selected && (
-          <section className="mt-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-3">
-            <Switch
-              checked={useWallet}
-              onChange={setUseWallet}
-              label={`Usar mi saldo a favor (${formatUsd(preview.walletBalanceUsd)})`}
-              description={
-                useWallet && preview.walletAppliedUsd > 0
-                  ? preview.amountDueUsd === 0
-                    ? 'Tu saldo cubre la compra completa: no tendrás que transferir nada.'
-                    : `Se descontarán ${formatUsd(preview.walletAppliedUsd)} y transferirás el resto.`
-                  : 'Descuenta primero de tu saldo y transfiere sólo la diferencia.'
-              }
-            />
-          </section>
-        )}
 
         {preview && preview.tierPercent > 0 && (
           <p className="mt-3 flex items-center gap-1.5 text-xs text-emerald-300">

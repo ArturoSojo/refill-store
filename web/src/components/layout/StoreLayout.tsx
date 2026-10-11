@@ -14,6 +14,7 @@ import {
   Menu,
   LifeBuoy,
   Wallet,
+  Users,
   ChevronRight,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -168,8 +169,9 @@ function AccountDrawer({ open, onClose }: { open: boolean; onClose: () => void }
   const links = [
     { to: ROUTES.account, label: 'Mi cuenta', icon: UserIcon },
     { to: ROUTES.orders, label: 'Mis órdenes', icon: Receipt },
-    { to: ROUTES.playerIds, label: 'Mis IDs de jugador', icon: Gamepad2 },
-    { to: ROUTES.referrals, label: 'Referidos', icon: Wallet },
+    { to: ROUTES.wallet, label: 'Mi saldo', icon: Wallet },
+    { to: ROUTES.playerIds, label: 'Mis cuentas guardadas', icon: Gamepad2 },
+    { to: ROUTES.referrals, label: 'Referidos', icon: Users },
     { to: ROUTES.support, label: 'Soporte', icon: LifeBuoy },
   ];
 

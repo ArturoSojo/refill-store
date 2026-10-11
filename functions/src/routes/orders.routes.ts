@@ -110,6 +110,43 @@ ordersRouter.post(
   })
 );
 
+const topupSchema = z.object({
+  amountUsd: z.coerce.number().min(1, 'El mínimo es $1.').max(100, 'El máximo por ahora es $100.'),
+  paymentMethod: z.enum(['pagomovil_bdv', 'transfer', 'binance_pay']).default('pagomovil_bdv'),
+});
+
+ordersRouter.post(
+  '/topup',
+  rateLimit({
+    name: 'order_topup',
+    max: 10,
+    windowSeconds: 300,
+    message: 'Creaste muchas recargas seguidas. Espera unos minutos.',
+  }),
+  asyncHandler(async (req, res) => {
+    const user = currentUser(req);
+    const body = parseBody(req, topupSchema);
+    const profile = await usersService.ensureProfile(user);
+
+    const order = await ordersService.createWalletTopupOrder(user, profile, {
+      amountUsd: body.amountUsd,
+      paymentMethod: body.paymentMethod,
+      ip: clientIp(req),
+      userAgent: userAgent(req),
+    });
+
+    const config = await getConfig();
+    ok(
+      res,
+      {
+        order: ordersService.toCustomerOrder(order),
+        payment: ordersService.toPaymentInstructions(order, config),
+      },
+      201
+    );
+  })
+);
+
 // ---------------------------------------------------------------------------
 // Verificar pago
 // ---------------------------------------------------------------------------
@@ -349,5 +386,22 @@ ordersRouter.patch(
       order: ordersService.toCustomerOrder(order),
       payment: ordersService.toPaymentInstructions(order, config),
     });
+  })
+);
+
+/** Paga la orden con el saldo interno (RefillCoins), sin referencia bancaria. */
+ordersRouter.post(
+  '/:orderId/pay-with-wallet',
+  rateLimit({
+    name: 'order_pay_wallet',
+    max: 10,
+    windowSeconds: 300,
+    message: 'Demasiados intentos de pago. Espera unos minutos.',
+  }),
+  asyncHandler(async (req, res) => {
+    const { orderId } = parseParams(req, z.object({ orderId: z.string().min(1) }));
+    const order = await ordersService.payWithWallet(currentUser(req), orderId);
+
+    ok(res, { order: ordersService.toCustomerOrder(order) });
   })
 );

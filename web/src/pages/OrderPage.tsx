@@ -172,7 +172,7 @@ export function OrderPage() {
               className="mt-4"
               // Retoma ESTA orden: mantiene el monto, la tasa, los datos del
               // jugador y el reloj. Antes abría un checkout nuevo desde cero.
-              to={`${ROUTES.checkout(order.productId)}?orden=${order.id}`}
+              to={order.gameId === 'wallet' ? `/cuenta/saldo?orden=${order.id}` : `${ROUTES.checkout(order.productId)}?orden=${order.id}`}
               fullWidth
               size="lg"
             >

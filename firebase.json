@@ -3,12 +3,10 @@
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
-  "storage": [
-    {
-      "bucket": "refill-e254f-catalogo",
-      "rules": "storage.rules"
-    }
-  ],
+  "storage": {
+    "bucket": "refill-e254f-catalogo",
+    "rules": "storage.rules"
+  },
   "functions": [
     {
       "source": "functions",

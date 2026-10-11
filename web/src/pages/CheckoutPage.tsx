@@ -10,7 +10,9 @@ import {
   useOrder,
   useVerifyPayment,
   useSetPaymentMethod,
+  usePayWithWallet,
 } from '@/hooks/useOrders';
+import { useWallet } from '@/hooks/useAccount';
 import { useDocumentTitle } from '@/hooks/useMisc';
 import { useAuth } from '@/providers/AuthProvider';
 import { useConfig } from '@/providers/ConfigProvider';
@@ -34,7 +36,6 @@ interface CheckoutState {
   playerId?: string;
   quantity?: number;
   couponCode?: string | null;
-  useWallet?: boolean;
 }
 
 /** Mismo criterio que valida el backend, para avisar antes de enviar. */
@@ -68,7 +69,6 @@ export function CheckoutPage() {
   );
   const [quantity] = useState(incoming?.quantity ?? 1);
   const [couponCode, setCouponCode] = useState(incoming?.couponCode ?? '');
-  const [useWallet, setUseWallet] = useState(incoming?.useWallet ?? false);
   const [orderData, setOrderData] = useState<CreateOrderResponse | null>(null);
   const [finalOrder, setFinalOrder] = useState<Order | null>(null);
   const [verifyError, setVerifyError] = useState<string | null>(null);
@@ -82,6 +82,8 @@ export function CheckoutPage() {
   const verifyPayment = useVerifyPayment(orderData?.order.id);
   const setPaymentMethod = useSetPaymentMethod(orderData?.order.id);
   const cancelOrder = useCancelOrder();
+  const payWithWallet = usePayWithWallet(orderData?.order.id);
+  const wallet = useWallet();
 
   // Mientras el proveedor despacha, el estado cambia solo: se escucha en vivo.
   const liveOrder = useLiveOrder(finalOrder?.id, finalOrder ?? undefined);
@@ -154,7 +156,6 @@ export function CheckoutPage() {
         // El código del creador viaja desde el enlace, no lo escribe el cliente.
         creatorCode: readCreatorCode() || null,
         contactPhone: needsPhone ? contactPhone.trim() : null,
-        useWallet,
       },
       {
         onSuccess: (data) => {
@@ -378,8 +379,6 @@ export function CheckoutPage() {
             needsPhone={needsPhone}
             contactPhone={contactPhone}
             onContactPhoneChange={setContactPhone}
-            useWallet={useWallet}
-            onUseWalletChange={setUseWallet}
             onContinue={handleCreateOrder}
             submitting={createOrder.isPending}
             requiresLogin={!user}
@@ -394,6 +393,19 @@ export function CheckoutPage() {
           data={orderData}
           transferEnabled={config?.transfer?.enabled ?? false}
           binancePayEnabled={config?.binancePay?.enabled ?? false}
+          walletEnabled={wallet.data?.enabled ?? false}
+          walletBalanceUsd={wallet.data?.balanceUsd ?? 0}
+          payingWithWallet={payWithWallet.isPending}
+          onPayWithWallet={() =>
+            payWithWallet.mutate(undefined, {
+              onSuccess: (result) => {
+                setFinalOrder(result.order);
+                setStep('result');
+                toast.success('¡Pagado con RefillCoins!');
+              },
+              onError: (error) => toast.error(errorMessage(error)),
+            })
+          }
           switchingMethod={setPaymentMethod.isPending}
           onMethodChange={(method) =>
             setPaymentMethod.mutate(method, {

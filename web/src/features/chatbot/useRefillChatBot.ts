@@ -28,7 +28,7 @@ import { api, ApiError, isGatewayTimeout } from '@/lib/api';
 import { readCreatorCode, clearCreatorCode } from '@/lib/creatorCode';
 import { formatBs, formatUsd } from '@/lib/format';
 import { errorMessage, openWhatsapp } from '@/lib/utils';
-import { matchCategory, searchGames } from './fuzzy';
+import { matchCategory, searchGames, isWalletQuery } from './fuzzy';
 import { useDualBotConfig } from './useChatbotConfig';
 import {
   PHONE_PATTERN,
@@ -55,6 +55,7 @@ const CATEGORY_OPTIONS: ChatOption[] = [
   { id: 'cat:topup', label: '🎮 Juegos' },
   { id: 'cat:gift_card', label: '🎁 Gift Cards' },
   { id: 'cat:game_key', label: '🔑 Game Keys' },
+  { id: 'cat:wallet', label: '💰 RefillCoins' },
 ];
 
 const CATEGORY_LABEL: Record<ChatFamily, string> = {
@@ -101,6 +102,7 @@ export function useRefillChatBot() {
 
   const [game, setGame] = useState<Game | null>(null);
   const [product, setProduct] = useState<PublicProduct | null>(null);
+  const [walletAmount, setWalletAmount] = useState<number | null>(null);
   const [fieldIndex, setFieldIndex] = useState(0);
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
 
@@ -228,11 +230,32 @@ export function useRefillChatBot() {
     setStep('menu');
     setGame(null);
     setProduct(null);
+    setWalletAmount(null);
     botSay([
       {
         text: intro ?? '¿Qué quieres recargar?',
         options: CATEGORY_OPTIONS,
         optionsVariant: 'buttons',
+      },
+    ]);
+  };
+
+  const askWalletAmount = (intro?: string) => {
+    setStep('wallet_amount');
+    setGame(null);
+    setProduct(null);
+    botSay([
+      {
+        text: intro ?? '¿Cuánto saldo quieres recargar a tu cuenta? Elige un monto rápido o escríbelo en USD o Bs (ej: 5, 20 usd, 400 bs):',
+        options: [
+          { id: 'wallet_amount:2', label: '$2 USD', hint: config?.rate ? `${formatBs(2 * config.rate)} Bs` : undefined },
+          { id: 'wallet_amount:5', label: '$5 USD', hint: config?.rate ? `${formatBs(5 * config.rate)} Bs` : undefined },
+          { id: 'wallet_amount:10', label: '$10 USD', hint: config?.rate ? `${formatBs(10 * config.rate)} Bs` : undefined },
+          { id: 'wallet_amount:20', label: '$20 USD', hint: config?.rate ? `${formatBs(20 * config.rate)} Bs` : undefined },
+          { id: 'wallet_amount:50', label: '$50 USD', hint: config?.rate ? `${formatBs(50 * config.rate)} Bs` : undefined },
+        ],
+        optionsVariant: 'buttons',
+        actions: [MENU_ACTION],
       },
     ]);
   };
@@ -494,6 +517,36 @@ export function useRefillChatBot() {
   /** Vuelve a pintar el resumen con el cupón o el saldo actualizados. */
   const resummary = () => {
     if (game && product) finish(game, product, fieldValues);
+    else if (walletAmount) finishWalletTopup(walletAmount);
+  };
+
+  const finishWalletTopup = (amountUsd: number) => {
+    const amountBs = amountUsd * (config?.rate ?? 1);
+    const priceLines = [
+      `💵 Monto a recargar: ${formatUsd(amountUsd)}`,
+      `💳 Total a pagar: ${formatUsd(amountUsd)} · ${formatBs(amountBs)}`,
+    ];
+
+    const actions: ChatOption[] = [
+      { id: 'pay', label: '💳 Continuar al pago' },
+      { id: 'edit:wallet_amount', label: '✏️ Cambiar monto' },
+      { id: 'menu', label: '⬅️ Menú principal' },
+    ];
+
+    setStep('summary');
+    botSay([
+      {
+        text: [
+          'Este es el resumen de tu recarga de saldo:',
+          '💰 Producto: RefillCoins (Saldo interno)',
+          ...priceLines,
+        ].join('\n'),
+      },
+      {
+        text: '¿Todo correcto? El saldo se acreditará en tu billetera automáticamente al verificar el pago.',
+        actions,
+      },
+    ]);
   };
 
   // ---------------------------------------------------------------------------
@@ -588,6 +641,52 @@ export function useRefillChatBot() {
   };
 
   const createOrderFor = (method?: ChatPaymentMethod) => {
+    if (walletAmount !== null) {
+      setBusy(true);
+      push({ from: 'bot', text: 'Creando tu orden de recarga…', progress: true });
+
+      api.post<CreateOrderResponse>('/orders/topup', {
+        amountUsd: walletAmount,
+        ...(method ? { paymentMethod: method } : {}),
+      })
+      .then((data) => {
+        setBusy(false);
+        setOrderData(data);
+        setAttempts(0);
+        lastAnnounced.current = null;
+
+        botSay(paymentInstructionMessages(data.payment, data.order.code), () =>
+          askReference(data.payment)
+        );
+      })
+      .catch((error) => {
+        setBusy(false);
+        setStep('method');
+
+        if (error instanceof ApiError && error.code === 'unauthenticated') {
+          askAuth('Tu sesión expiró. Inicia sesión otra vez para continuar.');
+          return;
+        }
+
+        const tooMany =
+          error instanceof ApiError &&
+          (error.details as { code?: string } | undefined)?.code === 'too_many_open_orders';
+
+        botSay([
+          {
+            text: tooMany
+              ? 'Tienes demasiadas órdenes abiertas sin pagar. Págalas o cancélalas en «Mis órdenes» y vuelve a intentarlo.'
+              : `No pude crear la orden: ${errorMessage(error)}`,
+            actions: [
+              { id: 'pay', label: '🔄 Reintentar' },
+              { id: 'menu', label: '⬅️ Menú principal' },
+            ],
+          },
+        ]);
+      });
+      return;
+    }
+
     if (!game || !product) return;
     setBusy(true);
     push({ from: 'bot', text: 'Creando tu orden…', progress: true });
@@ -798,6 +897,11 @@ export function useRefillChatBot() {
   };
 
   const resolveSearch = (text: string) => {
+    if (isWalletQuery(text)) {
+      askWalletAmount();
+      return;
+    }
+
     const pool = buildPool();
     const matches = searchGames(text, pool);
     const category = matchCategory(text);
@@ -942,6 +1046,20 @@ export function useRefillChatBot() {
       return;
     }
 
+    if (kind === 'cat' && value === 'wallet') {
+      push({ from: 'user', text: '💰 RefillCoins' });
+      askWalletAmount();
+      return;
+    }
+
+    if (kind === 'wallet_amount') {
+      const parsed = parseFloat(value);
+      push({ from: 'user', text: `$${parsed} USD` });
+      setWalletAmount(parsed);
+      finishWalletTopup(parsed);
+      return;
+    }
+
     if (kind === 'more') {
       if (value === 'games') showGamePage('Aquí tienes más opciones:');
       if (value === 'packages') showProductPage('Más montos disponibles:');
@@ -994,6 +1112,10 @@ export function useRefillChatBot() {
         push({ from: 'user', text: 'Cambiar paquete' });
         setProduct(null);
         startPending({ kind: 'packages' });
+      } else if (value === 'wallet_amount') {
+        push({ from: 'user', text: 'Cambiar monto' });
+        setWalletAmount(null);
+        askWalletAmount('Escribe o elige el nuevo monto que deseas recargar:');
       }
       return;
     }
@@ -1089,6 +1211,41 @@ export function useRefillChatBot() {
       }
       setContactPhone(text);
       goToMethodOrPay();
+      return;
+    }
+
+    if (step === 'wallet_amount') {
+      push({ from: 'user', text });
+      
+      const raw = text.toLowerCase().trim().replace('$', '');
+      const rate = config?.rate ?? 1;
+      let parsedUsd = null;
+
+      if (raw.includes('bs') || raw.includes('ves')) {
+        const numericStr = raw.replace(/[^0-9.,]/g, '').replace(',', '.');
+        const bs = parseFloat(numericStr);
+        if (!isNaN(bs) && bs > 0) {
+          parsedUsd = Math.round((bs / rate) * 100) / 100;
+        }
+      } else {
+        const numericStr = raw.replace(/[^0-9.,]/g, '').replace(',', '.');
+        const usd = parseFloat(numericStr);
+        if (!isNaN(usd) && usd > 0) {
+          parsedUsd = Math.round(usd * 100) / 100;
+        }
+      }
+
+      if (parsedUsd !== null && parsedUsd >= 1 && parsedUsd <= 100) {
+        setWalletAmount(parsedUsd);
+        finishWalletTopup(parsedUsd);
+      } else {
+        botSay([
+          {
+            text: 'Por favor indica un monto válido entre $1 y $100 USD (ej: 5 o 200 bs).',
+            actions: [MENU_ACTION],
+          },
+        ]);
+      }
       return;
     }
 

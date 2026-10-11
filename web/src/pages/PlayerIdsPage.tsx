@@ -95,7 +95,7 @@ export function PlayerIdsPage() {
         <EmptyState
           icon={<Gamepad2 className="h-7 w-7" aria-hidden />}
           title="Sin IDs guardados"
-          description="Guarda el ID de tu cuenta del juego para no tener que escribirlo en cada compra."
+          description="Guarda el ID de tu cuenta para no tener que escribirlo en cada compra."
           action={<Button onClick={() => setFormOpen(true)}>Añadir mi primer ID</Button>}
         />
       ) : (
@@ -153,15 +153,15 @@ export function PlayerIdsPage() {
       >
         <div className="space-y-4">
           <Select
-            label="Juego"
+            label="Producto"
             value={gameId}
             onChange={(event) => {
-              // Cada juego pide campos distintos: lo escrito para el anterior
+              // Cada producto pide campos distintos: lo escrito para el anterior
               // no tiene por qué encajar en el nuevo.
               setGameId(event.target.value);
               setValues({});
             }}
-            placeholder="Selecciona un juego"
+            placeholder="Selecciona un producto"
             options={games.map((game) => ({ value: game.id, label: game.name }))}
             required
           />

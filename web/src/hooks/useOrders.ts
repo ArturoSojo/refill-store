@@ -199,3 +199,18 @@ export function useSetPaymentMethod(orderId: string | undefined) {
     },
   });
 }
+
+/** Paga la orden pendiente con el saldo interno (RefillCoins). */
+export function usePayWithWallet(orderId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => api.post<{ order: Order }>(`/orders/${orderId}/pay-with-wallet`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.order(orderId ?? '') });
+      void queryClient.invalidateQueries({ queryKey: ['orders'] });
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.me });
+      void queryClient.invalidateQueries({ queryKey: ['wallet'] });
+    },
+  });
+}

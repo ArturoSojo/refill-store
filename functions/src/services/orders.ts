@@ -572,6 +572,160 @@ export async function createOrder(
   return { id: orderRef.id, ...order };
 }
 
+export async function createWalletTopupOrder(
+  user: AuthUser,
+  profile: UserProfile,
+  input: {
+    amountUsd: number;
+    paymentMethod: PaymentMethod;
+    ip: string | null;
+    userAgent: string | null;
+  }
+): Promise<Order> {
+  usersService.assertNotBanned(profile);
+  const config = await getConfig();
+
+  await expireOwnStaleOrders(user.uid);
+
+  const openOrders = await orders()
+    .where('uid', '==', user.uid)
+    .where('status', 'in', ['awaiting_payment', 'verifying', 'payment_rejected'])
+    .count()
+    .get();
+
+  if (openOrders.data().count >= config.checkout.maxOpenOrdersPerUser) {
+    throw failedPrecondition(
+      `Tienes ${openOrders.data().count} órdenes sin pagar. Complétalas o cancélalas antes de recargar saldo.`,
+      { code: 'too_many_open_orders', openOrders: openOrders.data().count }
+    );
+  }
+
+  const wantsTransfer = input.paymentMethod === 'transfer' && config.transfer.enabled;
+  const wantsBinancePay = input.paymentMethod === 'binance_pay' && config.binancePay.enabled;
+  if (input.paymentMethod === 'transfer' && !config.transfer.enabled) {
+    throw failedPrecondition('La transferencia bancaria no está disponible ahora mismo.');
+  }
+  if (input.paymentMethod === 'binance_pay' && !config.binancePay.enabled) {
+    throw failedPrecondition('Binance Pay no está disponible ahora mismo.');
+  }
+
+  const paymentMethod: PaymentMethod = wantsTransfer
+    ? 'transfer'
+    : wantsBinancePay
+      ? 'binance_pay'
+      : 'pagomovil_bdv';
+
+  const bankSnapshot =
+    paymentMethod === 'transfer'
+      ? {
+          code: config.transfer.code,
+          name: config.transfer.name,
+          idNumber: config.transfer.idNumber,
+          phone: '',
+          accountNumber: config.transfer.accountNumber,
+          accountType: config.transfer.accountType,
+        }
+      : paymentMethod === 'binance_pay'
+        ? { code: '', name: 'Binance Pay', idNumber: '', phone: '', binancePayId: config.binancePay.payId }
+        : {
+            code: config.bank.code,
+            name: config.bank.name,
+            idNumber: config.bank.idNumber,
+            phone: config.bank.phone,
+          };
+
+  const rate = config.rate.value;
+  const totalBs = usdToBs(input.amountUsd, rate, config.pricing.roundToBs);
+
+  const orderRef = orders().doc();
+  const timestamp = now();
+  const code = generateOrderCode();
+
+  const order: Omit<Order, 'id'> = {
+    code,
+    uid: user.uid,
+    user: {
+      email: user.email ?? null,
+      displayName: user.displayName ?? null,
+      photoURL: profile.photoURL ?? null,
+    },
+    gameId: 'wallet',
+    gameName: 'Cartera Refill',
+    providerGameId: null,
+    productId: 'topup',
+    productName: `Recarga de saldo ($${input.amountUsd.toFixed(2)})`,
+    productSku: 'topup',
+    productAmount: input.amountUsd,
+    productBonus: 0,
+    fulfillment: 'manual', // Prevent auto dispatch
+    playerId: user.uid,
+    playerId2: null,
+    playerFields: { uid: user.uid },
+    pricing: {
+      unitUsd: input.amountUsd,
+      quantity: 1,
+      subtotalUsd: input.amountUsd,
+      discountUsd: 0,
+      totalUsd: input.amountUsd,
+      walletAppliedUsd: 0,
+      amountDueUsd: input.amountUsd,
+      rate,
+      totalBs,
+      couponCode: null,
+      creatorCode: null,
+      costUsd: 0,
+      profitUsd: 0,
+    },
+    creator: null,
+    contactPhone: profile.phone ?? null,
+    emailsSent: [],
+    payment: {
+      method: paymentMethod,
+      reference: null,
+      reportedAmountBs: null,
+      partials: [],
+      paidBs: 0,
+      verifiedAt: null,
+      attempts: 0,
+      providerResponse: null,
+      bankSnapshot,
+    },
+    dispatch: {
+      calls: [],
+      startedAt: null,
+      completedAt: null,
+      lastError: null,
+    },
+    whatsappUrl: null,
+    status: 'awaiting_payment',
+    customerNote: null,
+    adminNote: null,
+    meta: { ip: input.ip, userAgent: input.userAgent },
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    expiresAt: minutesFromNow(config.checkout.orderExpiryMinutes),
+  };
+
+  await orderRef.set(order);
+
+  await Promise.all([
+    addEvent({
+      orderId: orderRef.id,
+      type: 'created',
+      message: `Orden de recarga de saldo creada por ${totalBs.toFixed(2)} Bs.`,
+      status: order.status,
+      actor: 'customer',
+      actorUid: user.uid,
+    }),
+    usersService.registerCreatedOrder(user.uid),
+    stats.trackEvent({ type: 'order_created', order: { id: orderRef.id, ...order } }),
+  ]);
+
+  log.info('Orden de recarga creada', { orderId: orderRef.id, code: order.code, totalBs });
+
+  return { id: orderRef.id, ...order };
+}
+
 // ---------------------------------------------------------------------------
 // Verificación de pago
 // ---------------------------------------------------------------------------
@@ -1045,7 +1199,9 @@ export async function verifyPayment(
       data: { reportedAmountBs, surplusBs },
       ip,
     }),
-    catalog.decrementStock(order.productId, order.pricing.quantity),
+    order.gameId !== 'wallet'
+      ? catalog.decrementStock(order.productId, order.pricing.quantity)
+      : Promise.resolve(),
     order.pricing.couponCode
       ? couponsService.consume(order.pricing.couponCode)
       : Promise.resolve(),
@@ -1070,7 +1226,28 @@ export async function verifyPayment(
   void sendOrderEmail('payment_verified', orderId);
 
   // --- Entrega ---
-  if (order.fulfillment === 'auto') {
+  if (order.gameId === 'wallet') {
+    await usersService.moveWallet({
+      uid: order.uid,
+      deltaUsd: order.pricing.totalUsd,
+      reason: `Recarga de saldo (Orden ${order.code})`,
+      orderId: orderId,
+      orderCode: order.code,
+    });
+    await orders().doc(orderId).update({
+      status: 'completed',
+      completedAt: FieldValue.serverTimestamp(),
+    });
+
+    void sendOrderEmail('delivered', orderId);
+
+    await addEvent({
+      orderId,
+      type: 'completed',
+      message: '¡Recarga de saldo acreditada en tu billetera!',
+      status: 'completed',
+    });
+  } else if (order.fulfillment === 'auto') {
     await dispatchService.dispatchOrder(orderId);
   } else {
     await dispatchService.prepareManualOrder(orderId);
@@ -1222,6 +1399,101 @@ export async function setPaymentMethod(
 
   return getOrder(orderId);
 }
+
+/**
+ * Paga una orden pendiente con el saldo interno (RefillCoins).
+ *
+ * Se descuenta con `moveWallet`, que corre en transacción y lanza si el saldo
+ * ya no alcanza: así dos pagos simultáneos no gastan el mismo dinero. Una vez
+ * debitado, la orden sigue el mismo camino que un pago verificado: entra en
+ * `paid` y se entrega por el proveedor (o queda lista para WhatsApp si es
+ * manual), sin pedir referencia ni consultar al banco.
+ */
+export async function payWithWallet(user: AuthUser, orderId: string): Promise<Order> {
+  const order = await getOrderFor(orderId, user);
+  const config = await getConfig();
+
+  if (!['awaiting_payment', 'payment_rejected'].includes(order.status)) {
+    throw failedPrecondition('Esta orden ya no admite pago.');
+  }
+  if (order.gameId === 'wallet') {
+    throw failedPrecondition('Una recarga de saldo no se puede pagar con el propio saldo.');
+  }
+  if (config.checkout.walletEnabled === false) {
+    throw failedPrecondition('El pago con RefillCoins no está disponible ahora mismo.');
+  }
+  if ((order.payment.paidBs ?? 0) > 0) {
+    throw failedPrecondition(
+      'Esta orden ya tiene un pago parcial. Completa la diferencia con el mismo método.'
+    );
+  }
+  if (order.expiresAt.toMillis() < Date.now()) {
+    throw failedPrecondition('La orden expiró. Crea una nueva.');
+  }
+
+  const dueUsd = round(order.pricing.amountDueUsd ?? order.pricing.totalUsd, 2);
+  if (dueUsd <= 0) {
+    throw failedPrecondition('Esta orden no tiene nada pendiente de pago.');
+  }
+
+  const profile = await usersService.ensureProfile(user);
+  if (round(profile.walletBalanceUsd ?? 0, 2) < dueUsd) {
+    throw failedPrecondition(
+      `Saldo insuficiente: necesitas $${dueUsd.toFixed(2)} RefillCoins y tienes $${round(profile.walletBalanceUsd ?? 0, 2).toFixed(2)}.`,
+      { code: 'insufficient_wallet' }
+    );
+  }
+
+  // Lanza si el saldo no alcanza en el instante del débito.
+  await usersService.moveWallet({
+    uid: order.uid,
+    deltaUsd: -dueUsd,
+    reason: `Pago de la orden ${order.productName}`,
+    orderId,
+    orderCode: order.code,
+  });
+
+  const timestamp = now();
+  await orders().doc(orderId).update({
+    status: 'paid',
+    'payment.method': 'wallet',
+    'payment.verifiedAt': timestamp,
+    'pricing.walletAppliedUsd': round((order.pricing.walletAppliedUsd ?? 0) + dueUsd, 2),
+    'pricing.amountDueUsd': 0,
+    updatedAt: timestamp,
+  });
+
+  await Promise.all([
+    addEvent({
+      orderId,
+      type: 'payment_verified',
+      message: `Pagada con RefillCoins ($${dueUsd.toFixed(2)}).`,
+      status: 'paid',
+      actor: 'customer',
+      actorUid: user.uid,
+    }),
+    audit.record({
+      action: audit.ACTIONS.ORDER_PAYMENT_VERIFIED,
+      actorUid: user.uid,
+      actorEmail: user.email,
+      targetType: 'order',
+      targetId: orderId,
+      summary: `Orden ${order.code} pagada con RefillCoins ($${dueUsd.toFixed(2)}).`,
+      data: { dueUsd },
+    }),
+    catalog.decrementStock(order.productId, order.pricing.quantity),
+    order.pricing.couponCode ? couponsService.consume(order.pricing.couponCode) : Promise.resolve(),
+  ]);
+
+  if (order.fulfillment === 'auto') {
+    await dispatchService.dispatchOrder(orderId);
+  } else {
+    await dispatchService.prepareManualOrder(orderId);
+  }
+
+  return getOrder(orderId);
+}
+
 
 export async function cancelOrder(user: AuthUser, orderId: string): Promise<Order> {
   const order = await getOrderFor(orderId, user);

@@ -149,7 +149,7 @@ export function AdminOrders() {
             }))}
           />
           <Select
-            label="Juego"
+            label="Producto"
             value={gameId}
             onChange={(event) => setFilter('gameId', event.target.value)}
             placeholder="Todos"

@@ -174,7 +174,7 @@ export function renderOrderEmail(
             <tr><td colspan="2" style="padding-bottom:8px;font-size:12px;font-weight:700;letter-spacing:.5px;color:${SUAVE};border-bottom:1px solid ${BORDE};">DETALLE DE LA COMPRA</td></tr>
             ${row('Orden', order.code, { fuerte: true })}
             ${row('Fecha', formatDate(order))}
-            ${row('Juego', order.gameName)}
+            ${row('Producto', order.gameName)}
             ${row('Paquete', describeOrder(order))}
             ${camposJugador}
           </table>
@@ -226,7 +226,7 @@ export function renderOrderEmail(
     '',
     `Orden: ${order.code}`,
     `Fecha: ${formatDate(order)}`,
-    `Juego: ${order.gameName}`,
+    `Producto: ${order.gameName}`,
     `Paquete: ${describeOrder(order)}`,
     `Cuenta recargada: ${order.playerId}`,
     order.payment.reference ? `Referencia: ${order.payment.reference}` : '',
