@@ -53,7 +53,7 @@ export function createApp() {
 
   app.use(
     express.json({
-      limit: '256kb',
+      limit: '10mb',
       // El webhook del proveedor firma el cuerpo TAL CUAL lo envía: hay que
       // guardarlo crudo antes de parsearlo, porque volver a serializar el JSON
       // cambiaría espacios y orden de claves y la firma no cuadraría nunca.

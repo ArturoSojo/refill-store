@@ -17,6 +17,7 @@ import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage
 import { ImagePlus, Loader2, Trash2, Upload } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { storage } from '@/lib/firebase';
+import { api } from '@/lib/api';
 import { Input } from '@/components/ui/Field';
 import { cn, errorMessage } from '@/lib/utils';
 
@@ -89,18 +90,43 @@ export function ImageUpload({
     try {
       const blob = await shrink(file);
       const extension = blob.type === 'image/webp' ? 'webp' : file.name.split('.').pop() || 'png';
-      // El nombre lleva la marca de tiempo para que reemplazar una imagen no
-      // quede escondida detrás de la caché del navegador.
-      const path = `catalog/${folder}/${Date.now()}.${extension}`;
 
-      const destination = storageRef(storage, path);
-      await uploadBytes(destination, blob, { contentType: blob.type, cacheControl: 'public, max-age=31536000' });
-      onChange(await getDownloadURL(destination));
+      // 1. Convertir a base64 Data URL para enviar al servidor
+      const base64Data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(new Error('No se pudo leer el archivo local.'));
+        reader.readAsDataURL(blob);
+      });
 
-      toast.success('Imagen subida.');
+      // 2. Intentar subir mediante la API de Cloud Functions (evita bloqueos de CORS en cualquier dominio)
+      try {
+        const res = await api.post<{ url: string }>('/admin/upload-image', {
+          data: base64Data,
+          folder,
+          filename: file.name,
+          contentType: blob.type,
+        });
+
+        if (res.url) {
+          onChange(res.url);
+          toast.success('Imagen subida.');
+          return;
+        }
+      } catch (apiErr) {
+        // 3. Fallback: Si la API no responde, intentar subida directa con SDK de Storage
+        console.warn('Fallo en subida por Cloud Functions, intentando subida directa por SDK:', apiErr);
+        const path = `catalog/${folder}/${Date.now()}.${extension}`;
+        const destination = storageRef(storage, path);
+        await uploadBytes(destination, blob, { contentType: blob.type, cacheControl: 'public, max-age=31536000' });
+        onChange(await getDownloadURL(destination));
+        toast.success('Imagen subida.');
+        return;
+      }
     } catch (error) {
       toast.error(errorMessage(error, 'No se pudo subir la imagen.'));
     } finally {
+      // Garantizar SIEMPRE que el estado de subida se desactive y no se quede en spinner
       setUploading(false);
       onUploadingChange?.(false);
       if (input.current) input.current.value = '';

@@ -6,7 +6,9 @@
  */
 import { Router } from 'express';
 import { z } from 'zod';
+import { randomUUID } from 'crypto';
 import { getMessaging } from 'firebase-admin/messaging';
+import { getStorage } from 'firebase-admin/storage';
 import {
   games,
   products,
@@ -2244,3 +2246,77 @@ adminRouter.delete(
     ok(res, { deleted: true });
   })
 );
+
+const uploadImageSchema = z.object({
+  data: z.string().min(1, 'Se requiere la imagen en base64'),
+  folder: z.string().trim().default('banners'),
+  filename: z.string().trim().optional(),
+  contentType: z.string().trim().optional(),
+});
+
+adminRouter.post(
+  '/upload-image',
+  requireStaff,
+  asyncHandler(async (req, res) => {
+    const { data, folder, contentType } = parseBody(req, uploadImageSchema);
+
+    let buffer: Buffer;
+    let mimeType = contentType || 'image/webp';
+
+    if (data.startsWith('data:')) {
+      const match = data.match(/^data:([^;]+);base64,(.+)$/);
+      if (match) {
+        mimeType = match[1];
+        buffer = Buffer.from(match[2], 'base64');
+      } else {
+        buffer = Buffer.from(data.split(',')[1] || data, 'base64');
+      }
+    } else {
+      buffer = Buffer.from(data, 'base64');
+    }
+
+    if (!mimeType.startsWith('image/')) {
+      throw invalidArgument('El archivo subido no es una imagen válida.');
+    }
+
+    if (buffer.length > 5 * 1024 * 1024) {
+      throw invalidArgument('La imagen no puede pesar más de 5 MB.');
+    }
+
+    const bucketName = process.env.STORAGE_BUCKET || 'refill-e254f-catalogo';
+    const bucket = getStorage().bucket(bucketName);
+
+    let ext = 'webp';
+    if (mimeType === 'image/png') ext = 'png';
+    else if (mimeType === 'image/jpeg' || mimeType === 'image/jpg') ext = 'jpg';
+    else if (mimeType === 'image/svg+xml') ext = 'svg';
+    else if (mimeType === 'image/gif') ext = 'gif';
+
+    const safeFolder = folder.replace(/[^a-zA-Z0-9_-]/g, '') || 'banners';
+    const fileId = `${Date.now()}-${randomUUID().slice(0, 8)}`;
+    const filePath = `catalog/${safeFolder}/${fileId}.${ext}`;
+
+    const downloadToken = randomUUID();
+    const file = bucket.file(filePath);
+
+    await file.save(buffer, {
+      metadata: {
+        contentType: mimeType,
+        cacheControl: 'public, max-age=31536000',
+        metadata: {
+          firebaseStorageDownloadTokens: downloadToken,
+        },
+      },
+    });
+
+    try {
+      await file.makePublic();
+    } catch (_) {}
+
+    const publicUrl = `https://storage.googleapis.com/${bucket.name}/${filePath}`;
+    const firebaseUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(filePath)}?alt=media&token=${downloadToken}`;
+
+    ok(res, { url: publicUrl, firebaseUrl, path: filePath });
+  })
+);
+
