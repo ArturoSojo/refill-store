@@ -86,7 +86,32 @@ export function pluralize(count: number, singular: string, plural: string): stri
 
 /** Mensaje de error legible venga de donde venga. */
 export function errorMessage(error: unknown, fallback = 'Ocurrió un error inesperado.'): string {
+  if (error && typeof error === 'object' && 'details' in error) {
+    const details = (error as { details?: { fields?: Record<string, string> } }).details;
+    if (details?.fields && Object.keys(details.fields).length > 0) {
+      const fieldEntries = Object.entries(details.fields);
+      const messages = fieldEntries.map(([f, msg]) => `${f}: ${msg}`).join(', ');
+      const msg = (error as { message?: string }).message || fallback;
+      return `${msg} (${messages})`;
+    }
+  }
   if (error instanceof Error && error.message) return error.message;
   if (typeof error === 'string') return error;
   return fallback;
 }
+
+/** Comprueba si una cadena representa una URL o ruta de imagen. */
+export function isImageUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  const trimmed = url.trim();
+  if (!trimmed) return false;
+  // Data URIs de imagen o blobs
+  if (/^data:image\//i.test(trimmed) || /^blob:/i.test(trimmed)) return true;
+  // Rutas locales de imágenes comunes
+  if (/^\/.*\.(png|jpg|jpeg|webp|gif|svg|ico|avif)(\?.*)?$/i.test(trimmed)) return true;
+  // Cualquier URL web válida (http o https)
+  if (/^https?:\/\/[^\s]+$/i.test(trimmed)) return true;
+  return false;
+}
+
+

@@ -22,7 +22,7 @@ import { useAuth } from '@/providers/AuthProvider';
 import { useConfig } from '@/providers/ConfigProvider';
 import { BrandMark, BrandLockup } from '@/components/common/Brand';
 import { ROUTES } from '@/lib/constants';
-import { cn, initials } from '@/lib/utils';
+import { cn, initials, isImageUrl } from '@/lib/utils';
 import { captureCreatorCodeFromUrl } from '@/lib/creatorCode';
 import { StoreModals } from '@/components/common/StoreModals';
 import { RefillChatbot } from '@/features/chatbot';
@@ -469,20 +469,32 @@ function AnnouncementBar() {
       className="flex flex-wrap items-center justify-center gap-1.5"
     >
       {notice.icon && <span aria-hidden="true">{notice.icon}</span>}
-      {notice.badge && <span className="rounded bg-white/20 px-1.5 py-0.5 text-[10px] font-bold tracking-wider text-white">{notice.badge}</span>}
-      <span>{notice.text} {notice.highlightText && <strong className="font-semibold">{notice.highlightText}</strong>}</span>
-      {notice.linkText && <span className="ml-1 inline-flex items-center gap-0.5 font-medium underline underline-offset-2">{notice.linkText} <ChevronRight className="h-3 w-3" aria-hidden="true" /></span>}
+      {notice.badgeUrl || (notice.badge && isImageUrl(notice.badge)) ? (
+        <img
+          src={notice.badgeUrl || notice.badge}
+          alt=""
+          className="inline-block h-5 w-auto max-w-[28px] object-contain shrink-0"
+        />
+      ) : notice.badge ? (
+        <span className="rounded bg-neon-red/20 px-1.5 py-0.5 text-[10px] font-bold tracking-wider text-neon-crimson border border-neon-red/30">
+          {notice.badge}
+        </span>
+      ) : null}
+      <span className="text-slate-200">{notice.text} {notice.highlightText && <strong className="font-semibold text-neon-crimson">{notice.highlightText}</strong>}</span>
+      {notice.linkText && <span className="ml-1 inline-flex items-center gap-0.5 font-medium text-neon-crimson underline underline-offset-2 hover:text-white transition-colors">{notice.linkText} <ChevronRight className="h-3 w-3" aria-hidden="true" /></span>}
     </motion.div>
   );
 
   return (
     <div
-      className="relative z-10 flex min-h-[40px] items-center justify-center overflow-hidden border-b border-white/10 bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-2 text-center text-sm text-white"
+      className="relative z-10 flex min-h-[40px] items-center justify-center overflow-hidden border-b border-neon-red/20 bg-gradient-to-r from-base-900 via-base-800 to-base-900 px-4 py-2 text-center text-sm text-slate-200 shadow-[inset_0_1px_0_rgba(240,48,48,0.15)]"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       aria-live="polite"
       aria-atomic="true"
     >
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-neon-red/10 via-transparent to-transparent" />
+
       <AnimatePresence mode="wait">
         {notice.linkUrl ? (
           <a href={notice.linkUrl} target={notice.linkUrl.startsWith('https://') ? '_blank' : undefined} rel={notice.linkUrl.startsWith('https://') ? 'noopener noreferrer' : undefined} className="block hover:opacity-90">

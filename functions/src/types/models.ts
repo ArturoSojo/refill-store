@@ -768,6 +768,7 @@ export interface StoreNotice {
   text: string;
   highlightText?: string;
   badge?: string;
+  badgeUrl?: string;
   linkUrl?: string;
   linkText?: string;
   icon?: string;
