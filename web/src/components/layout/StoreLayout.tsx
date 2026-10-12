@@ -443,31 +443,28 @@ function AnnouncementBar() {
   }, [config?.announcement.notices, config?.announcement.text]);
   const intervalMs = Math.min(60, Math.max(2, config?.announcement.intervalSeconds ?? 5)) * 1000;
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [isHovered, setIsHovered] = useState(false);
 
   useEffect(() => {
-    setCurrentIndex(0);
-    if (activeNotices.length <= 1 || isHovered) return;
+    setCurrentIndex((current) => (current >= activeNotices.length ? 0 : current));
+  }, [activeNotices.length]);
+
+  useEffect(() => {
+    if (activeNotices.length <= 1) return;
     const timer = window.setInterval(() => {
       setCurrentIndex((index) => (index + 1) % activeNotices.length);
     }, intervalMs);
     return () => window.clearInterval(timer);
-  }, [activeNotices, intervalMs, isHovered]);
+  }, [activeNotices.length, intervalMs]);
 
   if (!config?.announcement.enabled || activeNotices.length === 0) return null;
   // En el checkout distrae: allí lo que importa es el monto y la referencia.
   if (location.pathname.startsWith('/comprar')) return null;
 
   const notice = activeNotices[currentIndex] ?? activeNotices[0];
-  const content = (
-    <motion.div
-      key={notice.id}
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -10 }}
-      transition={{ duration: 0.3 }}
-      className="flex flex-wrap items-center justify-center gap-1.5"
-    >
+  const isExternal = Boolean(notice.linkUrl && /^https?:\/\//i.test(notice.linkUrl));
+
+  const innerContent = (
+    <div className="flex flex-wrap items-center justify-center gap-1.5">
       {notice.iconUrl || (notice.icon && isImageUrl(notice.icon)) ? (
         <img
           src={notice.iconUrl || notice.icon}
@@ -482,27 +479,59 @@ function AnnouncementBar() {
           {notice.badge}
         </span>
       )}
-      <span className="text-slate-200">{notice.text} {notice.highlightText && <strong className="font-semibold text-neon-crimson">{notice.highlightText}</strong>}</span>
-      {notice.linkText && <span className="ml-1 inline-flex items-center gap-0.5 font-medium text-neon-crimson underline underline-offset-2 hover:text-white transition-colors">{notice.linkText} <ChevronRight className="h-3 w-3" aria-hidden="true" /></span>}
-    </motion.div>
+      <span className="text-slate-200">
+        {notice.text}{' '}
+        {notice.highlightText && (
+          <strong className="font-semibold text-neon-crimson">
+            {notice.highlightText}
+          </strong>
+        )}
+      </span>
+      {notice.linkText && (
+        <span className="ml-1 inline-flex items-center gap-0.5 font-medium text-neon-crimson underline underline-offset-2 hover:text-white transition-colors">
+          {notice.linkText} <ChevronRight className="h-3 w-3" aria-hidden="true" />
+        </span>
+      )}
+    </div>
+  );
+
+  const content = notice.linkUrl ? (
+    isExternal ? (
+      <a
+        href={notice.linkUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="block hover:opacity-90"
+      >
+        {innerContent}
+      </a>
+    ) : (
+      <Link to={notice.linkUrl} className="block hover:opacity-90">
+        {innerContent}
+      </Link>
+    )
+  ) : (
+    innerContent
   );
 
   return (
     <div
       className="relative z-10 flex min-h-[40px] items-center justify-center overflow-hidden border-b border-neon-red/20 bg-gradient-to-r from-base-900 via-base-800 to-base-900 px-4 py-2 text-center text-sm text-slate-200 shadow-[inset_0_1px_0_rgba(240,48,48,0.15)]"
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
       aria-live="polite"
       aria-atomic="true"
     >
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-neon-red/10 via-transparent to-transparent" />
 
       <AnimatePresence mode="wait">
-        {notice.linkUrl ? (
-          <a href={notice.linkUrl} target={notice.linkUrl.startsWith('https://') ? '_blank' : undefined} rel={notice.linkUrl.startsWith('https://') ? 'noopener noreferrer' : undefined} className="block hover:opacity-90">
-            {content}
-          </a>
-        ) : content}
+        <motion.div
+          key={notice.id}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -8 }}
+          transition={{ duration: 0.3 }}
+        >
+          {content}
+        </motion.div>
       </AnimatePresence>
     </div>
   );
