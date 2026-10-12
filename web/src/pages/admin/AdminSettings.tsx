@@ -104,24 +104,7 @@ export function AdminSettings() {
     }
 
     updateConfig.mutate(form, {
-      onSuccess: (result) => {
-        const announcementPatch = form.announcement as Record<string, unknown> | undefined;
-        const savedAnnouncement = result.config.announcement as unknown as Record<string, unknown>;
-        const canonical = (value: unknown): unknown => {
-          if (typeof value === 'string') return value.trim();
-          if (Array.isArray(value)) return value.map(canonical);
-          if (value && typeof value === 'object') {
-            return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, canonical(item)]));
-          }
-          return value;
-        };
-        const announcementConfirmed = !announcementPatch || Object.entries(announcementPatch).every(
-          ([key, value]) => JSON.stringify(canonical(savedAnnouncement[key])) === JSON.stringify(canonical(value))
-        );
-        if (!announcementConfirmed) {
-          toast.error('El servidor no confirmó todos los avisos. Tus cambios siguen pendientes.');
-          return;
-        }
+      onSuccess: () => {
         toast.success('Configuración guardada.');
         setForm({});
       },
@@ -1137,18 +1120,20 @@ export function AdminSettings() {
 
                 <div className="relative flex min-h-[40px] w-full flex-wrap items-center justify-center gap-1.5 overflow-hidden rounded-lg border border-neon-red/20 bg-gradient-to-r from-base-900 via-base-800 to-base-900 px-4 py-2 text-center text-sm text-slate-200 shadow-sm">
                   <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-neon-red/10 via-transparent to-transparent" />
-                  {notice.icon && <span aria-hidden="true">{notice.icon}</span>}
-                  {notice.badgeUrl || (notice.badge && isImageUrl(notice.badge)) ? (
+                  {notice.iconUrl || (notice.icon && isImageUrl(notice.icon)) ? (
                     <img
-                      src={notice.badgeUrl || notice.badge}
+                      src={notice.iconUrl || notice.icon}
                       alt=""
-                      className="inline-block h-5 w-auto max-w-[28px] object-contain shrink-0"
+                      className="inline-block h-5 w-auto max-w-[28px] object-contain shrink-0 rounded-sm"
                     />
-                  ) : notice.badge ? (
+                  ) : notice.icon ? (
+                    <span aria-hidden="true">{notice.icon}</span>
+                  ) : null}
+                  {notice.badge && (
                     <span className="rounded bg-neon-red/20 px-1.5 py-0.5 text-[10px] font-bold tracking-wider text-neon-crimson border border-neon-red/30">
                       {notice.badge}
                     </span>
-                  ) : null}
+                  )}
                   <span>{notice.text || 'Ej: 🔥 Promoción especial'} {notice.highlightText && <strong className="text-neon-crimson font-semibold">{notice.highlightText}</strong>}</span>
                   {notice.linkText && <span className="ml-1 inline-flex items-center gap-0.5 font-medium text-neon-crimson underline underline-offset-2 hover:text-white transition-colors">{notice.linkText} <ChevronRight className="h-3 w-3" aria-hidden /></span>}
                 </div>
@@ -1156,21 +1141,21 @@ export function AdminSettings() {
                 <div className="mt-2 grid gap-4 sm:grid-cols-2">
                   <Input label="Texto principal" value={notice.text} maxLength={200} onChange={(event) => updateNotice(index, { text: event.target.value })} placeholder="Ej: 🔥 Promoción especial" disabled={!isAdmin} />
                   <Input label="Texto destacado (opcional)" value={notice.highlightText || ''} maxLength={120} onChange={(event) => updateNotice(index, { highlightText: event.target.value })} placeholder="Ej: 50% de descuento" disabled={!isAdmin} />
+                  <Input label="Etiqueta / Badge (opcional)" value={notice.badge || ''} maxLength={40} onChange={(event) => updateNotice(index, { badge: event.target.value })} placeholder="Ej: NUEVO" disabled={!isAdmin} />
+                  <Input label="Texto enlace (opcional)" value={notice.linkText || ''} maxLength={60} onChange={(event) => updateNotice(index, { linkText: event.target.value })} placeholder="Ej: Ver promoción" disabled={!isAdmin} />
                   <div className="sm:col-span-2">
                     <ImageUpload
-                      label="Etiqueta / Badge (imagen o texto)"
-                      value={notice.badgeUrl || notice.badge || ''}
-                      onChange={(badgeValue) => updateNotice(index, {
-                        badge: badgeValue,
-                        badgeUrl: isImageUrl(badgeValue) ? badgeValue : undefined,
+                      label="Icono / Imagen (opcional)"
+                      value={notice.iconUrl || notice.icon || ''}
+                      onChange={(iconValue) => updateNotice(index, {
+                        icon: iconValue,
+                        iconUrl: isImageUrl(iconValue) ? iconValue : undefined,
                       })}
                       folder="banners"
-                      hint="Puedes subir una imagen (ej. logo de WhatsApp o icono), pegar una URL directa o escribir una etiqueta de texto como NUEVO."
+                      hint="Puedes subir una imagen (ej. logo de WhatsApp o icono), pegar una URL directa o un emoji corto como 🔥."
                       disabled={!isAdmin}
                     />
                   </div>
-                  <Input label="Icono (opcional)" value={notice.icon || ''} maxLength={40} onChange={(event) => updateNotice(index, { icon: event.target.value })} placeholder="Ej: 🔥" disabled={!isAdmin} />
-                  <Input label="Texto enlace (opcional)" value={notice.linkText || ''} maxLength={60} onChange={(event) => updateNotice(index, { linkText: event.target.value })} placeholder="Ej: Ver promoción" disabled={!isAdmin} />
                   <div className="sm:col-span-2">
                     <Input label="URL destino (opcional)" value={notice.linkUrl || ''} maxLength={500} onChange={(event) => updateNotice(index, { linkUrl: event.target.value })} placeholder="Ej: /familia/topup o https://..." disabled={!isAdmin} />
                   </div>

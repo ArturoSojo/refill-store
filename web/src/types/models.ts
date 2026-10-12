@@ -515,9 +515,10 @@ export interface StoreNotice {
   highlightText?: string;
   badge?: string;
   badgeUrl?: string;
+  icon?: string;
+  iconUrl?: string;
   linkUrl?: string;
   linkText?: string;
-  icon?: string;
   active: boolean;
 }
 

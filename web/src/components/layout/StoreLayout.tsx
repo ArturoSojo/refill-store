@@ -468,18 +468,20 @@ function AnnouncementBar() {
       transition={{ duration: 0.3 }}
       className="flex flex-wrap items-center justify-center gap-1.5"
     >
-      {notice.icon && <span aria-hidden="true">{notice.icon}</span>}
-      {notice.badgeUrl || (notice.badge && isImageUrl(notice.badge)) ? (
+      {notice.iconUrl || (notice.icon && isImageUrl(notice.icon)) ? (
         <img
-          src={notice.badgeUrl || notice.badge}
+          src={notice.iconUrl || notice.icon}
           alt=""
-          className="inline-block h-5 w-auto max-w-[28px] object-contain shrink-0"
+          className="inline-block h-5 w-auto max-w-[28px] object-contain shrink-0 rounded-sm"
         />
-      ) : notice.badge ? (
+      ) : notice.icon ? (
+        <span aria-hidden="true">{notice.icon}</span>
+      ) : null}
+      {notice.badge && (
         <span className="rounded bg-neon-red/20 px-1.5 py-0.5 text-[10px] font-bold tracking-wider text-neon-crimson border border-neon-red/30">
           {notice.badge}
         </span>
-      ) : null}
+      )}
       <span className="text-slate-200">{notice.text} {notice.highlightText && <strong className="font-semibold text-neon-crimson">{notice.highlightText}</strong>}</span>
       {notice.linkText && <span className="ml-1 inline-flex items-center gap-0.5 font-medium text-neon-crimson underline underline-offset-2 hover:text-white transition-colors">{notice.linkText} <ChevronRight className="h-3 w-3" aria-hidden="true" /></span>}
     </motion.div>
