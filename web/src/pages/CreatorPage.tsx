@@ -164,7 +164,7 @@ export function CreatorPage() {
 
       <Card className="text-xs leading-relaxed text-slate-400">
         Lo que está <span className="font-semibold text-amber-300">por cobrar</span> se te acredita
-        como saldo en tu cuenta cuando el equipo hace la liquidación. Si una recarga se reembolsa, su
+        como RefillCoins en tu cuenta (1 USD = 1 RC) cuando el equipo hace la liquidación. Si una recarga se reembolsa, su
         comisión se anula.
       </Card>
 

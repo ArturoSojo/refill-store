@@ -15,7 +15,7 @@ import {
 import { useSavedPlayerIds, useDeletePlayerId } from '@/hooks/useAccount';
 import { usePricePreview } from '@/hooks/useOrders';
 import { useAuth } from '@/providers/AuthProvider';
-import { formatBs, formatUsd } from '@/lib/format';
+import { formatBs, formatUsd, formatRefillCoins } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { Game, PricePreview, PublicProduct } from '@/types/models';
 
@@ -269,9 +269,9 @@ export function PlayerIdStep({
 
           {preview && preview.walletAppliedUsd > 0 && (
             <div className="flex items-center justify-between">
-              <dt className="text-slate-400">Saldo a favor</dt>
-              <dd className="tabular text-emerald-400">
-                −{formatUsd(preview.walletAppliedUsd)}
+              <dt className="text-slate-400">RefillCoins aplicadas</dt>
+              <dd className="tabular text-amber-400">
+                −{formatRefillCoins(preview.walletAppliedUsd)}
               </dd>
             </div>
           )}
@@ -325,7 +325,7 @@ export function PlayerIdStep({
             if (isValid) onContinue();
           }}
         >
-          {preview?.amountDueUsd === 0 ? 'Pagar con mi saldo' : 'Continuar al pago'}
+          {preview?.amountDueUsd === 0 ? 'Pagar con RefillCoins' : 'Continuar al pago'}
         </Button>
       )}
 

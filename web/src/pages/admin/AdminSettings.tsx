@@ -684,8 +684,8 @@ export function AdminSettings() {
               config.checkout.walletEnabled !== false
             )}
             onChange={(walletEnabled) => patch('checkout', { walletEnabled })}
-            label="Permitir pagar con saldo a favor"
-            description="El cliente puede aplicar su saldo (reembolsos, referidos) al total y transferir sólo la diferencia. Si lo apagas, el saldo se sigue acumulando pero no se puede gastar."
+            label="Permitir pagar con RefillCoins"
+            description="El cliente puede aplicar sus RefillCoins (1 USD = 1 RC) al total y transferir sólo la diferencia si falta. Si lo apagas, las RefillCoins se siguen acumulando pero no se pueden gastar."
             disabled={!isAdmin}
           />
         </div>

@@ -116,6 +116,14 @@ export function formatUsd(value: number | undefined | null): string {
   return `$${bsFormatter.format(value)}`;
 }
 
+/** RefillCoins (1 USD = 1 RefillCoin / 1 RC) */
+export function formatRefillCoins(value: number | undefined | null, showSuffix = true): string {
+  if (value === undefined || value === null || Number.isNaN(value)) {
+    return showSuffix ? '0,00 RC' : '0,00';
+  }
+  return showSuffix ? `${bsFormatter.format(value)} RC` : bsFormatter.format(value);
+}
+
 export function formatBs(value: number | undefined | null): string {
   if (value === undefined || value === null || Number.isNaN(value)) return '0,00 Bs';
   return `${bsFormatter.format(value)} Bs`;
@@ -299,7 +307,7 @@ export function auditActionLabel(action: string): string {
     'user.role.changed': 'Cambio de rol',
     'user.banned': 'Usuario bloqueado',
     'user.unbanned': 'Usuario desbloqueado',
-    'user.wallet.adjusted': 'Ajuste de saldo',
+    'user.wallet.adjusted': 'Ajuste de RefillCoins',
     'coupon.created': 'Cupón creado',
     'coupon.updated': 'Cupón actualizado',
     'coupon.deleted': 'Cupón eliminado',

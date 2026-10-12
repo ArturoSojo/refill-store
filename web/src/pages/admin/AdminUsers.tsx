@@ -8,7 +8,7 @@ import {
   ShieldCheck,
   Sparkles,
   Users as UsersIcon,
-  Wallet,
+  Coins,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
@@ -38,7 +38,7 @@ import {
 } from '@/components/ui/Feedback';
 import { LoadMore } from '@/components/common/LoadMore';
 import { ROUTES } from '@/lib/constants';
-import { TIER_META, formatBs, formatDateTime, formatRelative, formatUsd } from '@/lib/format';
+import { TIER_META, formatBs, formatDateTime, formatRelative, formatUsd, formatRefillCoins } from '@/lib/format';
 import { shortOrderItem } from '@/lib/orderItem';
 import { errorMessage, initials } from '@/lib/utils';
 import type { UserProfile } from '@/types/models';
@@ -434,9 +434,9 @@ export function AdminUserDetail() {
             <p className="text-lg font-bold tabular text-white">{profile.stats.completedOrders}</p>
           </div>
           <div>
-            <p className="text-xs text-slate-400">Saldo</p>
-            <p className="text-lg font-bold tabular text-emerald-400">
-              {formatUsd(profile.walletBalanceUsd)}
+            <p className="text-xs text-slate-400">RefillCoins</p>
+            <p className="text-lg font-bold tabular text-amber-400">
+              {formatRefillCoins(profile.walletBalanceUsd)}
             </p>
           </div>
           <div>
@@ -460,10 +460,10 @@ export function AdminUserDetail() {
               <Button
                 size="sm"
                 variant="secondary"
-                leftIcon={<Wallet className="h-4 w-4" aria-hidden />}
+                leftIcon={<Coins className="h-4 w-4" aria-hidden />}
                 onClick={() => setWalletOpen(true)}
               >
-                Ajustar saldo
+                Ajustar RefillCoins
               </Button>
 
               <Select
@@ -527,8 +527,8 @@ export function AdminUserDetail() {
           dedo son indistinguibles cuando el cliente reclama. */}
       <Card>
         <CardHeader
-          title="Movimientos de saldo"
-          description={`Saldo actual: ${formatUsd(wallet.data?.balanceUsd ?? profile.walletBalanceUsd)}`}
+          title="Movimientos de RefillCoins"
+          description={`RefillCoins actuales: ${formatRefillCoins(wallet.data?.balanceUsd ?? profile.walletBalanceUsd)} (1 USD = 1 RC)`}
         />
         {wallet.isLoading ? (
           <Skeleton className="h-20 rounded-xl" />
@@ -554,15 +554,15 @@ export function AdminUserDetail() {
                   <p
                     className={
                       item.type === 'credit'
-                        ? 'text-sm font-bold tabular text-emerald-400'
+                        ? 'text-sm font-bold tabular text-amber-400'
                         : 'text-sm font-bold tabular text-slate-300'
                     }
                   >
                     {item.type === 'credit' ? '+' : '−'}
-                    {formatUsd(item.amountUsd)}
+                    {formatRefillCoins(item.amountUsd)}
                   </p>
                   <p className="text-xs tabular text-slate-500">
-                    {formatUsd(item.balanceAfterUsd)}
+                    {formatRefillCoins(item.balanceAfterUsd)}
                   </p>
                 </div>
               </li>
@@ -662,18 +662,18 @@ export function AdminUserDetail() {
       <Modal
         open={walletOpen}
         onClose={() => setWalletOpen(false)}
-        title="Ajustar saldo"
-        description={`Saldo actual: ${formatUsd(profile.walletBalanceUsd)}`}
+        title="Ajustar RefillCoins"
+        description={`RefillCoins actuales: ${formatRefillCoins(profile.walletBalanceUsd)} (1 USD = 1 RC)`}
         size="sm"
       >
         <div className="space-y-4">
           <Input
-            label="Monto (USD)"
+            label="Monto en RefillCoins / USD"
             type="number"
             step="0.01"
             value={delta}
             onChange={(event) => setDelta(event.target.value)}
-            hint="Usa un número negativo para descontar."
+            hint="1 USD = 1 RC. Usa un número negativo para descontar."
           />
           <Input
             label="Motivo"
@@ -695,7 +695,7 @@ export function AdminUserDetail() {
                 },
                 {
                   onSuccess: () => {
-                    toast.success('Saldo actualizado.');
+                    toast.success('RefillCoins actualizadas.');
                     setWalletOpen(false);
                     setDelta('');
                     setWalletReason('');

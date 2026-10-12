@@ -1,13 +1,9 @@
 /**
- * Saldo a favor del cliente.
- *
- * Hasta ahora el panel permitía reembolsar «al saldo del usuario», pero ese
- * saldo no se veía en ninguna parte ni servía para pagar: era un número muerto.
- * Aquí se muestra el saldo, de dónde salió cada movimiento y cómo usarlo.
+ * RefillCoins del cliente (1 USD = 1 RefillCoin).
  */
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ArrowDownLeft, ArrowUpRight, ChevronLeft, Wallet, Plus } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, ChevronLeft, Coins, Plus, Sparkles } from 'lucide-react';
 import { useWallet } from '@/hooks/useAccount';
 import { useDocumentTitle } from '@/hooks/useMisc';
 import { useConfig } from '@/providers/ConfigProvider';
@@ -20,7 +16,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Select } from '@/components/ui/Field';
 import { api } from '@/lib/api';
 import { ROUTES } from '@/lib/constants';
-import { formatDateTime, formatUsd, formatBs } from '@/lib/format';
+import { formatDateTime, formatBs, formatRefillCoins } from '@/lib/format';
 import { cn, errorMessage } from '@/lib/utils';
 import toast from 'react-hot-toast';
 
@@ -82,7 +78,7 @@ function TopupModal({ open, onClose, initialOrderId }: { open: boolean; onClose:
   const handleVerify = (reference: string) => {
     verifyPayment.mutate(reference, {
       onSuccess: () => {
-        toast.success('Pago verificado. Tu saldo será acreditado en breve.');
+        toast.success('Pago verificado. Tus RefillCoins serán acreditadas en breve.');
         onClose();
       },
       onError: (err) => setError(errorMessage(err)),
@@ -112,8 +108,8 @@ function TopupModal({ open, onClose, initialOrderId }: { open: boolean; onClose:
     <Modal
       open={open}
       onClose={onClose}
-      title={isPaymentStep ? 'Completar pago' : 'Recargar saldo'}
-      description={isPaymentStep ? 'Transfiere el dinero exacto y envía la referencia.' : 'El dinero se sumará a tu cartera y podrás usarlo en tus próximas compras.'}
+      title={isPaymentStep ? 'Completar pago' : 'Recargar RefillCoins'}
+      description={isPaymentStep ? 'Transfiere el dinero exacto y envía la referencia.' : 'Recarga tus RefillCoins (1 USD = 1 RefillCoin) para comprar al instante.'}
       dismissable={!createOrder.isPending && !verifyPayment.isPending && !cancelOrder.isPending}
       size={isPaymentStep ? 'lg' : 'md'}
     >
@@ -190,7 +186,7 @@ function TopupModal({ open, onClose, initialOrderId }: { open: boolean; onClose:
                 {inputCurrency === 'USD' ? (
                   <>Equivale a <strong className="text-white">{formatBs(amountBs)} Bs</strong> a la tasa actual.</>
                 ) : (
-                  <>Se acreditarán <strong className="text-emerald-400">{formatUsd(amountUsd)}</strong> a tu saldo.</>
+                  <>Se acreditarán <strong className="text-amber-400">{formatRefillCoins(amountUsd)}</strong> a tu cuenta (1 USD = 1 RC).</>
                 )}
               </p>
             )}
@@ -220,7 +216,7 @@ function TopupModal({ open, onClose, initialOrderId }: { open: boolean; onClose:
 }
 
 export function WalletPage() {
-  useDocumentTitle('Mi saldo');
+  useDocumentTitle('Mis RefillCoins');
   const [searchParams, setSearchParams] = useSearchParams();
   const resumeOrderId = searchParams.get('orden');
   
@@ -257,26 +253,37 @@ export function WalletPage() {
       {isLoading ? (
         <Skeleton className="h-32 rounded-2xl" />
       ) : error ? (
-        <ErrorState message="No pudimos cargar tu saldo." />
+        <ErrorState message="No pudimos cargar tus RefillCoins." />
       ) : (
         <>
-          <Card className="border-emerald-500/30 bg-emerald-500/5">
-            <div className="flex items-center gap-4">
-              <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-400">
-                <Wallet className="h-7 w-7" aria-hidden />
-              </span>
-              <div className="min-w-0">
-                <p className="text-xs font-bold uppercase tracking-wide text-emerald-400">
-                  Saldo disponible
-                </p>
-                <p className="text-3xl font-extrabold tabular text-white">
-                  {formatUsd(balance)}
-                </p>
+          <Card className="border-amber-500/30 bg-amber-500/5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-amber-500/15 text-amber-400">
+                  <Coins className="h-7 w-7" aria-hidden />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-xs font-bold uppercase tracking-wide text-amber-400">
+                    RefillCoins disponibles
+                  </p>
+                  <p className="text-3xl font-extrabold tabular text-white">
+                    {formatRefillCoins(balance)}
+                  </p>
+                </div>
+              </div>
+              <div className="hidden sm:flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-300">
+                <Sparkles className="h-3.5 w-3.5 text-amber-400" />
+                1 USD = 1 RC
               </div>
             </div>
 
-            <p className="mt-4 text-sm text-slate-300">
-              Recarga tu saldo una vez y compra después sin esperar verificación de pago.
+            <div className="mt-3 flex sm:hidden items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 w-fit text-xs font-semibold text-amber-300">
+              <Sparkles className="h-3.5 w-3.5 text-amber-400" />
+              1 USD = 1 RefillCoin (RC)
+            </div>
+
+            <p className="mt-3 text-sm text-slate-300">
+              Recarga RefillCoins y compra al instante sin esperar verificación de pago bancario.
             </p>
 
             <Button
@@ -286,12 +293,12 @@ export function WalletPage() {
               disabled={data?.enabled === false}
             >
               <Plus className="mr-2 h-4 w-4" />
-              Recargar saldo
+              Recargar RefillCoins
             </Button>
             
             {data?.enabled === false && (
               <p className="mt-3 text-center text-xs text-slate-400">
-                El pago con saldo está desactivado temporalmente. Escríbenos por soporte.
+                El uso de RefillCoins está desactivado temporalmente. Escríbenos por soporte.
               </p>
             )}
           </Card>
@@ -303,9 +310,9 @@ export function WalletPage() {
 
             {transactions.length === 0 ? (
               <EmptyState
-                icon={<Wallet className="h-7 w-7" aria-hidden />}
+                icon={<Coins className="h-7 w-7 text-amber-400" aria-hidden />}
                 title="Sin movimientos"
-                description="Cuando recargues saldo, recibas un reembolso o una recompensa, aparecerá aquí."
+                description="Cuando recargues RefillCoins, recibas un reembolso o una recompensa, aparecerán aquí."
               />
             ) : (
               <ul className="divide-y divide-base-700">
@@ -317,7 +324,7 @@ export function WalletPage() {
                       <span
                         className={
                           isCredit
-                            ? 'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-400'
+                            ? 'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-400'
                             : 'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-base-700 text-slate-300'
                         }
                       >
@@ -345,15 +352,15 @@ export function WalletPage() {
                         <p
                           className={
                             isCredit
-                              ? 'text-sm font-bold tabular text-emerald-400'
+                              ? 'text-sm font-bold tabular text-amber-400'
                               : 'text-sm font-bold tabular text-slate-300'
                           }
                         >
                           {isCredit ? '+' : '−'}
-                          {formatUsd(item.amountUsd)}
+                          {formatRefillCoins(item.amountUsd)}
                         </p>
                         <p className="text-xs tabular text-slate-500">
-                          {formatUsd(item.balanceAfterUsd)}
+                          {formatRefillCoins(item.balanceAfterUsd)}
                         </p>
                       </div>
                     </li>

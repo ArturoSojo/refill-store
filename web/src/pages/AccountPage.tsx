@@ -13,7 +13,7 @@ import {
   Sparkles,
   TrendingUp,
   Users,
-  Wallet,
+  Coins,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '@/providers/AuthProvider';
@@ -25,7 +25,7 @@ import { Button } from '@/components/ui/Button';
 import { Input, Switch } from '@/components/ui/Field';
 import { FullPageLoader, OrderStatusBadge } from '@/components/ui/Feedback';
 import { ROUTES } from '@/lib/constants';
-import { TIER_META, formatBs, formatRelative, formatUsd } from '@/lib/format';
+import { TIER_META, formatBs, formatRelative, formatUsd, formatRefillCoins } from '@/lib/format';
 import { shortOrderItem } from '@/lib/orderItem';
 import { cn, errorMessage, initials } from '@/lib/utils';
 
@@ -274,27 +274,28 @@ export function AccountPage() {
         </div>
       </Card>
 
-      {me.profile.walletBalanceUsd > 0 && (
-        <Link to={ROUTES.wallet} className="block">
-          <Card className="border-emerald-500/30 bg-emerald-500/5 transition hover:border-emerald-400/50">
-            <div className="flex items-center gap-3">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-400">
-                <Wallet className="h-5 w-5" aria-hidden />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm text-emerald-200">Saldo a favor</p>
-                <p className="text-lg font-bold text-white">
-                  {formatUsd(me.profile.walletBalanceUsd)}
-                </p>
-                <p className="text-xs text-emerald-300/80">
-                  Actívalo al comprar y sólo transfieres la diferencia.
-                </p>
+      <Link to={ROUTES.wallet} className="block">
+        <Card className="border-amber-500/30 bg-amber-500/5 transition hover:border-amber-400/50">
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-400">
+              <Coins className="h-5 w-5" aria-hidden />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-semibold text-amber-300">RefillCoins disponibles</p>
+                <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold text-amber-200">1 USD = 1 RC</span>
               </div>
-              <ChevronRight className="h-4 w-4 shrink-0 text-emerald-300/70" aria-hidden />
+              <p className="text-lg font-extrabold text-white">
+                {formatRefillCoins(me.profile.walletBalanceUsd)}
+              </p>
+              <p className="text-xs text-amber-300/80">
+                Úsalas al comprar para pagar al instante sin esperar verificación.
+              </p>
             </div>
-          </Card>
-        </Link>
-      )}
+            <ChevronRight className="h-4 w-4 shrink-0 text-amber-300/70" aria-hidden />
+          </div>
+        </Card>
+      </Link>
 
       <TierCard />
 

@@ -31,7 +31,7 @@ import { Switch } from '@/components/ui/Field';
 import { ConfirmDialog } from '@/components/ui/Modal';
 import { FullPageLoader, ErrorState, OrderStatusBadge, Badge } from '@/components/ui/Feedback';
 import { ROUTES } from '@/lib/constants';
-import { formatBs, formatDateTime, formatUsd } from '@/lib/format';
+import { formatBs, formatDateTime, formatUsd, formatRefillCoins } from '@/lib/format';
 import { describeOrder } from '@/lib/orderItem';
 import { cn, errorMessage, openWhatsapp } from '@/lib/utils';
 
@@ -121,8 +121,8 @@ export function AdminOrderDetail() {
               {formatUsd(order.pricing.totalUsd)} · tasa {order.pricing.rate}
             </p>
             {walletApplied > 0 && (
-              <p className="text-xs tabular text-emerald-300">
-                Saldo aplicado {formatUsd(walletApplied)}
+              <p className="text-xs tabular text-amber-300">
+                RefillCoins aplicadas {formatRefillCoins(walletApplied)}
                 {order.pricing.totalBs === 0 && ' · sin transferencia'}
               </p>
             )}
@@ -481,8 +481,8 @@ export function AdminOrderDetail() {
             <Switch
               checked={refundToWallet}
               onChange={setRefundToWallet}
-              label={`Acreditar ${formatUsd(order.pricing.totalUsd)} al saldo del cliente`}
-              description="Desactívalo si vas a devolver el dinero por transferencia."
+              label={`Acreditar ${formatRefillCoins(order.pricing.totalUsd)} en RefillCoins al cliente`}
+              description="Desactívalo si vas a devolver el dinero por transferencia o pago móvil (1 USD = 1 RC)."
             />
           </div>
         }

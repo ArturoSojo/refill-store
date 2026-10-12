@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, Clock, Coins, Landmark, Receipt, ShieldCheck, Wallet } from 'lucide-react';
+import { AlertTriangle, Clock, Coins, Landmark, Receipt, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Field';
 import { CopyField } from '@/components/common/CopyField';
 import { useCountdown } from '@/hooks/useMisc';
 import { ROUTES } from '@/lib/constants';
-import { formatBs, formatUsd } from '@/lib/format';
+import { formatBs, formatUsd, formatRefillCoins } from '@/lib/format';
 import { onlyDigits, cn } from '@/lib/utils';
 import type { CreateOrderResponse } from '@/types/models';
 
@@ -99,13 +99,13 @@ export function PaymentStep({
           {coinsActive || isBinancePay ? `${formatUsd(amountUsd)}${isBinancePay ? ' USDT' : ''}` : formatBs(amountBs)}
         </p>
         <p className="mt-1 text-sm tabular text-slate-400">
-          {coinsActive ? 'Se descuenta de tu saldo RefillCoins' : isBinancePay ? 'Importe en Tether (USDT)' : `${formatUsd(amountUsd)} · Tasa ${formatBs(data.payment.rate)}`}
+          {coinsActive ? 'Se descuenta de tus RefillCoins' : isBinancePay ? 'Importe en Tether (USDT)' : `${formatUsd(amountUsd)} · Tasa ${formatBs(data.payment.rate)}`}
         </p>
 
         {walletAppliedUsd > 0 && (
-          <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-300">
-            <Wallet className="h-3.5 w-3.5" aria-hidden />
-            Ya se descontaron {formatUsd(walletAppliedUsd)} de tu saldo
+          <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-3 py-1 text-xs font-semibold text-amber-300">
+            <Coins className="h-3.5 w-3.5" aria-hidden />
+            Ya se descontaron {formatRefillCoins(walletAppliedUsd)} de tus RefillCoins
           </p>
         )}
 
@@ -137,7 +137,7 @@ export function PaymentStep({
         ) : (
           <p className="mt-3 text-xs text-slate-500">
             Si transfieres de menos, guardamos ese pago y te pedimos sólo la diferencia. De más,
-            te lo abonamos al saldo.
+            te lo abonamos a tus RefillCoins (1 USD = 1 RC).
           </p>
         )}
       </div>
@@ -193,42 +193,42 @@ export function PaymentStep({
                 )}
               >
                 <span className="flex items-center gap-1 text-sm font-semibold text-white">
-                  <Coins className="h-3.5 w-3.5 text-emerald-400" aria-hidden />
+                  <Coins className="h-3.5 w-3.5 text-amber-400" aria-hidden />
                   RefillCoins
                 </span>
-                <span className="block text-xs text-slate-400">Saldo {formatUsd(walletBalanceUsd)}</span>
+                <span className="block text-xs text-slate-400">{formatRefillCoins(walletBalanceUsd)}</span>
               </button>
             )}
           </div>
         </div>
       )}
 
-      {/* RefillCoins: pago inmediato con el saldo, sin referencia ni banco. */}
+      {/* RefillCoins: pago inmediato con RefillCoins, sin referencia ni banco. */}
       {coinsActive && (
-        <div className="card border-emerald-500/30 bg-emerald-500/5">
+        <div className="card border-amber-500/30 bg-amber-500/5">
           <div className="mb-3 flex items-center gap-2">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-400">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400">
               <Coins className="h-4 w-4" aria-hidden />
             </span>
             <div>
               <h3 className="text-sm font-semibold text-white">Pagar con RefillCoins</h3>
-              <p className="text-xs text-slate-400">Se descuenta de tu saldo y se entrega al instante.</p>
+              <p className="text-xs text-slate-400">Se descuenta de tus RefillCoins y se entrega al instante (1 USD = 1 RC).</p>
             </div>
           </div>
 
           <dl className="space-y-2 text-sm">
             <div className="flex items-center justify-between">
-              <dt className="text-slate-400">Tu saldo</dt>
-              <dd className="tabular text-slate-200">{formatUsd(walletBalanceUsd)}</dd>
+              <dt className="text-slate-400">Tus RefillCoins</dt>
+              <dd className="tabular text-slate-200">{formatRefillCoins(walletBalanceUsd)}</dd>
             </div>
             <div className="flex items-center justify-between">
               <dt className="text-slate-400">Total de la orden</dt>
-              <dd className="tabular text-slate-200">−{formatUsd(amountUsd)}</dd>
+              <dd className="tabular text-slate-200">−{formatRefillCoins(amountUsd)}</dd>
             </div>
             <div className="flex items-center justify-between border-t border-base-600 pt-2">
-              <dt className="font-semibold text-white">Saldo restante</dt>
-              <dd className="tabular font-semibold text-emerald-300">
-                {formatUsd(Math.max(0, walletBalanceUsd - amountUsd))}
+              <dt className="font-semibold text-white">RefillCoins restantes</dt>
+              <dd className="tabular font-semibold text-amber-300">
+                {formatRefillCoins(Math.max(0, walletBalanceUsd - amountUsd))}
               </dd>
             </div>
           </dl>
@@ -241,21 +241,21 @@ export function PaymentStep({
               loading={payingWithWallet}
               disabled={expired}
               onClick={onPayWithWallet}
-              leftIcon={!payingWithWallet ? <Wallet className="h-4 w-4" aria-hidden /> : undefined}
+              leftIcon={!payingWithWallet ? <Coins className="h-4 w-4 text-amber-400" aria-hidden /> : undefined}
             >
-              {payingWithWallet ? 'Procesando pago…' : `Pagar ${formatUsd(amountUsd)} con RefillCoins`}
+              {payingWithWallet ? 'Procesando pago…' : `Pagar ${formatRefillCoins(amountUsd)} con RefillCoins`}
             </Button>
           ) : (
             <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-relaxed text-amber-100">
               <p>
-                Te faltan <strong>{formatUsd(coinsMissingUsd)}</strong> para cubrir esta orden.
-                Recarga tu saldo o paga con otro método.
+                Te faltan <strong>{formatRefillCoins(coinsMissingUsd)}</strong> para cubrir esta orden.
+                Recarga RefillCoins o paga con otro método.
               </p>
               <Link
                 to={ROUTES.wallet}
-                className="mt-2 inline-block font-semibold text-emerald-300 hover:underline"
+                className="mt-2 inline-block font-semibold text-amber-300 hover:underline"
               >
-                Recargar saldo →
+                Recargar RefillCoins →
               </Link>
             </div>
           )}

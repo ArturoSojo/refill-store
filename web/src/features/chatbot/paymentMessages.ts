@@ -158,7 +158,7 @@ export function liveOrderMessages(order: Order, supportUrl?: string): BotMessage
       return [
         {
           text: order.pricing.walletRefunded 
-            ? 'No pudimos confirmar tu cuenta de juego. Revisa que el ID sea correcto e intenta nuevamente. Tu saldo ha sido reembolsado.'
+            ? 'No pudimos confirmar tu cuenta de juego. Revisa que el ID sea correcto e intenta nuevamente. Tus RefillCoins han sido reembolsadas.'
             : 'Tu pago está confirmado, pero la entrega falló. El equipo ya lo está revisando.',
           actions: [
             ...(supportUrl ? [{ id: 'support', label: '🛟 Hablar con soporte' }] : []),

@@ -26,7 +26,7 @@ import { useAuth } from '@/providers/AuthProvider';
 import { useConfig } from '@/providers/ConfigProvider';
 import { api, ApiError, isGatewayTimeout } from '@/lib/api';
 import { readCreatorCode, clearCreatorCode } from '@/lib/creatorCode';
-import { formatBs, formatUsd } from '@/lib/format';
+import { formatBs, formatUsd, formatRefillCoins } from '@/lib/format';
 import { errorMessage, openWhatsapp } from '@/lib/utils';
 import { matchCategory, searchGames, isWalletQuery } from './fuzzy';
 import { useDualBotConfig } from './useChatbotConfig';
@@ -246,13 +246,13 @@ export function useRefillChatBot() {
     setProduct(null);
     botSay([
       {
-        text: intro ?? '¿Cuánto saldo quieres recargar a tu cuenta? Elige un monto rápido o escríbelo en USD o Bs (ej: 5, 20 usd, 400 bs):',
+        text: intro ?? '¿Cuántas RefillCoins quieres recargar a tu cuenta (1 USD = 1 RC)? Elige un monto rápido o escríbelo en USD o Bs (ej: 5, 20 usd, 400 bs):',
         options: [
-          { id: 'wallet_amount:2', label: '$2 USD', hint: config?.rate ? `${formatBs(2 * config.rate)} Bs` : undefined },
-          { id: 'wallet_amount:5', label: '$5 USD', hint: config?.rate ? `${formatBs(5 * config.rate)} Bs` : undefined },
-          { id: 'wallet_amount:10', label: '$10 USD', hint: config?.rate ? `${formatBs(10 * config.rate)} Bs` : undefined },
-          { id: 'wallet_amount:20', label: '$20 USD', hint: config?.rate ? `${formatBs(20 * config.rate)} Bs` : undefined },
-          { id: 'wallet_amount:50', label: '$50 USD', hint: config?.rate ? `${formatBs(50 * config.rate)} Bs` : undefined },
+          { id: 'wallet_amount:2', label: '2 RC ($2)', hint: config?.rate ? `${formatBs(2 * config.rate)} Bs` : undefined },
+          { id: 'wallet_amount:5', label: '5 RC ($5)', hint: config?.rate ? `${formatBs(5 * config.rate)} Bs` : undefined },
+          { id: 'wallet_amount:10', label: '10 RC ($10)', hint: config?.rate ? `${formatBs(10 * config.rate)} Bs` : undefined },
+          { id: 'wallet_amount:20', label: '20 RC ($20)', hint: config?.rate ? `${formatBs(20 * config.rate)} Bs` : undefined },
+          { id: 'wallet_amount:50', label: '50 RC ($50)', hint: config?.rate ? `${formatBs(50 * config.rate)} Bs` : undefined },
         ],
         optionsVariant: 'buttons',
         actions: [MENU_ACTION],
@@ -461,9 +461,9 @@ export function useRefillChatBot() {
               ? [`🏷️ Descuento${quote.couponCode ? ` (${quote.couponCode})` : ''}: -${formatUsd(quote.discountUsd)}`]
               : []),
             ...(quote.creatorCode && quote.discountUsd > 0 ? [`🎬 Código de creador: ${quote.creatorCode}`] : []),
-            ...(quote.walletAppliedUsd > 0 ? [`👛 Saldo a favor: -${formatUsd(quote.walletAppliedUsd)}`] : []),
+            ...(quote.walletAppliedUsd > 0 ? [`🪙 RefillCoins: -${formatRefillCoins(quote.walletAppliedUsd)}`] : []),
             quote.amountDueUsd <= 0
-              ? '✅ Total: $0.00 (cubierto con tu saldo)'
+              ? '✅ Total: $0.00 (cubierto con tus RefillCoins)'
               : `💳 Total a pagar: ${formatUsd(quote.amountDueUsd)} · ${formatBs(quote.totalBs)}`,
           ]
         : [`💵 ${formatUsd(chosen.priceUsd)} · ${formatBs(chosen.priceBs)}`];
@@ -471,7 +471,7 @@ export function useRefillChatBot() {
       const actions: ChatOption[] = [
         {
           id: 'pay',
-          label: quote && quote.amountDueUsd <= 0 ? '✅ Pagar con mi saldo' : '💳 Continuar al pago',
+          label: quote && quote.amountDueUsd <= 0 ? '✅ Pagar con RefillCoins' : '💳 Continuar al pago',
         },
         ...(config?.features.couponsEnabled
           ? [
@@ -485,8 +485,8 @@ export function useRefillChatBot() {
               {
                 id: 'wallet:toggle',
                 label: walletRef.current
-                  ? '👛 No usar mi saldo'
-                  : `👛 Usar mi saldo (${formatUsd(quote.walletBalanceUsd)})`,
+                  ? '🪙 No usar mis RefillCoins'
+                  : `🪙 Usar mis RefillCoins (${formatRefillCoins(quote.walletBalanceUsd)})`,
               },
             ]
           : []),
@@ -537,13 +537,13 @@ export function useRefillChatBot() {
     botSay([
       {
         text: [
-          'Este es el resumen de tu recarga de saldo:',
-          '💰 Producto: RefillCoins (Saldo interno)',
+          'Este es el resumen de tu recarga de RefillCoins (1 USD = 1 RC):',
+          '🪙 Producto: RefillCoins',
           ...priceLines,
         ].join('\n'),
       },
       {
-        text: '¿Todo correcto? El saldo se acreditará en tu billetera automáticamente al verificar el pago.',
+        text: '¿Todo correcto? Tus RefillCoins se acreditarán automáticamente al verificar el pago.',
         actions,
       },
     ]);
@@ -717,7 +717,7 @@ export function useRefillChatBot() {
     walletRef.current = false;
             push({
               from: 'bot',
-              text: `✅ ¡Orden ${data.order.code} pagada con tu saldo a favor! Estamos procesando tu recarga.`,
+              text: `✅ ¡Orden ${data.order.code} pagada con tus RefillCoins! Estamos procesando tu recarga.`,
             });
             setFinalOrder(data.order);
             setStep('monitoring');
@@ -1146,7 +1146,7 @@ export function useRefillChatBot() {
     }
 
     if (kind === 'wallet' && value === 'toggle') {
-      push({ from: 'user', text: walletRef.current ? 'No usar mi saldo' : 'Usar mi saldo a favor' });
+      push({ from: 'user', text: walletRef.current ? 'No usar mis RefillCoins' : 'Usar mis RefillCoins' });
       walletRef.current = !walletRef.current;
       resummary();
       return;

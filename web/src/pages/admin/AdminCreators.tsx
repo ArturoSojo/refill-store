@@ -6,7 +6,7 @@
  * ver cómo van y pagarles.
  */
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Coins, Sparkles, TrendingUp, Wallet } from 'lucide-react';
+import { ArrowLeft, Coins, Sparkles, TrendingUp } from 'lucide-react';
 import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { useAdminCreators, useAdminCreator, usePayCreator } from '@/hooks/useAdmin';
@@ -17,7 +17,7 @@ import { ConfirmDialog } from '@/components/ui/Modal';
 import { Badge, EmptyState, ErrorState, Skeleton } from '@/components/ui/Feedback';
 import { LoadMore } from '@/components/common/LoadMore';
 import { ROUTES } from '@/lib/constants';
-import { formatDateTime, formatRelative, formatUsd } from '@/lib/format';
+import { formatDateTime, formatRelative, formatUsd, formatRefillCoins } from '@/lib/format';
 import { cn, errorMessage } from '@/lib/utils';
 import type { CommissionStatus } from '@/types/models';
 
@@ -206,12 +206,12 @@ export function AdminCreatorDetail() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
-              <Wallet className="h-4 w-4 text-neon-red" aria-hidden />
+              <Coins className="h-4 w-4 text-amber-400" aria-hidden />
               Liquidar comisiones
             </h2>
             <p className="mt-1 max-w-lg text-xs leading-relaxed text-slate-400">
-              Acredita lo pendiente como saldo en la cuenta del creador, que puede gastarlo en
-              recargas. Queda registrado en su cartera y en la bitácora.
+              Acredita lo pendiente como RefillCoins en la cuenta del creador (1 USD = 1 RC), que puede gastarlas en
+              recargas. Queda registrado en su cuenta y en la bitácora.
             </p>
           </div>
 
@@ -221,7 +221,7 @@ export function AdminCreatorDetail() {
             leftIcon={<Coins className="h-4 w-4" aria-hidden />}
             onClick={() => setConfirmPay(true)}
           >
-            Pagar {formatUsd(pending)}
+            Pagar {formatRefillCoins(pending)}
           </Button>
         </div>
       </Card>
@@ -296,9 +296,9 @@ export function AdminCreatorDetail() {
           });
         }}
         title="Liquidar comisiones"
-        message={`Se acreditarán ${formatUsd(pending)} al saldo de ${
+        message={`Se acreditarán ${formatRefillCoins(pending)} en RefillCoins a ${
           creator.displayName ?? creator.code
-        }. Esta acción no se puede deshacer desde el panel.`}
+        } (1 USD = 1 RC). Esta acción no se puede deshacer desde el panel.`}
         confirmLabel="Sí, pagar"
         cancelLabel="Volver"
         loading={pay.isPending}

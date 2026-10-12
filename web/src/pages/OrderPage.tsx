@@ -7,7 +7,7 @@ import {
   Clock,
   LifeBuoy,
   MessageCircle,
-  Wallet,
+  Coins,
   XCircle,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -19,7 +19,7 @@ import { ConfirmDialog } from '@/components/ui/Modal';
 import { OrderStatusBadge, FullPageLoader, ErrorState } from '@/components/ui/Feedback';
 import { CopyField } from '@/components/common/CopyField';
 import { ROUTES } from '@/lib/constants';
-import { formatBs, formatDateTime, formatUsd, statusMeta } from '@/lib/format';
+import { formatBs, formatDateTime, formatUsd, formatRefillCoins, statusMeta } from '@/lib/format';
 import { describeOrder } from '@/lib/orderItem';
 import { cn, errorMessage, openWhatsapp } from '@/lib/utils';
 import type { OrderEvent } from '@/types/models';
@@ -240,10 +240,10 @@ export function OrderPage() {
             {walletApplied > 0 && (
               <div className="flex justify-between gap-3">
                 <dt className="flex items-center gap-1.5 text-slate-400">
-                  <Wallet className="h-3.5 w-3.5 text-emerald-400" aria-hidden />
-                  Saldo a favor
+                  <Coins className="h-3.5 w-3.5 text-amber-400" aria-hidden />
+                  RefillCoins
                 </dt>
-                <dd className="tabular text-emerald-400">−{formatUsd(walletApplied)}</dd>
+                <dd className="tabular text-amber-400">−{formatRefillCoins(walletApplied)}</dd>
               </div>
             )}
             <div className="flex justify-between gap-3 border-t border-base-600 pt-2">
@@ -254,7 +254,7 @@ export function OrderPage() {
                 <span className="block font-bold tabular text-white">
                   {order.pricing.totalBs > 0
                     ? formatBs(order.pricing.totalBs)
-                    : 'Pagado con saldo'}
+                    : 'Pagado con RefillCoins'}
                 </span>
                 <span className="block text-xs tabular text-slate-500">
                   {formatUsd(order.pricing.totalUsd)} · tasa {order.pricing.rate}
@@ -381,7 +381,7 @@ export function OrderPage() {
             onSuccess: () => {
               toast.success(
                 walletApplied > 0
-                  ? `Orden cancelada. Te devolvimos ${formatUsd(walletApplied)} a tu saldo.`
+                  ? `Orden cancelada. Te devolvimos ${formatRefillCoins(walletApplied)} a tus RefillCoins.`
                   : 'Orden cancelada.'
               );
               setConfirmCancel(false);
@@ -393,7 +393,7 @@ export function OrderPage() {
         title="Cancelar la orden"
         message={
           walletApplied > 0
-            ? `Se anulará la orden ${order.code} y te devolveremos ${formatUsd(walletApplied)} a tu saldo a favor. Si ya transferiste, no la canceles: escríbenos.`
+            ? `Se anulará la orden ${order.code} y te devolveremos ${formatRefillCoins(walletApplied)} en RefillCoins. Si ya transferiste, no la canceles: escríbenos.`
             : `Se anulará la orden ${order.code}. Si ya transferiste el dinero, no la canceles: escríbenos por soporte.`
         }
         confirmLabel="Sí, cancelar"

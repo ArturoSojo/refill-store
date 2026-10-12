@@ -187,7 +187,7 @@ export function CheckoutPage() {
           if (data.payment.amountBs <= 0) {
             setFinalOrder(data.order);
             setStep('result');
-            toast.success('Pagada con tu saldo a favor.');
+            toast.success('Pagada con tus RefillCoins.');
             return;
           }
 

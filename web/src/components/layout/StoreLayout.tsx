@@ -13,7 +13,7 @@ import {
   X,
   Menu,
   LifeBuoy,
-  Wallet,
+  Coins,
   Users,
   ChevronRight,
 } from 'lucide-react';
@@ -26,7 +26,7 @@ import { cn, initials, isImageUrl } from '@/lib/utils';
 import { captureCreatorCodeFromUrl } from '@/lib/creatorCode';
 import { StoreModals } from '@/components/common/StoreModals';
 import { RefillChatbot } from '@/features/chatbot';
-import { formatBs, formatUsd } from '@/lib/format';
+import { formatBs, formatRefillCoins } from '@/lib/format';
 import { Button, ButtonLink } from '@/components/ui/Button';
 import type { StoreNotice } from '@/types/models';
 
@@ -169,7 +169,7 @@ function AccountDrawer({ open, onClose }: { open: boolean; onClose: () => void }
   const links = [
     { to: ROUTES.account, label: 'Mi cuenta', icon: UserIcon },
     { to: ROUTES.orders, label: 'Mis órdenes', icon: Receipt },
-    { to: ROUTES.wallet, label: 'Mi saldo', icon: Wallet },
+    { to: ROUTES.wallet, label: 'RefillCoins', icon: Coins },
     { to: ROUTES.playerIds, label: 'Mis cuentas guardadas', icon: Gamepad2 },
     { to: ROUTES.referrals, label: 'Referidos', icon: Users },
     { to: ROUTES.support, label: 'Soporte', icon: LifeBuoy },
@@ -216,9 +216,13 @@ function AccountDrawer({ open, onClose }: { open: boolean; onClose: () => void }
             </div>
 
             {me.profile.walletBalanceUsd > 0 && (
-              <p className="mt-3 rounded-lg bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300">
-                Saldo a favor: <strong>{formatUsd(me.profile.walletBalanceUsd)}</strong>
-              </p>
+              <div className="mt-3 flex items-center justify-between rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+                <span className="flex items-center gap-1.5 font-medium">
+                  <Coins className="h-3.5 w-3.5 text-amber-400" />
+                  RefillCoins:
+                </span>
+                <strong className="font-bold text-amber-200">{formatRefillCoins(me.profile.walletBalanceUsd)}</strong>
+              </div>
             )}
           </div>
         )}

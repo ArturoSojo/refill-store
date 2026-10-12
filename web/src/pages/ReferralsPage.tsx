@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Field';
 import { CopyField } from '@/components/common/CopyField';
 import { FullPageLoader, EmptyState } from '@/components/ui/Feedback';
-import { formatUsd } from '@/lib/format';
+import { formatRefillCoins } from '@/lib/format';
 import { errorMessage } from '@/lib/utils';
 
 export function ReferralsPage() {
@@ -89,10 +89,10 @@ export function ReferralsPage() {
           <p className="mt-1 text-xs text-slate-400">Jugadores invitados</p>
         </Card>
         <Card className="text-center">
-          <p className="text-2xl font-bold tabular text-emerald-400">
-            {formatUsd(me.profile.walletBalanceUsd)}
+          <p className="text-2xl font-bold tabular text-amber-400">
+            {formatRefillCoins(me.profile.walletBalanceUsd)}
           </p>
-          <p className="mt-1 text-xs text-slate-400">Saldo acumulado</p>
+          <p className="mt-1 text-xs text-slate-400">RefillCoins disponibles</p>
         </Card>
       </div>
 
@@ -105,7 +105,7 @@ export function ReferralsPage() {
           {[
             'Comparte tu código o enlace con otros jugadores.',
             'Ellos lo registran en esta misma página al crear su cuenta.',
-            'Cuando completen su primera recarga, se acredita saldo a tu cuenta.',
+            'Cuando completen su primera recarga, se acreditan RefillCoins a tu cuenta (1 USD = 1 RC).',
           ].map((step, index) => (
             <li key={step} className="flex gap-3">
               <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-neon-red/20 text-xs font-bold text-neon-crimson">
