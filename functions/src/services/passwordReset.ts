@@ -10,7 +10,7 @@ const APPROVED_WEB_ORIGINS = new Set([
   'https://www.recargasrefillstore.com',
   'https://refill-store-ve.netlify.app',
 ]);
-const SUPPORT_EMAIL = 'recargasrefillstore@gmail.com';
+const SUPPORT_EMAIL = 'soporterefillstore@gmail.com';
 
 function escapeHtml(value: string): string {
   return value
@@ -78,7 +78,7 @@ function render(email: string, link: string, config: AppConfig) {
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:28px 12px;background:#0b0f19">
     <tr><td align="center">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:540px;background:#1f2937;border:1px solid #374151;border-radius:16px;overflow:hidden">
-        <tr><td style="padding:22px 28px;background:#111827;color:#fff;font-size:22px;font-weight:700;text-align:center;border-bottom:1px solid #374151">${brand}</td></tr>
+        <tr><td style="padding:22px 28px;background:#111827;color:#fff;font-size:22px;font-weight:700;text-align:center;border-bottom:1px solid #374151"><img src="https://recargasrefillstore.com/brand/emblem-128.png" alt="Refill Store" width="36" height="36" style="vertical-align:middle;margin-right:10px;border-radius:8px;display:inline-block;" /><span style="vertical-align:middle">${brand}</span></td></tr>
         <tr><td style="padding:32px 28px">
           <h1 style="margin:0 0 16px;font-size:24px;color:#fff;text-align:center">Restablece tu contraseña</h1>
           <p style="font-size:15px;line-height:1.6;color:#d1d5db">Hola,</p>

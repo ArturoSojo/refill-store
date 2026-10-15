@@ -160,7 +160,7 @@ export function renderOrderEmail(
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#1f2937;border-radius:16px;overflow:hidden;border:1px solid ${BORDE};">
 
         <tr><td style="background:#111827;padding:22px 28px;text-align:center;border-bottom:1px solid ${BORDE};">
-          <span style="color:#ffffff;font-size:22px;font-weight:700;">${escape(config.storeName)}</span>
+          <img src="https://recargasrefillstore.com/brand/emblem-128.png" alt="Refill Store" width="36" height="36" style="vertical-align:middle;margin-right:10px;border-radius:8px;display:inline-block;" /><span style="color:#ffffff;font-size:22px;font-weight:700;vertical-align:middle;">${escape(config.storeName)}</span>
         </td></tr>
 
         <tr><td style="padding:32px 28px 8px;">
