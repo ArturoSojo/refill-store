@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Eye, EyeOff, Gamepad2, History, Lock, Mail, ShieldCheck, User, Zap } from 'lucide-react';
+import { Eye, EyeOff, Gamepad2, History, Lock, Mail, Phone, ShieldCheck, User, Zap } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth, authErrorMessage } from '@/providers/AuthProvider';
 import { useDocumentTitle } from '@/hooks/useMisc';
@@ -11,6 +11,8 @@ import { FullPageLoader } from '@/components/ui/Feedback';
 import { AnimatedBackground } from '@/components/common/Decor';
 import { BrandLockup } from '@/components/common/Brand';
 import { ROUTES } from '@/lib/constants';
+import { api } from '@/lib/api';
+import { isPhoneInput, normalizePhone } from '@/lib/phone';
 import { cn } from '@/lib/utils';
 
 const BENEFITS = [
@@ -53,7 +55,9 @@ export function LoginPage() {
   const navigate = useNavigate();
 
   const [mode, setMode] = useState<Mode>('login');
+  const [identifier, setIdentifier] = useState('');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -69,8 +73,18 @@ export function LoginPage() {
   if (loading) return <FullPageLoader />;
   if (user) return <Navigate to={from} replace />;
 
-  const canSubmit =
-    email.includes('@') && password.length >= 6 && (mode === 'login' || name.trim().length >= 2);
+  const isLoginValid =
+    mode === 'login' &&
+    password.length >= 6 &&
+    (identifier.includes('@') || normalizePhone(identifier).length >= 7);
+
+  const isRegisterValid =
+    mode === 'register' &&
+    password.length >= 6 &&
+    email.includes('@') &&
+    name.trim().length >= 2;
+
+  const canSubmit = isLoginValid || isRegisterValid;
 
   const submit = async () => {
     if (!canSubmit) return;
@@ -78,10 +92,44 @@ export function LoginPage() {
 
     try {
       if (mode === 'login') {
-        await signInWithEmail(email, password);
+        let targetEmail = identifier.trim();
+        if (!targetEmail.includes('@')) {
+          const normalized = normalizePhone(targetEmail);
+          const res = await api.post<{ exists: boolean; email: string | null; maskedEmail: string | null }>(
+            '/auth/resolve-phone',
+            { phone: normalized },
+            { anonymous: true }
+          );
+          if (!res.exists || !res.email) {
+            toast.error('No encontramos ninguna cuenta asociada a este número de teléfono.');
+            return;
+          }
+          targetEmail = res.email;
+        }
+
+        await signInWithEmail(targetEmail, password);
         toast.success('¡Bienvenido de vuelta!');
       } else {
-        await registerWithEmail(email, password, name);
+        const cleanEmail = email.trim();
+        let normalizedRegisterPhone: string | undefined;
+        if (phone.trim()) {
+          normalizedRegisterPhone = normalizePhone(phone.trim());
+          if (!normalizedRegisterPhone || normalizedRegisterPhone.length < 8) {
+            toast.error('El número de teléfono no tiene un formato válido.');
+            return;
+          }
+          const check = await api.post<{ exists: boolean }>(
+            '/auth/resolve-phone',
+            { phone: normalizedRegisterPhone },
+            { anonymous: true }
+          );
+          if (check.exists) {
+            toast.error('Este número de teléfono ya está registrado en otra cuenta.');
+            return;
+          }
+        }
+
+        await registerWithEmail(cleanEmail, password, name, normalizedRegisterPhone);
         toast.success('Cuenta creada. ¡A recargar!');
       }
     } catch (error) {
@@ -92,14 +140,44 @@ export function LoginPage() {
   };
 
   const handleReset = async () => {
-    if (!email.includes('@')) {
-      toast.error('Escribe tu correo primero y vuelve a tocar aquí.');
+    const raw = identifier.trim();
+    if (!raw) {
+      toast.error('Escribe tu correo o número de teléfono en el campo de arriba y vuelve a tocar aquí.');
+      return;
+    }
+
+    if (raw.includes('@')) {
+      try {
+        await resetPassword(raw);
+        toast.success('Si ese correo tiene una cuenta, recibirás instrucciones para restablecer la contraseña.');
+      } catch (error) {
+        toast.error(authErrorMessage(error));
+      }
+      return;
+    }
+
+    const normalized = normalizePhone(raw);
+    if (!normalized || normalized.length < 8) {
+      toast.error('Ingresa un número de teléfono válido.');
       return;
     }
 
     try {
-      await resetPassword(email);
-      toast.success('Si ese correo tiene una cuenta, recibirás instrucciones para restablecer la contraseña.');
+      const res = await api.post<{ exists: boolean; email: string | null; maskedEmail: string | null }>(
+        '/auth/resolve-phone',
+        { phone: normalized },
+        { anonymous: true }
+      );
+
+      if (!res.exists || !res.email) {
+        toast.error('No encontramos ninguna cuenta asociada a este número de teléfono.');
+        return;
+      }
+
+      await resetPassword(res.email);
+      toast.success(
+        `Hemos enviado las instrucciones de recuperación al correo asociado a tu número (${res.maskedEmail || res.email})`
+      );
     } catch (error) {
       toast.error(authErrorMessage(error));
     }
@@ -144,7 +222,9 @@ export function LoginPage() {
 
           <div className="my-5 flex items-center gap-3">
             <span className="h-px flex-1 bg-base-600" />
-            <span className="text-xs font-medium text-slate-500">o con tu correo</span>
+            <span className="text-xs font-medium text-slate-500">
+              {mode === 'login' ? 'o con tu correo o teléfono' : 'o con tus datos'}
+            </span>
             <span className="h-px flex-1 bg-base-600" />
           </div>
 
@@ -155,27 +235,55 @@ export function LoginPage() {
               void submit();
             }}
           >
-            {mode === 'register' && (
+            {mode === 'login' ? (
               <Input
-                label="Tu nombre"
-                value={name}
-                onChange={(event) => setName(event.target.value.slice(0, 60))}
-                placeholder="Cómo te llamamos"
-                leftIcon={<User className="h-4 w-4" aria-hidden />}
-                autoComplete="name"
+                label="Correo electrónico o Número de teléfono"
+                value={identifier}
+                onChange={(event) => setIdentifier(event.target.value)}
+                placeholder="tucorreo@gmail.com o 04121234567"
+                leftIcon={
+                  isPhoneInput(identifier) ? (
+                    <Phone className="h-4 w-4" aria-hidden />
+                  ) : (
+                    <Mail className="h-4 w-4" aria-hidden />
+                  )
+                }
+                autoComplete="username"
               />
-            )}
+            ) : (
+              <>
+                <Input
+                  label="Tu nombre"
+                  value={name}
+                  onChange={(event) => setName(event.target.value.slice(0, 60))}
+                  placeholder="Cómo te llamamos"
+                  leftIcon={<User className="h-4 w-4" aria-hidden />}
+                  autoComplete="name"
+                />
 
-            <Input
-              label="Correo"
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value.trim())}
-              placeholder="tucorreo@gmail.com"
-              leftIcon={<Mail className="h-4 w-4" aria-hidden />}
-              autoComplete="email"
-              inputMode="email"
-            />
+                <Input
+                  label="Correo electrónico"
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value.trim())}
+                  placeholder="tucorreo@gmail.com"
+                  leftIcon={<Mail className="h-4 w-4" aria-hidden />}
+                  autoComplete="email"
+                  inputMode="email"
+                />
+
+                <Input
+                  label="Teléfono (opcional)"
+                  type="tel"
+                  value={phone}
+                  onChange={(event) => setPhone(event.target.value)}
+                  placeholder="0412-1234567"
+                  leftIcon={<Phone className="h-4 w-4" aria-hidden />}
+                  autoComplete="tel"
+                  hint="Para acceder o recuperar tu cuenta sin usar SMS."
+                />
+              </>
+            )}
 
             <Input
               label="Contraseña"
@@ -210,7 +318,17 @@ export function LoginPage() {
           <div className="mt-4 flex items-center justify-between text-xs">
             <button
               type="button"
-              onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
+              onClick={() => {
+                if (mode === 'login') {
+                  if (identifier.includes('@')) setEmail(identifier);
+                  else if (identifier.trim()) setPhone(identifier);
+                  setMode('register');
+                } else {
+                  if (email.trim()) setIdentifier(email);
+                  else if (phone.trim()) setIdentifier(phone);
+                  setMode('login');
+                }
+              }}
               className="font-semibold text-neon-crimson hover:underline"
             >
               {mode === 'login' ? 'Crear una cuenta nueva' : 'Ya tengo cuenta'}

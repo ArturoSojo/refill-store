@@ -4,7 +4,8 @@ import { z } from 'zod';
 import { FieldValue } from 'firebase-admin/firestore';
 import { users, tickets, now } from '../config/firebase';
 import { asyncHandler, ok, parseBody, parseParams, parseQuery } from '../lib/http';
-import { failedPrecondition, forbidden, notFound } from '../lib/errors';
+import { failedPrecondition, forbidden, invalidArgument, notFound } from '../lib/errors';
+import { normalizePhone } from '../lib/phone';
 import { requireAuth, currentUser } from '../middleware/auth';
 import { rateLimit } from '../middleware/rateLimit';
 import * as usersService from '../services/users';
@@ -73,7 +74,24 @@ meRouter.patch(
 
     const patch: Record<string, unknown> = { updatedAt: now() };
     if (body.displayName !== undefined) patch.displayName = body.displayName;
-    if (body.phone !== undefined) patch.phone = body.phone;
+    if (body.phone !== undefined) {
+      if (body.phone === null || body.phone.trim() === '') {
+        patch.phone = null;
+      } else {
+        const normalized = normalizePhone(body.phone);
+        if (!normalized) {
+          throw invalidArgument('Número de teléfono inválido.');
+        }
+
+        const existing = await users().where('phone', '==', normalized).limit(2).get();
+        const isDuplicate = existing.docs.some((doc) => doc.id !== user.uid);
+        if (isDuplicate) {
+          throw failedPrecondition('Este número de teléfono ya está registrado en otra cuenta.');
+        }
+
+        patch.phone = normalized;
+      }
+    }
     if (body.preferences) {
       patch.preferences = { ...profile.preferences, ...body.preferences };
     }

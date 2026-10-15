@@ -32,6 +32,7 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { auth, googleProvider } from '@/lib/firebase';
 import { api } from '@/lib/api';
+import { normalizePhone } from '@/lib/phone';
 import { QUERY_KEYS } from '@/lib/constants';
 import type { MeResponse } from '@/types/models';
 
@@ -49,8 +50,8 @@ interface AuthContextValue {
   profileLoading: boolean;
   signInWithGoogle: () => Promise<void>;
   signInWithEmail: (email: string, password: string) => Promise<void>;
-  registerWithEmail: (email: string, password: string, name: string) => Promise<void>;
-  resetPassword: (email: string) => Promise<void>;
+  registerWithEmail: (email: string, password: string, name: string, phone?: string) => Promise<void>;
+  resetPassword: (identifier: string) => Promise<{ message: string; maskedEmail: string | null }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -170,12 +171,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const registerWithEmail = useCallback(
-    async (email: string, password: string, name: string) => {
+    async (email: string, password: string, name: string, phone?: string) => {
       setSigningIn(true);
       try {
         const credential = await createUserWithEmailAndPassword(auth, email.trim(), password);
         if (name.trim()) {
           await updateProfile(credential.user, { displayName: name.trim() });
+        }
+        if (phone && phone.trim()) {
+          const normalized = normalizePhone(phone);
+          if (normalized) {
+            await api.patch('/me', { phone: normalized }).catch(() => undefined);
+          }
         }
       } finally {
         setSigningIn(false);
@@ -184,11 +191,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     []
   );
 
-  const resetPassword = useCallback(async (email: string) => {
-    await api.post('/auth/password-reset', {
-      email: email.trim(),
-      client: 'web',
-    }, { anonymous: true });
+  const resetPassword = useCallback(async (identifier: string) => {
+    return api.post<{ message: string; maskedEmail: string | null }>(
+      '/auth/password-reset',
+      {
+        identifier: identifier.trim(),
+        client: 'web',
+      },
+      { anonymous: true }
+    );
   }, []);
 
   const signOut = useCallback(async () => {

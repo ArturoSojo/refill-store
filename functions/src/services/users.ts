@@ -14,6 +14,7 @@ import { round } from '../lib/money';
 import * as stats from './stats';
 import * as tiers from '../lib/tiers';
 import { getConfig } from './settings';
+import { sendWelcomeEmail } from './welcomeEmail';
 import type { AuthUser } from '../middleware/auth';
 import type { TierDefinition, UserProfile, UserRole, UserTier, WalletTransaction } from '../types/models';
 
@@ -142,6 +143,10 @@ export async function ensureProfile(authUser: AuthUser): Promise<UserProfile> {
   await ref.set(profile);
   await stats.trackEvent({ type: 'user_created' });
   log.info('Perfil de usuario creado', { uid: authUser.uid });
+
+  if (profile.email) {
+    void sendWelcomeEmail(profile.email, profile.displayName);
+  }
 
   return { uid: authUser.uid, ...profile };
 }

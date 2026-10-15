@@ -368,7 +368,7 @@ export function AccountPage() {
             value={phone}
             onChange={(event) => setPhone(event.target.value.slice(0, 20))}
             placeholder="0412-0000000"
-            hint="Lo usamos sólo si necesitamos contactarte por una orden."
+            hint="Puedes usarlo para iniciar sesión o recuperar tu cuenta sin usar SMS."
           />
 
           <div className="space-y-3 border-t border-base-600 pt-4">
