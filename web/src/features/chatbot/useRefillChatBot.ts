@@ -108,6 +108,7 @@ export function useRefillChatBot() {
 
   // Fase 3: pago.
   const [busy, setBusy] = useState(false);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
   const [contactPhone, setContactPhone] = useState('');
   const [orderData, setOrderData] = useState<CreateOrderResponse | null>(null);
   const [finalOrder, setFinalOrder] = useState<Order | null>(null);
@@ -562,6 +563,7 @@ export function useRefillChatBot() {
         text,
         actions: [
           { id: 'auth:google', label: '🔐 Continuar con Google' },
+          { id: 'auth:login', label: '🔑 Entrar con Correo / Teléfono' },
           { id: 'menu', label: '⬅️ Menú principal' },
         ],
       },
@@ -876,6 +878,31 @@ export function useRefillChatBot() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, liveOrder, finalOrder, config?.supportUrl]);
 
+  // Si el usuario inicia sesión mientras el bot esperaba autenticación (step === 'auth'),
+  // cerramos el modal, confirmamos en el chat y avanzamos directamente al paso del pago.
+  const prevUser = useRef(user);
+  useEffect(() => {
+    const wasLoggedOut = !prevUser.current;
+    prevUser.current = user;
+
+    if (wasLoggedOut && user && step === 'auth') {
+      setAuthModalOpen(false);
+      const name = user.displayName?.split(' ')[0] || '';
+      botSay(
+        [
+          {
+            text: name
+              ? `¡Hola, ${name}! Sesión iniciada correctamente.`
+              : '¡Sesión iniciada correctamente!',
+          },
+        ],
+        () => {
+          continueToPayment(true);
+        }
+      );
+    }
+  }, [user, step]);
+
   // ---------------------------------------------------------------------------
   // Resolución de intenciones pendientes (cuando ya hay datos)
   // ---------------------------------------------------------------------------
@@ -1164,6 +1191,12 @@ export function useRefillChatBot() {
       return;
     }
 
+    if (kind === 'auth' && (value === 'login' || value === 'credentials')) {
+      push({ from: 'user', text: 'Entrar con correo o teléfono' });
+      setAuthModalOpen(true);
+      return;
+    }
+
     if (kind === 'method') {
       push({ from: 'user', text: methodLabel(value as ChatPaymentMethod) });
       createOrderFor(value as ChatPaymentMethod);
@@ -1304,6 +1337,7 @@ export function useRefillChatBot() {
     setOrderData(null);
     setFinalOrder(null);
     setContactPhone('');
+    setAuthModalOpen(false);
     setAttempts(0);
     couponRef.current = '';
     clearCreatorCode();
@@ -1352,6 +1386,8 @@ export function useRefillChatBot() {
     reset,
     selectOption,
     sendText,
+    authModalOpen,
+    setAuthModalOpen,
   };
 }
 

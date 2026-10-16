@@ -14,6 +14,7 @@ interface ModalProps {
   size?: 'sm' | 'md' | 'lg' | 'xl';
   /** Impide cerrar tocando fuera; útil mientras se procesa un pago. */
   dismissable?: boolean;
+  containerClassName?: string;
 }
 
 const SIZES = {
@@ -32,6 +33,7 @@ export function Modal({
   footer,
   size = 'md',
   dismissable = true,
+  containerClassName,
 }: ModalProps) {
   useEffect(() => {
     if (!open) return undefined;
@@ -54,7 +56,7 @@ export function Modal({
   return createPortal(
     <AnimatePresence>
       {open && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
+        <div className={cn('fixed inset-0 z-50 flex items-end justify-center sm:items-center', containerClassName)}>
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
