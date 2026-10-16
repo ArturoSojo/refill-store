@@ -1,10 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Bell,
+  Camera,
   ChevronDown,
   ChevronRight,
   Gamepad2,
+  KeyRound,
+  Loader2,
+  Lock,
   LogOut,
   Mail,
   Receipt,
@@ -16,18 +20,54 @@ import {
   Coins,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { useAuth } from '@/providers/AuthProvider';
+import { useQueryClient } from '@tanstack/react-query';
+import { updateProfile as updateAuthProfile, updatePassword } from 'firebase/auth';
+import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { auth, db, storage } from '@/lib/firebase';
+import { useAuth, authErrorMessage } from '@/providers/AuthProvider';
 import { useConfig } from '@/providers/ConfigProvider';
 import { useUpdateProfile } from '@/hooks/useAccount';
 import { useDocumentTitle } from '@/hooks/useMisc';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input, Switch } from '@/components/ui/Field';
+import { Modal } from '@/components/ui/Modal';
 import { FullPageLoader, OrderStatusBadge } from '@/components/ui/Feedback';
-import { ROUTES } from '@/lib/constants';
+import { QUERY_KEYS, ROUTES } from '@/lib/constants';
 import { TIER_META, formatBs, formatRelative, formatUsd, formatRefillCoins } from '@/lib/format';
 import { shortOrderItem } from '@/lib/orderItem';
 import { cn, errorMessage, initials } from '@/lib/utils';
+import type { MeResponse } from '@/types/models';
+
+const AVATAR_MAX_SIDE = 512;
+
+async function shrinkAvatar(file: File): Promise<{ blob: Blob; ext: string }> {
+  const defaultExt = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, AVATAR_MAX_SIDE / Math.max(bitmap.width, bitmap.height));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return { blob: file, ext: defaultExt };
+
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, 'image/webp', 0.88)
+    );
+
+    if (blob && blob.size < file.size) {
+      return { blob, ext: 'webp' };
+    }
+  } catch {
+    // Si falla el procesamiento en canvas, continúa con el archivo original
+  }
+  return { blob: file, ext: defaultExt };
+}
 
 function TierCard() {
   const { me } = useAuth();
@@ -157,13 +197,28 @@ function TierCard() {
 
 export function AccountPage() {
   useDocumentTitle('Mi cuenta');
-  const { me, profileLoading, signOut, isStaff } = useAuth();
+  const { me, user, profileLoading, signOut, isStaff, refreshProfile } = useAuth();
   const updateProfile = useUpdateProfile();
+  const queryClient = useQueryClient();
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
 
   const [displayName, setDisplayName] = useState('');
   const [phone, setPhone] = useState('');
   const [notifyEmail, setNotifyEmail] = useState(true);
   const [notifyOrders, setNotifyOrders] = useState(true);
+
+  const providers = user?.providerData.map((p) => p.providerId) ?? [];
+  const hasPasswordProvider = providers.includes('password');
+  const hasGoogleProvider = providers.includes('google.com');
+  const isGoogleOnly = hasGoogleProvider && !hasPasswordProvider;
 
   useEffect(() => {
     if (!me) return;
@@ -172,6 +227,122 @@ export function AccountPage() {
     setNotifyEmail(me.profile.preferences.notifyEmail);
     setNotifyOrders(me.profile.preferences.notifyOrderUpdates);
   }, [me]);
+
+  const handleAvatarFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !user) return;
+
+    const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!validTypes.includes(file.type)) {
+      toast.error('Formato no permitido. Solo se aceptan imágenes JPG, PNG o WebP.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    const maxBytes = 2 * 1024 * 1024; // 2MB
+    if (file.size > maxBytes) {
+      toast.error('La imagen no debe superar los 2 MB.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    setAvatarUploading(true);
+    const toastId = toast.loading('Subiendo foto de perfil…');
+
+    try {
+      const { blob, ext } = await shrinkAvatar(file);
+      const filename = `profile_${Date.now()}.${ext}`;
+      const destination = storageRef(storage, `avatars/${user.uid}/${filename}`);
+
+      await uploadBytes(destination, blob, {
+        contentType: blob.type,
+        cacheControl: 'public, max-age=31536000',
+      });
+
+      const photoURL = await getDownloadURL(destination);
+
+      // 1. Actualizar perfil en Firebase Auth
+      if (auth.currentUser) {
+        await updateAuthProfile(auth.currentUser, { photoURL });
+      }
+
+      // 2. Actualizar campo photoURL en Firestore
+      await updateDoc(doc(db, 'users', user.uid), {
+        photoURL,
+        updatedAt: serverTimestamp(),
+      });
+
+      // 3. Actualizar la caché de React Query al instante
+      queryClient.setQueryData<MeResponse>(QUERY_KEYS.me, (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          profile: {
+            ...old.profile,
+            photoURL,
+          },
+        };
+      });
+
+      // 4. Refrescar el estado global del perfil
+      await refreshProfile();
+
+      toast.success('Foto de perfil actualizada.', { id: toastId });
+    } catch (error) {
+      toast.error(errorMessage(error, 'No se pudo subir la foto de perfil.'), { id: toastId });
+    } finally {
+      setAvatarUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleChangePassword = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setPasswordError('');
+
+    if (newPassword.trim().length < 6) {
+      setPasswordError('La nueva contraseña debe tener al menos 6 caracteres.');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPasswordError('Las contraseñas no coinciden.');
+      return;
+    }
+
+    if (!auth.currentUser) {
+      toast.error('No se detectó una sesión activa.');
+      return;
+    }
+
+    setChangingPassword(true);
+    const toastId = toast.loading('Actualizando contraseña…');
+
+    try {
+      await updatePassword(auth.currentUser, newPassword);
+      toast.success('Contraseña actualizada correctamente', { id: toastId });
+      setPasswordModalOpen(false);
+      setNewPassword('');
+      setConfirmPassword('');
+      setPasswordError('');
+    } catch (error: unknown) {
+      const code = (error as { code?: string }).code;
+      if (code === 'auth/requires-recent-login') {
+        const msg =
+          'Por seguridad, esta acción requiere un inicio de sesión reciente. Cierra sesión e ingresa de nuevo para cambiar tu contraseña.';
+        setPasswordError(msg);
+        toast.error(msg, { id: toastId, duration: 6000 });
+      } else {
+        const msg = authErrorMessage(error);
+        setPasswordError(msg);
+        toast.error(msg, { id: toastId });
+      }
+    } finally {
+      setChangingPassword(false);
+    }
+  };
 
   if (profileLoading || !me) return <FullPageLoader label="Cargando tu cuenta…" />;
 
@@ -226,18 +397,57 @@ export function AccountPage() {
     <div className="mx-auto max-w-2xl space-y-4 px-4 py-6">
       <Card>
         <div className="flex items-center gap-4">
-          <span className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-base-700 text-lg font-bold text-white">
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => !avatarUploading && fileInputRef.current?.click()}
+            onKeyDown={(e) => {
+              if ((e.key === 'Enter' || e.key === ' ') && !avatarUploading) {
+                e.preventDefault();
+                fileInputRef.current?.click();
+              }
+            }}
+            className="group relative flex h-16 w-16 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-2xl bg-base-700 text-lg font-bold text-white ring-2 ring-transparent transition hover:ring-neon-red/60 focus:outline-none focus:ring-neon-red"
+            title="Cambiar foto de perfil"
+            aria-label="Cambiar foto de perfil"
+          >
             {me.profile.photoURL ? (
               <img
                 src={me.profile.photoURL}
-                alt=""
+                alt={me.profile.displayName ?? ''}
                 className="h-full w-full object-cover"
                 referrerPolicy="no-referrer"
               />
             ) : (
               initials(me.profile.displayName)
             )}
-          </span>
+
+            {/* Overlay sutil para hover o tap */}
+            <div
+              className={cn(
+                'absolute inset-0 flex flex-col items-center justify-center bg-black/65 text-white backdrop-blur-[2px] transition-opacity duration-150',
+                avatarUploading ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100'
+              )}
+            >
+              {avatarUploading ? (
+                <Loader2 className="h-5 w-5 animate-spin text-neon-crimson" />
+              ) : (
+                <>
+                  <Camera className="h-5 w-5" aria-hidden />
+                  <span className="mt-0.5 text-[9px] font-semibold tracking-wide">Cambiar</span>
+                </>
+              )}
+            </div>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="sr-only"
+              disabled={avatarUploading}
+              onChange={handleAvatarFileSelect}
+            />
+          </div>
 
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-lg font-bold text-white">
@@ -397,6 +607,123 @@ export function AccountPage() {
           </Button>
         </div>
       </Card>
+
+      <Card>
+        <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
+          <KeyRound className="h-4 w-4 text-neon-red" aria-hidden />
+          Seguridad
+        </h2>
+
+        {isGoogleOnly ? (
+          <div className="flex items-center gap-3 rounded-xl border border-base-600 bg-base-900/60 p-3.5">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-400">
+              <ShieldCheck className="h-5 w-5" aria-hidden />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-white">Tu cuenta está vinculada con Google</p>
+              <p className="text-xs text-slate-400">
+                La autenticación se realiza de forma segura a través de tu cuenta de Google.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3 rounded-xl border border-base-600 bg-base-900/60 p-3.5 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-medium text-white">Contraseña de acceso</p>
+              <p className="text-xs text-slate-400">
+                Actualiza tu clave periódicamente para mantener tu cuenta protegida.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              leftIcon={<Lock className="h-4 w-4" aria-hidden />}
+              onClick={() => {
+                setPasswordModalOpen(true);
+                setNewPassword('');
+                setConfirmPassword('');
+                setPasswordError('');
+              }}
+            >
+              Cambiar contraseña
+            </Button>
+          </div>
+        )}
+      </Card>
+
+      <Modal
+        open={passwordModalOpen}
+        onClose={() => {
+          if (!changingPassword) {
+            setPasswordModalOpen(false);
+            setNewPassword('');
+            setConfirmPassword('');
+            setPasswordError('');
+          }
+        }}
+        title="Cambiar contraseña"
+        description="Ingresa una nueva contraseña para tu cuenta (mínimo 6 caracteres)."
+        size="sm"
+        dismissable={!changingPassword}
+      >
+        <form onSubmit={handleChangePassword} className="space-y-4">
+          <Input
+            label="Nueva contraseña"
+            type="password"
+            value={newPassword}
+            onChange={(e) => {
+              setNewPassword(e.target.value);
+              setPasswordError('');
+            }}
+            placeholder="Mínimo 6 caracteres"
+            autoComplete="new-password"
+            leftIcon={<Lock className="h-4 w-4" aria-hidden />}
+            disabled={changingPassword}
+            required
+            autoFocus
+          />
+
+          <Input
+            label="Confirmar nueva contraseña"
+            type="password"
+            value={confirmPassword}
+            onChange={(e) => {
+              setConfirmPassword(e.target.value);
+              setPasswordError('');
+            }}
+            placeholder="Repite la contraseña"
+            autoComplete="new-password"
+            leftIcon={<ShieldCheck className="h-4 w-4" aria-hidden />}
+            disabled={changingPassword}
+            required
+          />
+
+          {passwordError && (
+            <p role="alert" className="text-sm text-red-400">
+              {passwordError}
+            </p>
+          )}
+
+          <div className="mt-6 flex justify-end gap-3 border-t border-base-600 pt-4">
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={changingPassword}
+              onClick={() => setPasswordModalOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              loading={changingPassword}
+              disabled={!newPassword || !confirmPassword || changingPassword}
+            >
+              Guardar contraseña
+            </Button>
+          </div>
+        </form>
+      </Modal>
 
       <Button
         variant="ghost"
