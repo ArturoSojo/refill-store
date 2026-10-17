@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { RotateCcw, Send, X, ShoppingCart, MessageSquare } from 'lucide-react';
 import { ROUTES } from '@/lib/constants';
@@ -21,6 +21,40 @@ export function ChatWindow({ refillBot, supportBot, onClose }: ChatWindowProps) 
   const navigate = useNavigate();
   const dualConfig = useDualBotConfig();
   const [draft, setDraft] = useState('');
+  const [mobileViewport, setMobileViewport] = useState<{ height: number; top: number } | null>(null);
+
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 767px)');
+    const viewport = window.visualViewport;
+
+    const updateViewport = () => {
+      if (!media.matches) {
+        setMobileViewport(null);
+        return;
+      }
+
+      const next = {
+        height: viewport?.height ?? window.innerHeight,
+        top: viewport?.offsetTop ?? 0,
+      };
+      setMobileViewport((current) =>
+        current?.height === next.height && current.top === next.top ? current : next
+      );
+    };
+
+    updateViewport();
+    window.addEventListener('resize', updateViewport);
+    media.addEventListener('change', updateViewport);
+    viewport?.addEventListener('resize', updateViewport);
+    viewport?.addEventListener('scroll', updateViewport);
+
+    return () => {
+      window.removeEventListener('resize', updateViewport);
+      media.removeEventListener('change', updateViewport);
+      viewport?.removeEventListener('resize', updateViewport);
+      viewport?.removeEventListener('scroll', updateViewport);
+    };
+  }, []);
   
   const isRefillEnabled = dualConfig.chatbot.enabled;
   const isSupportEnabled = dualConfig.supportBot.enabled;
@@ -63,7 +97,8 @@ export function ChatWindow({ refillBot, supportBot, onClose }: ChatWindowProps) 
       <div
         role="dialog"
         aria-label="Asistente virtual"
-        className="fixed inset-0 z-[60] flex flex-col bg-base-900 md:inset-auto md:bottom-6 md:right-6 md:h-[560px] md:max-h-[calc(100dvh-3rem)] md:w-[380px] md:overflow-hidden md:rounded-2xl md:border md:border-base-600 md:shadow-2xl"
+        style={mobileViewport ? { height: `${mobileViewport.height}px`, top: `${mobileViewport.top}px` } : undefined}
+        className="fixed inset-x-0 top-0 z-[60] flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-base-900 md:inset-auto md:bottom-6 md:right-6 md:h-[560px] md:max-h-[calc(100dvh-3rem)] md:w-[380px] md:rounded-2xl md:border md:border-base-600 md:shadow-2xl"
       >
         <style>{`
           @media (max-width: 768px) {
@@ -135,7 +170,7 @@ export function ChatWindow({ refillBot, supportBot, onClose }: ChatWindowProps) 
 
         <ChatMessageList messages={bot.messages} isTyping={bot.isTyping} onSelectOption={selectOption} />
 
-        <form onSubmit={handleSubmit} className="flex items-end gap-2 border-t border-base-600 bg-base-800 px-3 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+        <form onSubmit={handleSubmit} className="safe-bottom flex shrink-0 items-end gap-2 border-t border-base-600 bg-base-800 px-3 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
           <input
             type="text"
             value={draft}

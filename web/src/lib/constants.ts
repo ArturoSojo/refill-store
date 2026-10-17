@@ -18,6 +18,8 @@ export const ROUTES = {
   support: '/soporte',
   ticket: (id: string) => `/soporte/${id}`,
   faq: '/ayuda',
+  privacy: '/privacidad',
+  accountDeletion: '/eliminar-cuenta',
   login: '/entrar',
   admin: '/admin',
   adminOrders: '/admin/ordenes',

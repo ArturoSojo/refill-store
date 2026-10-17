@@ -383,6 +383,16 @@ function Footer() {
                     Preguntas frecuentes
                   </Link>
                 </li>
+                <li>
+                  <Link to={ROUTES.privacy} className="hover:text-white">
+                    Política de privacidad
+                  </Link>
+                </li>
+                <li>
+                  <Link to={ROUTES.accountDeletion} className="hover:text-white">
+                    Eliminar mi cuenta
+                  </Link>
+                </li>
               </ul>
             </div>
             <div>

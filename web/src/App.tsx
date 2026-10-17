@@ -37,6 +37,7 @@ import { AdminAlerts } from '@/pages/admin/AdminAlerts';
 import { AdminPushNotifications } from '@/pages/admin/AdminPushNotifications';
 
 import { AdminChatbotPage } from '@/pages/admin/AdminChatbotPage';
+import { AccountDeletionPage, PrivacyPolicyPage } from '@/pages/PrivacyPolicyPage';
 
 export function App() {
   return (
@@ -58,6 +59,8 @@ export function App() {
           <Route path="entrar" element={<LoginPage />} />
           <Route path="ayuda" element={<FaqPage />} />
           <Route path="soporte" element={<SupportPage />} />
+          <Route path="privacidad" element={<PrivacyPolicyPage />} />
+          <Route path="eliminar-cuenta" element={<AccountDeletionPage />} />
 
           <Route
             path="soporte/:ticketId"
