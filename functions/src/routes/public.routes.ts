@@ -15,7 +15,8 @@ import { PAGE_LIMIT } from '../lib/pagination';
 import { rateLimit } from '../middleware/rateLimit';
 import * as fazerCards from '../services/fazercards';
 import * as chatbotService from '../services/chatbot';
-import { failedPrecondition, providerError } from '../lib/errors';
+import { invalidArgument, providerError } from '../lib/errors';
+import { resolveFazerValidationCategory } from '../lib/validation';
 
 const FAZER_FAMILIES = ['topup', 'gift_card', 'game_key'] as const;
 const HOME_CATEGORIES_PER_FAMILY = 8;
@@ -199,31 +200,77 @@ publicRouter.get(
   })
 );
 
-/** Valida Free Fire en FazerCards. Esta consulta no crea una orden; el despacho
- * de las recargas de Free Fire sigue usando Inefable. */
+/** Valida Player ID / User ID en FazerCards antes de ordenar. Esta consulta no crea una orden. */
 publicRouter.post(
   '/games/:gameId/validate-player',
   rateLimit({
-    name: 'free_fire_player_validation',
-    max: 8,
+    name: 'player_id_validation',
+    max: 15,
     windowSeconds: 300,
     message: 'Hiciste varias verificaciones seguidas. Espera unos minutos.',
   }),
   asyncHandler(async (req, res) => {
     const { gameId } = parseParams(req, z.object({ gameId: z.string().min(1) }));
-    const body = parseBody(req, z.object({ playerId: z.string().trim().regex(/^\d{8,12}$/) }));
-    const isFreeFireGame = gameId === INEFABLE_FREE_FIRE_ID || gameId === 'freefire' || gameId.includes('free-fire');
-    if (!isFreeFireGame || !fazerCards.isFazerCardsConfigured()) {
-      throw failedPrecondition('La verificación de Free Fire no está disponible en esta tienda.');
+    const body = parseBody(
+      req,
+      z.object({
+        playerId: z.string().trim().optional(),
+        zoneId: z.string().trim().optional(),
+        fields: z.record(z.string()).optional(),
+      })
+    );
+
+    const game = await catalog.getGame(gameId).catch(() => null);
+    const categoryInfo = resolveFazerValidationCategory(game ?? { id: gameId });
+
+    if (!categoryInfo || !fazerCards.isFazerCardsConfigured()) {
+      throw invalidArgument('Esta categoría no soporta validación de ID.');
     }
 
-    let result: Awaited<ReturnType<typeof fazerCards.validateFreeFirePlayerId>>;
+    const rawFields = body.fields ?? {};
+    const playerId = (
+      body.playerId ||
+      rawFields.player_id ||
+      rawFields.playerId ||
+      rawFields.userId ||
+      rawFields.user_id ||
+      ''
+    ).trim();
+
+    const zoneId = (
+      body.zoneId ||
+      rawFields.zone_id ||
+      rawFields.zoneId ||
+      rawFields.server_id ||
+      rawFields.serverId ||
+      ''
+    ).trim();
+
+    if (!playerId) {
+      throw invalidArgument('Debes ingresar tu Player ID / User ID para verificar.');
+    }
+
+    const needsZone = categoryInfo.requiredFields.includes('zone_id');
+    if (needsZone && !zoneId) {
+      throw invalidArgument('Debes ingresar tu Zone ID para verificar.');
+    }
+
+    const fieldsToValidate: Record<string, string> = { player_id: playerId };
+    if (needsZone) {
+      fieldsToValidate.zone_id = zoneId;
+    }
+
+    let result: fazerCards.FazerPlayerValidation;
     try {
-      result = await fazerCards.validateFreeFirePlayerId(body.playerId);
+      result = await fazerCards.validatePlayerId(categoryInfo.categoryId, fieldsToValidate);
     } catch (error) {
+      if (error && typeof error === 'object' && (error as any).status === 400) {
+        throw invalidArgument((error as Error).message || 'Esta categoría no soporta validación de ID.');
+      }
       const message = error instanceof Error ? error.message : 'No se pudo verificar el ID con FazerCards.';
       throw providerError(message);
     }
+
     ok(res, result);
   })
 );

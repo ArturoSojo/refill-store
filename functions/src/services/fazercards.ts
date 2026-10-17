@@ -148,15 +148,24 @@ export function isFazerCardsConfigured(): boolean {
   return key() !== null;
 }
 
-/** Validates a Free Fire ID with FazerCards without creating or charging an order. */
-export async function validateFreeFirePlayerId(playerId: string): Promise<FazerPlayerValidation> {
+/** Valida un ID de jugador en FazerCards según su categoría y campos requeridos. */
+export async function validatePlayerId(
+  categoryId: string,
+  fields: Record<string, string>
+): Promise<FazerPlayerValidation> {
   const result = await call('/topups/validate-id', {
     method: 'POST',
-    body: { category_id: 'free_fire', fields: { player_id: playerId } },
+    body: { category_id: categoryId, fields },
   });
 
   const raw = result.raw ?? {};
   const data = raw.data && typeof raw.data === 'object' ? (raw.data as Raw) : raw;
+
+  if (result.httpStatus === 400) {
+    const error = new Error(result.message || 'Esta categoría no soporta validación de ID en FazerCards.');
+    (error as any).status = 400;
+    throw error;
+  }
 
   // FazerCards responde 422 cuando el ID no existe o no pertenece a una cuenta activa
   if (result.httpStatus === 422 || raw.ok === false || data.valid === false) {
@@ -176,6 +185,11 @@ export async function validateFreeFirePlayerId(playerId: string): Promise<FazerP
     playerName: str(data.player_name ?? data.playerName ?? data.nickname),
     region: str(data.region),
   };
+}
+
+/** Validates a Free Fire ID with FazerCards without creating or charging an order. */
+export async function validateFreeFirePlayerId(playerId: string): Promise<FazerPlayerValidation> {
+  return validatePlayerId('free_fire', { player_id: playerId });
 }
 
 export async function createTopup(input: {

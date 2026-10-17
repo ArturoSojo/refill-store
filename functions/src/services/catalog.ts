@@ -7,6 +7,7 @@ import { DEFAULT_PLAYER_FIELD } from '../types/models';
 import { paginate, type Page } from '../lib/pagination';
 import { FAZER_FREE_FIRE_ID, INEFABLE_FREE_FIRE_ID } from '../lib/storefront';
 import { slugify } from '../lib/ids';
+import { resolveFazerValidationCategory } from '../lib/validation';
 import type { Game, PlayerField, Product, PublicProduct } from '../types/models';
 
 export async function listGames(options: { onlyActive?: boolean } = {}): Promise<Game[]> {
@@ -298,6 +299,42 @@ export function assertPurchasable(product: Product, game: Game): void {
 export function resolvePlayerFields(game: Game): PlayerField[] {
   if (game.requiresPlayerData === false) return [];
   const declared = Array.isArray(game.playerFields) ? game.playerFields : [];
+
+  const validation = resolveFazerValidationCategory(game);
+  if (
+    validation?.categoryId === 'mobile_legends' ||
+    validation?.categoryId === 'magic_chess_gogo_global' ||
+    validation?.categoryId === 'magic_chess_gogo_ru'
+  ) {
+    const first = declared[0];
+    const second = declared[1];
+    return [
+      {
+        key: first?.key || 'player_id',
+        label: 'User ID',
+        pattern: first?.pattern || '^\\d{6,12}$',
+        help: first?.help || 'Tu User ID del juego.',
+        placeholder: first?.placeholder || 'Ej: 123456789',
+        type: first?.type || 'number',
+        providerField: first?.providerField || 'player_id',
+        required: true,
+        sensitive: false,
+      },
+      {
+        key: second?.key || 'zone_id',
+        label: 'Zone ID',
+        pattern: second?.pattern || '^\\d{3,6}$',
+        help: second?.help || 'El Zone ID es el número entre paréntesis.',
+        placeholder: second?.placeholder || 'Ej: 2345',
+        type: second?.type || 'number',
+        providerField: second?.providerField || 'player_id2',
+        required: true,
+        sensitive: false,
+      },
+      ...declared.slice(2),
+    ];
+  }
+
   if (declared.length > 0) return declared;
 
   return [

@@ -516,10 +516,17 @@ async function dispatchFazerCall(
       idempotencyKey,
     });
   }
+  const fields = { ...order.playerFields };
+  if (fields.zone_id && !fields.server_id) {
+    fields.server_id = fields.zone_id;
+  }
+  if (fields.server_id && !fields.zone_id) {
+    fields.zone_id = fields.server_id;
+  }
   return fazercards.createTopup({
     categoryId,
     offerId: call.packageId,
-    fields: order.playerFields,
+    fields,
     idempotencyKey,
   });
 }

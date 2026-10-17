@@ -15,12 +15,48 @@ import { motion } from 'framer-motion';
 import { Input } from '@/components/ui/Field';
 import { onlyDigits } from '@/lib/utils';
 import { DEFAULT_PLAYER_FIELD, type Game, type PlayerField } from '@/types/models';
+import { resolveFazerValidationCategory } from './validation';
 
 /** Campos del juego, con respaldo para documentos antiguos sin `playerFields`. */
 export function gameFields(game: Game | null | undefined): PlayerField[] {
   if (!game) return [DEFAULT_PLAYER_FIELD];
 
   const declared = Array.isArray(game.playerFields) ? game.playerFields : [];
+  const validation = resolveFazerValidationCategory(game);
+  if (
+    validation?.categoryId === 'mobile_legends' ||
+    validation?.categoryId === 'magic_chess_gogo_global' ||
+    validation?.categoryId === 'magic_chess_gogo_ru'
+  ) {
+    const first = declared[0];
+    const second = declared[1];
+    return [
+      {
+        key: first?.key || 'player_id',
+        label: 'User ID',
+        pattern: first?.pattern || '^\\d{6,12}$',
+        help: first?.help || 'Tu User ID del juego.',
+        placeholder: first?.placeholder || 'Ej: 123456789',
+        type: first?.type || 'number',
+        providerField: first?.providerField || 'player_id',
+        required: true,
+        sensitive: false,
+      },
+      {
+        key: second?.key || 'zone_id',
+        label: 'Zone ID',
+        pattern: second?.pattern || '^\\d{3,6}$',
+        help: second?.help || 'El Zone ID es el número entre paréntesis.',
+        placeholder: second?.placeholder || 'Ej: 2345',
+        type: second?.type || 'number',
+        providerField: second?.providerField || 'player_id2',
+        required: true,
+        sensitive: false,
+      },
+      ...declared.slice(2),
+    ];
+  }
+
   if (declared.length > 0) return declared;
 
   return [

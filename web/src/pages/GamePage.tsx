@@ -22,7 +22,7 @@ import {
   Zap,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { api, isFazerCardsStorefront } from '@/lib/api';
+import { api, isFazerCardsStorefront, ApiError } from '@/lib/api';
 import { useCatalog, useFamilyCatalog, useGameCatalog, groupProducts } from '@/hooks/useCatalog';
 import { usePricePreview } from '@/hooks/useOrders';
 import { useSavedPlayerIds } from '@/hooks/useAccount';
@@ -38,6 +38,7 @@ import {
   fieldsAreValid,
   gameFields,
 } from '@/features/catalog/PlayerFields';
+import { resolveFazerValidationCategory } from '@/features/catalog/validation';
 import { AnimatedBackground } from '@/components/common/Decor';
 import { Input } from '@/components/ui/Field';
 import { Modal, ConfirmDialog } from '@/components/ui/Modal';
@@ -77,7 +78,7 @@ export function GamePage() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [playerValidation, setPlayerValidation] = useState<{
-    playerId: string;
+    values: Record<string, string>;
     playerName: string | null;
     region: string | null;
   } | null>(null);
@@ -124,10 +125,12 @@ export function GamePage() {
   const requiresPlayerData = game?.requiresPlayerData !== false;
   const idIsValid = !requiresPlayerData || fieldsAreValid(fields, playerValues);
   const primaryField = fields[0];
-  const requiresFazerValidation = game?.id === 'free-fire' && isFazerCardsStorefront();
-  const currentPlayerId = primaryField ? (playerValues[primaryField.key] ?? '').trim() : '';
+  const validationCategory = useMemo(() => resolveFazerValidationCategory(game), [game]);
+  const requiresFazerValidation = Boolean(validationCategory && isFazerCardsStorefront());
   const playerIdVerified = Boolean(
-    requiresFazerValidation && playerValidation?.playerId === currentPlayerId
+    requiresFazerValidation &&
+      playerValidation &&
+      fields.every((field) => (playerValues[field.key] ?? '').trim() === (playerValidation.values[field.key] ?? ''))
   );
 
   const gameSavedIds = (savedIds.data?.playerIds ?? []).filter(
@@ -214,7 +217,7 @@ export function GamePage() {
     : !idIsValid
       ? `Completa ${missingLabel || primaryField?.label || 'los datos solicitados'} para continuar`
       : requiresFazerValidation && !playerIdVerified
-        ? 'Verifica tu ID de Free Fire para continuar'
+        ? `Verifica tu ID de ${validationCategory?.name || 'jugador'} para continuar`
       : undefined;
 
   const startCheckout = () => {
@@ -255,31 +258,47 @@ export function GamePage() {
     startCheckout();
   };
 
-  const verifyFreeFireId = async () => {
-    if (!idIsValid || !currentPlayerId || validatingPlayer) {
+  const verifyPlayerId = async () => {
+    if (!idIsValid || validatingPlayer || !game || !validationCategory) {
       setTouched(true);
       return;
     }
     setValidatingPlayer(true);
     setPlayerValidation(null);
     try {
+      const payload = {
+        playerId: primaryField ? (playerValues[primaryField.key] ?? '').trim() : '',
+        zoneId: fields[1] ? (playerValues[fields[1].key] ?? '').trim() : undefined,
+        fields: cleanValues(fields, playerValues),
+      };
       const result = await api.post<{
         valid: boolean;
         playerName: string | null;
         region: string | null;
-      }>(`/games/${encodeURIComponent(game!.id)}/validate-player`, { playerId: currentPlayerId });
+      }>(`/games/${encodeURIComponent(game.id)}/validate-player`, payload);
+
       if (!result.valid) {
-        toast.error('FazerCards no encontró una cuenta de Free Fire con ese ID. Revísalo e intenta otra vez.');
+        toast.error(`No pudimos confirmar este ID de ${validationCategory.name}. Por favor revisa los datos con el comprador e intenta otra vez.`);
         return;
       }
       setPlayerValidation({
-        playerId: currentPlayerId,
+        values: { ...playerValues },
         playerName: result.playerName,
         region: result.region,
       });
-      toast.success('ID de Free Fire verificado.');
+      toast.success(`ID de ${validationCategory.name} verificado.`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'No se pudo verificar el ID. Intenta de nuevo.');
+      if (error instanceof ApiError) {
+        if (error.status === 422) {
+          toast.error(`ID no confirmado en ${validationCategory.name}. Por favor revisa los datos con el comprador.`);
+          return;
+        }
+        if (error.status === 400) {
+          toast.error(error.message || 'Esta categoría no soporta validación de ID.');
+          return;
+        }
+      }
+      toast.error(error instanceof Error ? error.message : 'No se pudo verificar el ID. Revisa tu conexión e intenta de nuevo.');
     } finally {
       setValidatingPlayer(false);
     }
@@ -336,7 +355,12 @@ export function GamePage() {
               values={playerValues}
               onChange={(next) => {
                 setPlayerValues(next);
-                if (next[primaryField.key] !== playerValidation?.playerId) setPlayerValidation(null);
+                if (playerValidation) {
+                  const hasChanged = fields.some(
+                    (field) => (next[field.key] ?? '').trim() !== (playerValidation.values[field.key] ?? '')
+                  );
+                  if (hasChanged) setPlayerValidation(null);
+                }
               }}
               showErrors={touched}
               onBlur={() => setTouched(true)}
@@ -349,7 +373,7 @@ export function GamePage() {
                   variant={playerIdVerified ? 'success' : 'secondary'}
                   size="sm"
                   type="button"
-                  onClick={verifyFreeFireId}
+                  onClick={verifyPlayerId}
                   disabled={!idIsValid || validatingPlayer}
                 >
                   {validatingPlayer ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <BadgeCheck className="h-4 w-4" aria-hidden />}

@@ -22,6 +22,7 @@ import {
   useVerifyPayment,
 } from '@/hooks/useOrders';
 import { cleanValues, fieldsAreValid, gameFields } from '@/features/catalog/PlayerFields';
+import { resolveFazerValidationCategory } from '@/features/catalog/validation';
 import { useAuth } from '@/providers/AuthProvider';
 import { useConfig } from '@/providers/ConfigProvider';
 import { api, ApiError, isGatewayTimeout } from '@/lib/api';
@@ -325,14 +326,18 @@ export function useRefillChatBot() {
 
   const verifyPlayerAndFinish = async (selected: Game, chosen: PublicProduct, values: Record<string, string>) => {
     const isFreeFire = selected.id === 'free-fire' || (selected as any).slug === 'free-fire' || selected.id === 'freefire' || selected.name?.toLowerCase().includes('free fire');
-    const validatesPlayerId = selected.validatesPlayerId === true;
+    const validationCategory = resolveFazerValidationCategory(selected);
+    const validatesPlayerId = selected.validatesPlayerId === true || Boolean(validationCategory);
     
     if (isFreeFire || validatesPlayerId) {
-      const playerIdKey = gameFields(selected).find(f => f.key === 'playerId' || f.key.toLowerCase().includes('id'))?.key || gameFields(selected)[0]?.key;
+      const gFields = gameFields(selected);
+      const playerIdKey = gFields.find(f => f.key === 'playerId' || f.key.toLowerCase().includes('id'))?.key || gFields[0]?.key;
       const playerId = playerIdKey ? values[playerIdKey] : null;
+      const zoneIdKey = gFields.find(f => f.key !== playerIdKey && (f.key.toLowerCase().includes('zone') || f.key.toLowerCase().includes('server')))?.key;
+      const zoneId = zoneIdKey ? values[zoneIdKey] : undefined;
 
       if (playerId) {
-        console.log('[ChatBot] Verificando jugador:', { gameId: selected.id, playerId });
+        console.log('[ChatBot] Verificando jugador:', { gameId: selected.id, playerId, zoneId });
         
         setBusy(true);
         push({ from: 'bot', text: '🔍 Verificando cuenta...', progress: true });
@@ -341,7 +346,11 @@ export function useRefillChatBot() {
             valid: boolean;
             playerName: string | null;
             region: string | null;
-          }>(`/games/${encodeURIComponent(selected.id)}/validate-player`, { playerId });
+          }>(`/games/${encodeURIComponent(selected.id)}/validate-player`, {
+            playerId,
+            zoneId,
+            fields: values,
+          });
           
           setBusy(false);
           if (!result.valid) {
