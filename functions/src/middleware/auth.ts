@@ -20,6 +20,8 @@ export interface AuthUser {
   role: UserRole;
   isAdmin: boolean;
   isStaff: boolean;
+  /** Momento del último inicio de sesión real (segundos Unix), no del refresco del token. */
+  authTime: number;
 }
 
 declare global {
@@ -55,6 +57,7 @@ async function resolveUser(token: string): Promise<AuthUser> {
     role: isAdmin ? 'admin' : isStaff ? 'staff' : 'user',
     isAdmin,
     isStaff,
+    authTime: decoded.auth_time,
   };
 }
 

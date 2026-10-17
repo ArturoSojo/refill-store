@@ -95,4 +95,5 @@ export const ACTIONS = {
   COUPON_DELETED: 'coupon.deleted',
   CATALOG_SEEDED: 'catalog.seeded',
   SETUP_ADMIN_GRANTED: 'setup.admin.granted',
+  ADMIN_EMAIL_CHANGED: 'admin.email.changed',
 } as const;

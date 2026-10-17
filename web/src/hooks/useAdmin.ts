@@ -719,6 +719,15 @@ export function useTestEmail() {
   });
 }
 
+// --- Cuenta del administrador ----------------------------------------------
+
+/** Cambia el correo con el que entra el administrador que tiene la sesión abierta. */
+export function useChangeAdminEmail() {
+  return useMutation({
+    mutationFn: (email: string) => api.post<{ email: string }>('/admin/account/email', { email }),
+  });
+}
+
 // --- Cartera de un usuario -------------------------------------------------
 
 export function useAdminUserWallet(uid: string | undefined) {

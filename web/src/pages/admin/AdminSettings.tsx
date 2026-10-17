@@ -16,6 +16,7 @@ import {
   TrendingUp,
   Zap,
   ChevronRight,
+  UserCog,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
@@ -31,6 +32,7 @@ import {
   useTestAlert,
   useTestEmail,
   useSyncFazerCatalogBatch,
+  useChangeAdminEmail,
 } from '@/hooks/useAdmin';
 import { useAuth } from '@/providers/AuthProvider';
 import { useDocumentTitle } from '@/hooks/useMisc';
@@ -1179,6 +1181,8 @@ export function AdminSettings() {
         </div>
       </Card>
 
+      {isAdmin && <AdminAccountEmailCard />}
+
       {/* --- Identidad --- */}
       <Card>
         <CardHeader title="Identidad y contacto" />
@@ -1229,5 +1233,60 @@ export function AdminSettings() {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Correo con el que entra el administrador.
+ *
+ * Es a donde llegan los enlaces para restablecer la contraseña, así que tiene
+ * que ser un buzón real. Al cambiarlo se cierra la sesión para volver a entrar
+ * con el correo nuevo.
+ */
+function AdminAccountEmailCard() {
+  const { user, signOut } = useAuth();
+  const changeEmail = useChangeAdminEmail();
+  const [email, setEmail] = useState('');
+  const next = email.trim().toLowerCase();
+  const valid = /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(next) && next !== user?.email?.toLowerCase();
+
+  const submit = () => {
+    changeEmail.mutate(next, {
+      onSuccess: async () => {
+        toast.success('Correo actualizado. Entra de nuevo con el correo nuevo.', { duration: 6000 });
+        setEmail('');
+        await signOut();
+      },
+      onError: (error) => toast.error(errorMessage(error), { duration: 6000 }),
+    });
+  };
+
+  return (
+    <Card>
+      <CardHeader
+        title="Cuenta del administrador"
+        description="Correo con el que entras al panel. A él llegan los enlaces para restablecer la contraseña."
+        icon={<UserCog className="h-5 w-5" aria-hidden />}
+      />
+      <p className="mb-3 text-sm text-slate-300">
+        Correo actual: <span className="font-mono text-white">{user?.email ?? '—'}</span>
+      </p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+        <Input
+          label="Nuevo correo"
+          type="email"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          placeholder="correo@ejemplo.com"
+          containerClassName="flex-1"
+        />
+        <Button disabled={!valid} loading={changeEmail.isPending} onClick={submit}>
+          Cambiar correo
+        </Button>
+      </div>
+      <p className="mt-2 text-xs text-slate-500">
+        Por seguridad, sólo se puede cambiar en los 15 minutos siguientes a iniciar sesión.
+      </p>
+    </Card>
   );
 }

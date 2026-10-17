@@ -427,6 +427,28 @@ export function assertValidPlayerId(playerId: string, game: Game): void {
   }
 }
 
+/**
+ * Recalcula `productCount` y `minPriceUsd` de un juego creado a mano.
+ *
+ * La portada de FazerCards lee ese resumen del juego en lugar de sus productos;
+ * en los juegos sincronizados lo escribe la sincronización, en los manuales se
+ * mantiene aquí cada vez que el panel toca uno de sus productos.
+ */
+export async function refreshManualGameSummary(gameId: string): Promise<void> {
+  const ref = games().doc(gameId);
+  const snap = await ref.get();
+  if (snap.data()?.manual !== true) return;
+  const active = await listProducts({ gameId, onlyActive: true });
+  await ref.set(
+    {
+      productCount: active.length,
+      minPriceUsd: active.length ? round(Math.min(...active.map((item) => item.priceUsd)), 2) : null,
+      updatedAt: now(),
+    },
+    { merge: true }
+  );
+}
+
 /** Descuenta stock tras una venta. Ignora los productos de stock ilimitado. */
 export async function decrementStock(productId: string, quantity: number): Promise<void> {
   const ref = products().doc(productId);

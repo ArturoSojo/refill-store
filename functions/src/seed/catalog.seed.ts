@@ -833,9 +833,17 @@ export async function seedCatalog(
     marginPercent: margin,
   };
 
+  const manualGames = new Set<string>();
+
   for (const game of SEED_GAMES) {
     const ref = games().doc(game.id);
     const snap = await ref.get();
+
+    // Un juego creado a mano desde el panel no lo reescribe la siembra.
+    if (snap.data()?.manual === true) {
+      manualGames.add(game.id);
+      continue;
+    }
 
     if (snap.exists) {
       // Sólo se refrescan los datos técnicos; lo visual (colores, imágenes,
@@ -870,6 +878,7 @@ export async function seedCatalog(
   }
 
   for (const product of SEED_PRODUCTS) {
+    if (manualGames.has(product.gameId)) continue;
     const ref = products().doc(product.id);
     const snap = await ref.get();
     const priceUsd = applyMargin(product.costUsd, margin, roundStep);

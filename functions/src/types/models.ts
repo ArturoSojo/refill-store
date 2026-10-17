@@ -82,6 +82,11 @@ export interface Game {
   providerFamily?: 'topup' | 'gift_card' | 'game_key';
   /** Las gift cards y keys se compran sin ID de jugador. */
   requiresPlayerData?: boolean;
+  /**
+   * Creado a mano desde el panel. Las sincronizaciones del catálogo (FazerCards
+   * y la siembra de Inefable) nunca lo reescriben.
+   */
+  manual?: boolean;
   /** Región/plataforma informadas por FazerCards para mostrarlas al cliente. */
   region?: string | null;
   platform?: string | null;

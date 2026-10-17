@@ -21,6 +21,8 @@ interface GameFormState {
   apiGameId: string;
   apiGameType: string;
   provider: 'inefable' | 'fazercards';
+  providerFamily: Family;
+  requiresPlayerData: boolean;
   currencyLabel: string;
   currencyIcon: string;
   currencyIconUrl: string;
@@ -34,6 +36,14 @@ interface GameFormState {
   active: boolean;
   sortOrder: string;
 }
+
+type Family = 'topup' | 'gift_card' | 'game_key';
+
+const FAMILY_LABEL: Record<Family, string> = {
+  topup: 'Recarga',
+  gift_card: 'Gift card',
+  game_key: 'Game key',
+};
 
 /** Plantillas para no tener que escribir a mano los campos más habituales. */
 const FIELD_PRESETS: Array<{ id: string; label: string; build: () => PlayerField }> = [
@@ -91,6 +101,8 @@ const EMPTY: GameFormState = {
   apiGameId: '0',
   apiGameType: 'dynamic',
   provider: 'inefable',
+  providerFamily: 'topup',
+  requiresPlayerData: true,
   currencyLabel: 'Monedas',
   currencyIcon: '🎮',
   currencyIconUrl: '',
@@ -125,6 +137,8 @@ function toForm(game: Game): GameFormState {
     apiGameId: String(game.apiGameId),
     apiGameType: game.apiGameType,
     provider: game.provider ?? 'inefable',
+    providerFamily: game.providerFamily ?? 'topup',
+    requiresPlayerData: game.requiresPlayerData !== false,
     currencyLabel: game.currencyLabel,
     currencyIcon: game.currencyIcon ?? '🎮',
     currencyIconUrl: game.currencyIconUrl ?? '',
@@ -187,10 +201,12 @@ export function AdminGames() {
       apiGameId: form.provider === 'fazercards' ? form.apiGameId.trim() : Number(form.apiGameId),
       apiGameType: form.apiGameType.trim(),
       provider: form.provider,
+      requiresPlayerData: form.requiresPlayerData,
       currencyLabel: form.currencyLabel.trim(),
       currencyIcon: form.currencyIcon.trim(),
       currencyIconUrl: form.currencyIconUrl.trim(),
-      playerFields: form.playerFields.map((field) => ({
+      // Gift cards y keys se entregan como código: no le piden nada al comprador.
+      playerFields: !form.requiresPlayerData ? [] : form.playerFields.map((field) => ({
         ...field,
         key: field.key.trim(),
         label: field.label.trim(),
@@ -212,7 +228,10 @@ export function AdminGames() {
       sortOrder: Number(form.sortOrder) || 99,
     };
 
-    if (!editing) payload.id = form.id.trim() || undefined;
+    if (!editing) {
+      payload.id = form.id.trim() || undefined;
+      if (form.provider === 'fazercards') payload.providerFamily = form.providerFamily;
+    }
 
     saveGame.mutate(
       { id: editing?.id, data: payload },
@@ -300,19 +319,24 @@ export function AdminGames() {
                   <div className="flex flex-wrap items-center gap-2">
                     <h2 className="truncate text-sm font-semibold text-white">{game.name}</h2>
                     {!game.active && <Badge variant="danger">Inactivo</Badge>}
+                    {game.manual && <Badge variant="info">Manual</Badge>}
+                    {game.provider === 'fazercards' && game.providerFamily && game.providerFamily !== 'topup' && (
+                      <Badge>{FAMILY_LABEL[game.providerFamily]}</Badge>
+                    )}
                     {game.validatesPlayerId === false && (
                       <Badge variant="warning">ID sin validar</Badge>
                     )}
                   </div>
                   <p className="mt-0.5 font-mono text-xs text-slate-500">
-                    game_id {game.apiGameId} · {game.apiGameType}
+                    {game.provider === 'fazercards' ? 'FazerCards' : 'Inefable'} · {game.provider === 'fazercards' ? 'category_id' : 'game_id'} {game.apiGameId}
                   </p>
                   <p className="mt-0.5 text-xs text-slate-500">
-                    Pide:{' '}
-                    {(game.playerFields?.length > 0
-                      ? game.playerFields.map((field) => field.label)
-                      : [game.playerIdLabel]
-                    ).join(' + ')}
+                    {game.requiresPlayerData === false
+                      ? 'Se entrega como código, sin datos del jugador'
+                      : `Pide: ${(game.playerFields?.length > 0
+                          ? game.playerFields.map((field) => field.label)
+                          : [game.playerIdLabel]
+                        ).join(' + ')}`}
                   </p>
                 </div>
 
@@ -391,9 +415,15 @@ export function AdminGames() {
             <Select
               label="Proveedor"
               value={form.provider}
-              onChange={(event) =>
-                setForm({ ...form, provider: event.target.value as 'inefable' | 'fazercards' })
-              }
+              onChange={(event) => {
+                const provider = event.target.value as 'inefable' | 'fazercards';
+                setForm({
+                  ...form,
+                  provider,
+                  apiGameType: provider === 'fazercards' ? form.providerFamily : form.apiGameType,
+                  requiresPlayerData: provider === 'fazercards' ? form.providerFamily === 'topup' : true,
+                });
+              }}
               options={[
                 { value: 'inefable', label: 'Inefable (actual)' },
                 { value: 'fazercards', label: 'FazerCards' },
@@ -404,15 +434,53 @@ export function AdminGames() {
               type={form.provider === 'fazercards' ? 'text' : 'number'}
               value={form.apiGameId}
               onChange={(event) => setForm({ ...form, apiGameId: event.target.value })}
-              hint={form.provider === 'fazercards' ? 'La categoría de Top-ups en FazerCards.' : 'Free Fire = -1, Blood Strike = 15'}
+              hint={form.provider === 'fazercards' ? 'ID de la categoría en FazerCards. Cada producto lleva su offer_id como package_id.' : 'Free Fire = -1, Blood Strike = 15'}
             />
-            <Input
-              label="game_type"
-              value={form.apiGameType}
-              onChange={(event) => setForm({ ...form, apiGameType: event.target.value })}
-              hint="freefire_id, dynamic…"
-            />
+            {form.provider === 'fazercards' ? (
+              <Select
+                label="Tipo de producto"
+                value={form.providerFamily}
+                disabled={Boolean(editing)}
+                onChange={(event) => {
+                  const providerFamily = event.target.value as Family;
+                  setForm({
+                    ...form,
+                    providerFamily,
+                    apiGameType: providerFamily,
+                    requiresPlayerData: providerFamily === 'topup',
+                  });
+                }}
+                options={[
+                  { value: 'topup', label: 'Recarga (pide ID)' },
+                  { value: 'gift_card', label: 'Gift card (código)' },
+                  { value: 'game_key', label: 'Game key (código)' },
+                ]}
+                hint={editing ? 'No se cambia después de crear el juego.' : 'Define en qué sección de la tienda aparece.'}
+              />
+            ) : (
+              <Input
+                label="game_type"
+                value={form.apiGameType}
+                onChange={(event) => setForm({ ...form, apiGameType: event.target.value })}
+                hint="freefire_id, dynamic…"
+              />
+            )}
           </div>
+
+          {!editing && (
+            <p className="rounded-xl bg-sky-500/10 px-3 py-2 text-xs text-sky-200">
+              Los juegos creados aquí quedan marcados como <strong>manuales</strong>: al actualizar o
+              sincronizar el catálogo no se modifican ni se borran. Después agrega sus paquetes desde
+              Productos.
+            </p>
+          )}
+
+          <Switch
+            checked={form.requiresPlayerData}
+            onChange={(requiresPlayerData) => setForm({ ...form, requiresPlayerData })}
+            label="Pide datos del jugador"
+            description="Apágalo para gift cards o keys que se entregan como código."
+          />
 
           <div className="grid gap-4 sm:grid-cols-3">
             <Input
@@ -440,6 +508,7 @@ export function AdminGames() {
           />
 
           {/* --- Datos que se le piden al comprador --- */}
+          {form.requiresPlayerData && (<>
           <div className="rounded-2xl border border-base-600 bg-base-900/50 p-4">
             <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
               <div>
@@ -606,6 +675,7 @@ export function AdminGames() {
             rows={4}
             hint="Un paso por línea (máximo 6)."
           />
+          </>)}
 
           <div className="grid gap-4 sm:grid-cols-2">
             <ImageUpload

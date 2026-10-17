@@ -10,6 +10,7 @@ import { randomUUID } from 'crypto';
 import { getMessaging } from 'firebase-admin/messaging';
 import { getStorage } from 'firebase-admin/storage';
 import {
+  auth,
   games,
   products,
   users,
@@ -505,10 +506,13 @@ const gameSchema = z.object({
   apiGameId: z.union([z.coerce.number().int(), z.string().trim().min(1).max(100)]),
   apiGameType: z.string().trim().min(1).max(40),
   provider: z.enum(['inefable', 'fazercards']).optional(),
+  providerFamily: z.enum(['topup', 'gift_card', 'game_key']).optional(),
+  requiresPlayerData: z.boolean().optional(),
   currencyLabel: z.string().trim().min(1).max(30),
   currencyIcon: z.string().trim().max(8).optional(),
   currencyIconUrl: z.string().trim().max(500).optional(),
-  playerFields: z.array(playerFieldSchema).min(1).max(3).optional(),
+  // Vacío sólo para gift cards y keys, que no piden datos del jugador.
+  playerFields: z.array(playerFieldSchema).max(3).optional(),
   validatesPlayerId: z.boolean().optional(),
   playerIdLabel: z.string().trim().min(2).max(40).optional(),
   playerIdPattern: z.string().trim().min(2).max(120).optional(),
@@ -600,11 +604,22 @@ adminRouter.post(
     assertValidPattern(body.playerIdPattern);
     assertValidPlayerFields(body.playerFields);
 
-    const id = slugify(body.id || body.name);
+    const provider = body.provider ?? 'inefable';
+    const providerFamily = provider === 'fazercards' ? body.providerFamily ?? 'topup' : undefined;
+    const requiresPlayerData = body.requiresPlayerData ?? (providerFamily !== 'gift_card' && providerFamily !== 'game_key');
+    if (requiresPlayerData && body.playerFields?.length === 0) {
+      throw invalidArgument('Agrega al menos un dato que se le pida al comprador.');
+    }
+
+    // La tienda de FazerCards lista y busca sus categorías por el prefijo
+    // `fz-<familia>-`; con otro ID el juego existiría pero nadie lo vería.
+    const slug = slugify(body.id || body.name);
+    const prefix = providerFamily ? `fz-${providerFamily}-` : '';
+    const id = slug.startsWith(prefix) ? slug : `${prefix}${slug}`;
     const existing = await games().doc(id).get();
     if (existing.exists) throw failedPrecondition('Ya existe un juego con ese identificador.');
 
-    const playerFields = body.playerFields ?? [
+    const playerFields = !requiresPlayerData ? [] : body.playerFields ?? [
       {
         ...DEFAULT_PLAYER_FIELD,
         label: body.playerIdLabel ?? DEFAULT_PLAYER_FIELD.label,
@@ -619,7 +634,12 @@ adminRouter.post(
       shortName: body.shortName ?? body.name,
       apiGameId: body.apiGameId,
       apiGameType: body.apiGameType,
-      provider: body.provider ?? 'inefable',
+      provider,
+      ...(providerFamily ? { providerFamily } : {}),
+      requiresPlayerData,
+      manual: true,
+      productCount: 0,
+      minPriceUsd: null,
       currencyLabel: body.currencyLabel,
       currencyIcon: body.currencyIcon ?? '🎮',
       currencyIconUrl: body.currencyIconUrl ?? '',
@@ -645,7 +665,7 @@ adminRouter.post(
       actorEmail: currentUser(req).email,
       targetType: 'game',
       targetId: id,
-      summary: `Juego creado: ${body.name}.`,
+      summary: `Juego creado manualmente: ${body.name} (${provider}${providerFamily ? `/${providerFamily}` : ''}).`,
       ip: clientIp(req),
     });
 
@@ -658,7 +678,9 @@ adminRouter.patch(
   requireAdmin,
   asyncHandler(async (req, res) => {
     const { id } = parseParams(req, idParam);
-    const body = parseBody(req, gameSchema.partial());
+    // La familia forma parte del ID (`fz-<familia>-…`): cambiarla dejaría el
+    // juego fuera de la lista donde la tienda lo busca.
+    const body = parseBody(req, gameSchema.omit({ providerFamily: true }).partial());
     assertValidPattern(body.playerIdPattern);
     assertValidPlayerFields(body.playerFields);
 
@@ -843,6 +865,7 @@ adminRouter.post(
       summary: `Producto creado: ${body.name}.`,
       ip: clientIp(req),
     });
+    await catalog.refreshManualGameSummary(body.gameId);
 
     ok(res, { product: await catalog.getProduct(id) }, 201);
   })
@@ -877,6 +900,8 @@ adminRouter.patch(
       data: body,
       ip: clientIp(req),
     });
+    await catalog.refreshManualGameSummary(current.gameId);
+    if (body.gameId && body.gameId !== current.gameId) await catalog.refreshManualGameSummary(body.gameId);
 
     ok(res, { product: await catalog.getProduct(id) });
   })
@@ -899,6 +924,7 @@ adminRouter.delete(
       summary: `Producto eliminado: ${product.name}.`,
       ip: clientIp(req),
     });
+    await catalog.refreshManualGameSummary(product.gameId);
 
     ok(res, { deleted: true });
   })
@@ -983,6 +1009,62 @@ adminRouter.post(
     });
 
     ok(res, result);
+  })
+);
+
+// ===========================================================================
+// Cuenta del administrador
+// ===========================================================================
+
+/** Ventana tras iniciar sesión en la que se permite cambiar el correo de acceso. */
+const RECENT_LOGIN_SECONDS = 15 * 60;
+
+/**
+ * Cambia el correo con el que entra el propio administrador.
+ *
+ * Es el correo al que Firebase manda los enlaces de restablecimiento: si no es
+ * un buzón real, la cuenta queda sin forma de recuperarse. Se exige un inicio
+ * de sesión reciente porque, con una sesión olvidada abierta, cambiar el correo
+ * y luego pedir un restablecimiento bastaría para quedarse con la cuenta.
+ */
+adminRouter.post(
+  '/account/email',
+  requireAdmin,
+  rateLimit({ name: 'admin_email_change', max: 5, windowSeconds: 3600, keyResolver: (req) => currentUser(req).uid }),
+  asyncHandler(async (req, res) => {
+    const { email } = parseBody(req, z.object({ email: z.string().trim().toLowerCase().email().max(254) }));
+    const user = currentUser(req);
+
+    if (Date.now() / 1000 - user.authTime > RECENT_LOGIN_SECONDS) {
+      throw failedPrecondition(
+        'Por seguridad, cierra sesión y vuelve a entrar antes de cambiar el correo del administrador.'
+      );
+    }
+    if (email === user.email?.toLowerCase()) {
+      throw invalidArgument('Ese ya es el correo de tu cuenta.');
+    }
+
+    try {
+      await auth.updateUser(user.uid, { email, emailVerified: false });
+    } catch (error) {
+      if ((error as { code?: string }).code === 'auth/email-already-exists') {
+        throw failedPrecondition('Ese correo ya pertenece a otra cuenta de la tienda.');
+      }
+      throw error;
+    }
+    await users().doc(user.uid).set({ email, updatedAt: now() }, { merge: true });
+
+    await audit.record({
+      action: audit.ACTIONS.ADMIN_EMAIL_CHANGED,
+      actorUid: user.uid,
+      actorEmail: user.email,
+      targetType: 'user',
+      targetId: user.uid,
+      summary: `Correo del administrador cambiado de ${user.email ?? '(sin correo)'} a ${email}.`,
+      ip: clientIp(req),
+    });
+
+    ok(res, { email });
   })
 );
 

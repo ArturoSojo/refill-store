@@ -59,6 +59,8 @@ export interface Game {
   provider?: 'inefable' | 'fazercards';
   providerFamily?: 'topup' | 'gift_card' | 'game_key';
   requiresPlayerData?: boolean;
+  /** Creado a mano desde el panel; la sincronización no lo toca. */
+  manual?: boolean;
   region?: string | null;
   platform?: string | null;
   productCount?: number;

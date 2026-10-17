@@ -165,6 +165,12 @@ export async function syncFazerCatalog(input: { family: Family; offset: number; 
       const id = gameId(family, category.categoryId);
       const existingGame = await games().doc(id).get();
       const previousGame = existingGame.data();
+      // Un juego creado a mano desde el panel con el mismo ID es del
+      // administrador: la sincronización no lo pisa ni toca sus productos.
+      if (previousGame?.manual === true) {
+        summary.skipped += 1;
+        return;
+      }
       const meta = familyMeta(family);
       const playerFields = family === 'topup' ? fieldsFromProvider(detail.fields) : [];
       const minPriceUsd = Math.min(

@@ -114,6 +114,7 @@ setupRouter.post(
       role: 'admin',
       isAdmin: true,
       isStaff: true,
+      authTime: Math.floor(Date.now() / 1000),
     });
 
     const seedResult = body.seed ? await seedCatalog() : null;
