@@ -21,6 +21,7 @@ export type FazerFamily = 'topup' | 'gift_card' | 'game_key';
 const HOME_PRIORITY: Partial<Record<FazerFamily, string[]>> = {
   topup: [
     FAZER_FREE_FIRE_ID,
+    'freefire-id',
     INEFABLE_FREE_FIRE_ID,
     'fz-topup-blood-strike',
     'fz-topup-pubg-mobile-auto',
@@ -100,8 +101,8 @@ export async function listFazerHomeGamesByFamily(family: FazerFamily, limit: num
       const snap = await games().doc(id).get();
       if (!snap.exists) return null;
       const game = { id: snap.id, ...snap.data() } as Game;
-      const accepted = id === INEFABLE_FREE_FIRE_ID
-        ? family === 'topup' && game.provider === 'inefable'
+      const accepted = id === INEFABLE_FREE_FIRE_ID || id === 'freefire-id' || (game.manual && game.provider === 'inefable')
+        ? family === 'topup' && (game.provider ?? 'inefable') === 'inefable'
         : game.provider === 'fazercards' && game.providerFamily === family;
       return game.active && accepted ? game : null;
     }),
@@ -262,6 +263,7 @@ export function toPublicProduct(product: Product, rate: number, roundToBs: numbe
 export function toPublicGame(game: Game): Game {
   const knownCurrency: Record<string, { label: string; iconUrl: string }> = {
     [INEFABLE_FREE_FIRE_ID]: { label: 'Diamantes', iconUrl: '/coins/diamante-freefire.svg' },
+    'freefire-id': { label: 'Diamantes', iconUrl: '/coins/diamante-freefire.svg' },
     'fz-topup-blood-strike': { label: 'Oro', iconUrl: '/coins/gold-bloodstrike.svg' },
     'fz-topup-mobile-legends-global': { label: 'Diamantes', iconUrl: '/coins/diamante-mlbb.svg' },
     'fz-topup-honor-of-kings': { label: 'Tokens', iconUrl: '/coins/token-hok.svg' },

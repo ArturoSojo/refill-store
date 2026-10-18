@@ -12,6 +12,7 @@ import type { Game } from '../types/models';
 export type Storefront = 'inefable' | 'fazercards';
 
 export const INEFABLE_FREE_FIRE_ID = 'free-fire';
+export const INEFABLE_FREE_FIRE_ID_NEW = 'freefire-id';
 export const FAZER_FREE_FIRE_ID = 'fz-topup-free-fire-latam';
 
 const FAZER_HOSTS = new Set([
@@ -61,7 +62,7 @@ export function resolveStorefront(req: Request): Storefront {
 
 export function belongsToStorefront(game: Game, storefront: Storefront): boolean {
   if (storefront === 'inefable') return (game.provider ?? 'inefable') === 'inefable';
-  if (game.id === INEFABLE_FREE_FIRE_ID) return (game.provider ?? 'inefable') === 'inefable';
+  if (game.id === INEFABLE_FREE_FIRE_ID || game.id === INEFABLE_FREE_FIRE_ID_NEW) return (game.provider ?? 'inefable') === 'inefable';
   // Creado a mano desde el panel: el proveedor sólo decide por dónde se
   // despacha, no en qué tienda se muestra.
   if (game.manual === true && (game.provider ?? 'inefable') === 'inefable') return true;

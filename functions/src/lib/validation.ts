@@ -57,7 +57,9 @@ export function resolveFazerValidationCategory(
   if (
     id === 'free-fire' ||
     id === 'freefire' ||
+    id === 'freefire-id' ||
     id.includes('free-fire') ||
+    id.includes('freefire') ||
     apiId.startsWith('free_fire') ||
     name.includes('free fire')
   ) {

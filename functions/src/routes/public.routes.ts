@@ -115,12 +115,17 @@ publicRouter.get(
                 })),
             family ? Promise.resolve(undefined) : catalog.countFazerGamesByFamily(currentFamily),
           ]);
-          if (currentFamily === 'topup' && family && !cursor && (!search || 'free-fire'.startsWith(search.toLowerCase()))) {
-            const freeFire = await catalog.getGame(INEFABLE_FREE_FIRE_ID).catch(() => null);
-            if (freeFire?.active && freeFire.provider === 'inefable') {
-              const fazerIndex = page.items.findIndex((item) => item.id === FAZER_FREE_FIRE_ID);
-              page.items.splice(fazerIndex + 1, 0, freeFire);
-              if (page.total !== undefined) page.total += 1;
+          if (currentFamily === 'topup' && family && !cursor && (!search || 'free-fire'.includes(search.toLowerCase()) || 'freefire'.includes(search.toLowerCase()) || search.toLowerCase().includes('free'))) {
+            const inefableGames = await Promise.all([
+              catalog.getGame('freefire-id').catch(() => null),
+              catalog.getGame(INEFABLE_FREE_FIRE_ID).catch(() => null),
+            ]);
+            for (const freeFire of inefableGames) {
+              if (freeFire?.active && freeFire.provider === 'inefable' && !page.items.some((g) => g.id === freeFire.id)) {
+                const fazerIndex = page.items.findIndex((item) => item.id === FAZER_FREE_FIRE_ID);
+                page.items.splice(fazerIndex >= 0 ? fazerIndex + 1 : 0, 0, freeFire);
+                if (page.total !== undefined) page.total += 1;
+              }
             }
           }
           let extraCount = 0;
