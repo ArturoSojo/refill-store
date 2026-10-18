@@ -43,7 +43,7 @@ export function gameFields(game: Game | null | undefined): PlayerField[] {
         sensitive: false,
       },
       {
-        key: second?.key || 'zone_id',
+        key: second?.key || 'server_id',
         label: 'Zone ID',
         pattern: second?.pattern || '^\\d{3,6}$',
         help: second?.help || 'El Zone ID es el número entre paréntesis.',

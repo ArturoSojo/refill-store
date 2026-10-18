@@ -198,9 +198,15 @@ export async function createTopup(input: {
   fields: Record<string, string>;
   idempotencyKey: string;
 }): Promise<FazerResult> {
+  const fields = { ...input.fields };
+  if (fields.zone_id && !fields.server_id) {
+    fields.server_id = fields.zone_id;
+  }
+  delete fields.zone_id;
+
   const result = await call('/topups/order', {
     method: 'POST',
-    body: { category_id: String(input.categoryId), offer_id: String(input.offerId), fields: input.fields },
+    body: { category_id: String(input.categoryId), offer_id: String(input.offerId), fields },
     idempotencyKey: input.idempotencyKey,
   });
   log.info('Respuesta de FazerCards', {

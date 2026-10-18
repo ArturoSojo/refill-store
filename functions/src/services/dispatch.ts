@@ -516,13 +516,65 @@ async function dispatchFazerCall(
       idempotencyKey,
     });
   }
-  const fields = { ...order.playerFields };
-  if (fields.zone_id && !fields.server_id) {
-    fields.server_id = fields.zone_id;
+  const orderFields: Record<string, string> = { ...(order.playerFields ?? {}) };
+
+  // FazerCards en /topups/order espera las keys exactas declaradas en su catálogo
+  // (por ejemplo: 'player_id' y 'server_id' para Mobile Legends / Magic Chess).
+  // NUNCA acepta 'zone_id' al crear la orden ('zone_id' sólo se usa al validar ID).
+  let expectedKeys: string[] = [];
+  try {
+    const gameSnap = await games().doc(order.gameId).get();
+    if (gameSnap.exists) {
+      const g = gameSnap.data() as Game;
+      if (Array.isArray(g.playerFields) && g.playerFields.length > 0) {
+        expectedKeys = g.playerFields.map((f) => f.key).filter(Boolean);
+      }
+    }
+  } catch (err) {
+    log.warn('No se pudieron leer los playerFields del juego en dispatchFazerCall', { gameId: order.gameId, error: err });
   }
-  if (fields.server_id && !fields.zone_id) {
-    fields.zone_id = fields.server_id;
+
+  const fields: Record<string, string> = {};
+
+  if (expectedKeys.length > 0) {
+    for (const key of expectedKeys) {
+      if (orderFields[key]) {
+        fields[key] = orderFields[key];
+      } else if (key === 'server_id') {
+        fields[key] = orderFields.server_id || orderFields.zone_id || orderFields.zoneId || orderFields.serverId || order.playerId2 || '';
+      } else if (key === 'player_id') {
+        fields[key] = orderFields.player_id || orderFields.playerId || orderFields.userId || orderFields.user_id || order.playerId || '';
+      } else if (key === 'user_id') {
+        fields[key] = orderFields.user_id || orderFields.userId || orderFields.player_id || orderFields.playerId || order.playerId || '';
+      } else if (key === 'server') {
+        fields[key] = orderFields.server || orderFields.serverId || orderFields.server_id || orderFields.zone_id || order.playerId2 || '';
+      } else if (key === 'uid') {
+        fields[key] = orderFields.uid || orderFields.playerId || order.playerId || '';
+      } else {
+        fields[key] = orderFields[key] || '';
+      }
+    }
+  } else {
+    // Respaldo si no hay campos declarados en el juego: mapear alias y eliminar zone_id
+    Object.assign(fields, orderFields);
+    if (fields.zone_id && !fields.server_id) {
+      fields.server_id = fields.zone_id;
+    }
+    if (fields.zoneId && !fields.server_id) {
+      fields.server_id = fields.zoneId;
+    }
+    if (fields.playerId && !fields.player_id) {
+      fields.player_id = fields.playerId;
+    }
+    if (fields.serverId && !fields.server_id) {
+      fields.server_id = fields.serverId;
+    }
+    delete fields.zone_id;
+    delete fields.zoneId;
+    delete fields.playerId;
+    delete fields.serverId;
   }
+
   return fazercards.createTopup({
     categoryId,
     offerId: call.packageId,
