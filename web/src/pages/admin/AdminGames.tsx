@@ -200,7 +200,7 @@ export function AdminGames() {
       shortName: form.shortName.trim() || form.name.trim(),
       apiGameId: form.provider === 'fazercards' ? form.apiGameId.trim() : Number(form.apiGameId),
       apiGameType: form.apiGameType.trim(),
-      provider: form.provider,
+      ...(editing ? {} : { provider: form.provider }),
       requiresPlayerData: form.requiresPlayerData,
       currencyLabel: form.currencyLabel.trim(),
       currencyIcon: form.currencyIcon.trim(),
@@ -415,6 +415,8 @@ export function AdminGames() {
             <Select
               label="Proveedor"
               value={form.provider}
+              disabled={Boolean(editing)}
+              hint={editing ? 'Se elige al crear el juego y no se cambia después.' : 'Define por dónde se despachan las recargas.'}
               onChange={(event) => {
                 const provider = event.target.value as 'inefable' | 'fazercards';
                 setForm({
@@ -425,7 +427,7 @@ export function AdminGames() {
                 });
               }}
               options={[
-                { value: 'inefable', label: 'Inefable (actual)' },
+                { value: 'inefable', label: 'Inefable' },
                 { value: 'fazercards', label: 'FazerCards' },
               ]}
             />

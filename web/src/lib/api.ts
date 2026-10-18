@@ -9,13 +9,9 @@ import { auth } from './firebase';
 
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
 
-/** Identidad del escaparate que se envía a la API compartida. */
+/** Identidad del escaparate que se envía a la API. */
 function storefront(): 'inefable' | 'fazercards' {
-  if (typeof window === 'undefined') return 'inefable';
-  const host = window.location.hostname.toLowerCase();
-  return host === 'refill-store-ve.netlify.app' || host.endsWith('--refill-store-ve.netlify.app')
-    ? 'inefable'
-    : 'fazercards';
+  return 'fazercards';
 }
 
 export function isFazerCardsStorefront(): boolean {

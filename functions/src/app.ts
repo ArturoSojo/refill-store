@@ -36,12 +36,9 @@ export function createApp() {
         // Las vistas previa generan un subdominio distinto en cada despliegue,
         // así que no se pueden enumerar: se aceptan por patrón.
         //   Firebase: mi-canal--proyecto.web.app
-        //   Netlify:  deploy-preview-12--sitio.netlify.app
-        //             nombre-de-rama--sitio.netlify.app
         const isFirebasePreview = /^https:\/\/[\w-]+--[\w-]+\.web\.app$/.test(origin);
-        const isNetlifyPreview = /^https:\/\/[\w-]+--refill-store-ve\.netlify\.app$/.test(origin);
 
-        if (allowed.includes(origin) || isFirebasePreview || isNetlifyPreview) {
+        if (allowed.includes(origin) || isFirebasePreview) {
           return callback(null, true);
         }
         return callback(new Error(`Origen no permitido: ${origin}`));

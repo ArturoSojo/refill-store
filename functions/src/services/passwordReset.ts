@@ -8,7 +8,6 @@ const MAIN_ORIGIN = 'https://recargasrefillstore.com';
 const APPROVED_WEB_ORIGINS = new Set([
   MAIN_ORIGIN,
   'https://www.recargasrefillstore.com',
-  'https://refill-store-ve.netlify.app',
 ]);
 const SUPPORT_EMAIL = 'soporterefillstore@gmail.com';
 

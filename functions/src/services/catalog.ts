@@ -114,6 +114,22 @@ export async function listFazerHomeGamesByFamily(family: FazerFamily, limit: num
     .slice(0, limit);
 }
 
+/**
+ * Juegos creados a mano desde el panel que despachan por Inefable.
+ *
+ * Las listas de la tienda principal sólo consultan `provider == 'fazercards'`,
+ * así que estos juegos no aparecerían aunque estén activos. Son pocos, por eso
+ * se leen por el flag `manual` (índice simple) y se filtran en memoria. Siempre
+ * son recargas, así que sólo entran en la familia `topup`.
+ */
+export async function listManualInefableGames(): Promise<Game[]> {
+  const snap = await games().where('manual', '==', true).get();
+  return snap.docs
+    .map((doc) => ({ id: doc.id, ...doc.data() }) as Game)
+    .filter((game) => game.active && (game.provider ?? 'inefable') === 'inefable')
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.id.localeCompare(b.id));
+}
+
 /** Cuenta categorías visibles sin leer cada documento del catálogo. */
 export async function countFazerGamesByFamily(family: FazerFamily): Promise<number> {
   const [result, hidden] = await Promise.all([

@@ -128,11 +128,6 @@ export const geminiModel = () => fromEnv('GEMINI_MODEL', 'gemini-3.8-flash');
 const DEFAULT_ORIGINS = [
   // Dominio personalizado de producción.
   'https://recargasrefillstore.com',
-  // Netlify sirve el frontend en producción. Aunque las peticiones llegan por
-  // el proxy `/api/*` —y por tanto son del mismo origen para el navegador—, el
-  // navegador sí manda cabecera `Origin` en los POST y Netlify la reenvía tal
-  // cual, así que el dominio tiene que estar permitido aquí.
-  'https://refill-store-ve.netlify.app',
   // Hosting de Firebase, por si se despliega también ahí.
   'https://refill-e254f.web.app',
   'https://refill-e254f.firebaseapp.com',

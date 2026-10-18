@@ -680,7 +680,7 @@ adminRouter.patch(
     const { id } = parseParams(req, idParam);
     // La familia forma parte del ID (`fz-<familia>-…`): cambiarla dejaría el
     // juego fuera de la lista donde la tienda lo busca.
-    const body = parseBody(req, gameSchema.omit({ providerFamily: true }).partial());
+    const body = parseBody(req, gameSchema.omit({ providerFamily: true, provider: true }).partial());
     assertValidPattern(body.playerIdPattern);
     assertValidPlayerFields(body.playerFields);
 

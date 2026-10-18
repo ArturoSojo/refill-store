@@ -18,7 +18,6 @@ type ScreenState =
 const TRUSTED_CONTINUE_HOSTS = new Set([
   'recargasrefillstore.com',
   'www.recargasrefillstore.com',
-  'refill-store-ve.netlify.app',
 ]);
 
 function safeContinueUrl(raw: string | null): string {

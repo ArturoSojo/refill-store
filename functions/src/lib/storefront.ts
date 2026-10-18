@@ -1,8 +1,7 @@
 /**
  * Separa los dos escaparates que comparten API y Firestore.
  *
- * Netlify conserva la tienda original, que sólo vende el catálogo de
- * Inefable. En `recargasrefillstore.com`, Free Fire usa Inefable y las demás
+ * En `recargasrefillstore.com`, Free Fire usa Inefable y las demás
  * categorías usan FazerCards. La selección se hace en el servidor para que un enlace directo
  * a un producto no permita saltarse el filtro visual de la portada.
  */
@@ -15,7 +14,6 @@ export type Storefront = 'inefable' | 'fazercards';
 export const INEFABLE_FREE_FIRE_ID = 'free-fire';
 export const FAZER_FREE_FIRE_ID = 'fz-topup-free-fire-latam';
 
-const NETLIFY_HOST = 'refill-store-ve.netlify.app';
 const FAZER_HOSTS = new Set([
   'recargasrefillstore.com',
   'www.recargasrefillstore.com',
@@ -34,7 +32,6 @@ function hostFromUrl(value: string | undefined): string | null {
 
 function fromHost(host: string | null | undefined): Storefront | null {
   if (!host) return null;
-  if (host === NETLIFY_HOST || host.endsWith(`--${NETLIFY_HOST}`)) return 'inefable';
   if (FAZER_HOSTS.has(host) || host.endsWith('.web.app') || host.endsWith('.firebaseapp.com')) {
     return 'fazercards';
   }
@@ -58,15 +55,17 @@ export function resolveStorefront(req: Request): Storefront {
   const requested = req.query.storefront;
   if (requested === 'fazercards' || requested === 'inefable') return requested;
 
-  // Las llamadas antiguas y herramientas sin dominio conservan el catálogo
-  // histórico, que es el de Inefable. Es el valor más seguro por defecto.
-  return 'inefable';
+  // Herramientas sin dominio (CLI, emulador): la tienda es la de FazerCards.
+  return 'fazercards';
 }
 
 export function belongsToStorefront(game: Game, storefront: Storefront): boolean {
   if (storefront === 'inefable') return (game.provider ?? 'inefable') === 'inefable';
   if (game.id === INEFABLE_FREE_FIRE_ID) return (game.provider ?? 'inefable') === 'inefable';
   if (game.id === FAZER_FREE_FIRE_ID) return false;
+  // Creado a mano desde el panel: el proveedor sólo decide por dónde se
+  // despacha, no en qué tienda se muestra.
+  if (game.manual === true && (game.provider ?? 'inefable') === 'inefable') return true;
   return game.provider === 'fazercards';
 }
 

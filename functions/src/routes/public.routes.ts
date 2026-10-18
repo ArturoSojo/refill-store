@@ -82,7 +82,7 @@ publicRouter.get(
 /**
  * Catálogo de portada.
  * Inefable tiene sólo dos juegos, así que incluye sus paquetes activos para
- * compatibilidad con la versión publicada en Netlify. FazerCards devuelve sólo
+ * compatibilidad con clientes antiguos. FazerCards devuelve sólo
  * 8 categorías por familia y sus totales; el listado completo se consulta por
  * familia y las ofertas sólo al abrir una categoría.
  */
@@ -122,7 +122,22 @@ publicRouter.get(
               if (page.total !== undefined) page.total += 1;
             }
           }
-          return { family: currentFamily, ...page, categoryTotal: total };
+          let extraCount = 0;
+          if (currentFamily === 'topup' && !cursor) {
+            const term = search?.toLowerCase();
+            const known = new Set(page.items.map((item) => item.id));
+            const extras = (await catalog.listManualInefableGames()).filter(
+              (game) => !known.has(game.id) && (!term || game.name.toLowerCase().includes(term))
+            );
+            page.items.push(...extras);
+            if (page.total !== undefined) page.total += extras.length;
+            extraCount = extras.length;
+          }
+          return {
+            family: currentFamily,
+            ...page,
+            categoryTotal: total === undefined ? undefined : total + extraCount,
+          };
         })
       );
       ok(res, {
