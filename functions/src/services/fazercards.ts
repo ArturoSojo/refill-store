@@ -203,6 +203,17 @@ export async function createTopup(input: {
     fields.server_id = fields.zone_id;
   }
   delete fields.zone_id;
+  delete fields.zoneId;
+
+  if (fields.playerId && !fields.player_id) {
+    fields.player_id = fields.playerId;
+  }
+  delete fields.playerId;
+
+  if (fields.serverId && !fields.server_id) {
+    fields.server_id = fields.serverId;
+  }
+  delete fields.serverId;
 
   const result = await call('/topups/order', {
     method: 'POST',
@@ -355,6 +366,33 @@ export async function getFazerOffers(kind: 'topup' | 'gift_card' | 'game_key', c
     imageUrl: str(raw.imageurl ?? raw.image_url ?? data?.imageurl ?? data?.image_url),
     message: result.httpStatus >= 200 && result.httpStatus < 300 ? null : result.message,
   };
+}
+
+const categoryFieldsCache = new Map<string, { keys: string[]; expiresAt: number }>();
+
+/**
+ * Obtiene las keys exactas que FazerCards exige para recargar una categoría
+ * según GET /api/v2/topups/offers?category_id=<categoria>.
+ */
+export async function getTopupFieldKeys(categoryId: string): Promise<string[]> {
+  const normalizedId = String(categoryId).trim();
+  const cached = categoryFieldsCache.get(normalizedId);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.keys;
+  }
+
+  const detail = await getFazerOffers('topup', normalizedId);
+  if (detail.ok && Array.isArray(detail.fields) && detail.fields.length > 0) {
+    const keys = detail.fields
+      .map((f) => String((f as Raw).key ?? '').trim())
+      .filter(Boolean);
+    if (keys.length > 0) {
+      categoryFieldsCache.set(normalizedId, { keys, expiresAt: Date.now() + 60 * 60 * 1000 });
+      return keys;
+    }
+  }
+
+  return [];
 }
 
 export async function getBalance(): Promise<{ ok: boolean; balanceUsd: number | null; accountName: string | null; message: string | null }> {

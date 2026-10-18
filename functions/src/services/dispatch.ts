@@ -518,62 +518,151 @@ async function dispatchFazerCall(
   }
   const orderFields: Record<string, string> = { ...(order.playerFields ?? {}) };
 
-  // FazerCards en /topups/order espera las keys exactas declaradas en su catálogo
-  // (por ejemplo: 'player_id' y 'server_id' para Mobile Legends / Magic Chess).
-  // NUNCA acepta 'zone_id' al crear la orden ('zone_id' sólo se usa al validar ID).
-  let expectedKeys: string[] = [];
-  try {
-    const gameSnap = await games().doc(order.gameId).get();
-    if (gameSnap.exists) {
-      const g = gameSnap.data() as Game;
-      if (Array.isArray(g.playerFields) && g.playerFields.length > 0) {
-        expectedKeys = g.playerFields.map((f) => f.key).filter(Boolean);
+  // 1. Obtenemos las keys oficiales que FazerCards exige para esta categoría
+  // directamente de GET /api/v2/topups/offers?category_id=<categoria> (array "fields")
+  let expectedKeys = await fazercards.getTopupFieldKeys(String(categoryId)).catch(() => []);
+
+  // 2. Si la consulta al API falló o vino vacía, leemos las keys declaradas en el juego en Firestore
+  if (expectedKeys.length === 0) {
+    try {
+      const gameSnap = await games().doc(order.gameId).get();
+      if (gameSnap.exists) {
+        const g = gameSnap.data() as Game;
+        if (Array.isArray(g.playerFields) && g.playerFields.length > 0) {
+          expectedKeys = g.playerFields
+            .map((f) => {
+              const k = (f.providerField || f.key || '').trim();
+              if (k === 'playerId') return 'player_id';
+              if (k === 'zone_id') return 'server_id';
+              return k;
+            })
+            .filter(Boolean);
+        }
       }
+    } catch (err) {
+      log.warn('No se pudieron leer los playerFields de Firestore en dispatchFazerCall', { gameId: order.gameId, error: err });
     }
-  } catch (err) {
-    log.warn('No se pudieron leer los playerFields del juego en dispatchFazerCall', { gameId: order.gameId, error: err });
   }
 
+  // 3. Respaldo de seguridad según los datos que envió el comprador si no se obtuvieron keys:
+  if (expectedKeys.length === 0) {
+    if (orderFields.server_id || orderFields.zone_id || orderFields.serverId || orderFields.zoneId || order.playerId2) {
+      expectedKeys = ['player_id', 'server_id'];
+    } else {
+      expectedKeys = ['player_id'];
+    }
+  }
+
+  // 4. Mapeamos lo que el cliente escribió en la tienda a cada key oficial de FazerCards
   const fields: Record<string, string> = {};
+  for (let i = 0; i < expectedKeys.length; i++) {
+    const key = expectedKeys[i];
+    let val = '';
 
-  if (expectedKeys.length > 0) {
-    for (const key of expectedKeys) {
-      if (orderFields[key]) {
-        fields[key] = orderFields[key];
-      } else if (key === 'server_id') {
-        fields[key] = orderFields.server_id || orderFields.zone_id || orderFields.zoneId || orderFields.serverId || order.playerId2 || '';
-      } else if (key === 'player_id') {
-        fields[key] = orderFields.player_id || orderFields.playerId || orderFields.userId || orderFields.user_id || order.playerId || '';
-      } else if (key === 'user_id') {
-        fields[key] = orderFields.user_id || orderFields.userId || orderFields.player_id || orderFields.playerId || order.playerId || '';
-      } else if (key === 'server') {
-        fields[key] = orderFields.server || orderFields.serverId || orderFields.server_id || orderFields.zone_id || order.playerId2 || '';
-      } else if (key === 'uid') {
-        fields[key] = orderFields.uid || orderFields.playerId || order.playerId || '';
-      } else {
-        fields[key] = orderFields[key] || '';
+    if (key === 'player_id') {
+      val =
+        orderFields.player_id ||
+        orderFields.playerId ||
+        orderFields.userId ||
+        orderFields.user_id ||
+        orderFields.uid ||
+        order.playerId ||
+        '';
+    } else if (key === 'server_id') {
+      val =
+        orderFields.server_id ||
+        orderFields.zone_id ||
+        orderFields.serverId ||
+        orderFields.zoneId ||
+        order.playerId2 ||
+        '';
+    } else if (key === 'user_id') {
+      val =
+        orderFields.user_id ||
+        orderFields.userId ||
+        orderFields.player_id ||
+        orderFields.playerId ||
+        orderFields.uid ||
+        order.playerId ||
+        '';
+    } else if (key === 'server') {
+      val =
+        orderFields.server ||
+        orderFields.serverId ||
+        orderFields.server_id ||
+        orderFields.zone_id ||
+        orderFields.zoneId ||
+        order.playerId2 ||
+        '';
+    } else if (key === 'uid') {
+      val =
+        orderFields.uid ||
+        orderFields.playerId ||
+        orderFields.player_id ||
+        orderFields.userId ||
+        orderFields.user_id ||
+        order.playerId ||
+        '';
+    } else if (key === 'grow_id') {
+      val =
+        orderFields.grow_id ||
+        orderFields.growId ||
+        orderFields.playerId ||
+        orderFields.player_id ||
+        order.playerId ||
+        '';
+    } else if (key === 'account_id') {
+      val =
+        orderFields.account_id ||
+        orderFields.accountId ||
+        orderFields.playerId ||
+        orderFields.player_id ||
+        order.playerId ||
+        '';
+    } else if (key === 'bigo_id') {
+      val =
+        orderFields.bigo_id ||
+        orderFields.bigoId ||
+        orderFields.playerId ||
+        orderFields.player_id ||
+        order.playerId ||
+        '';
+    } else if (key === 'sid') {
+      val =
+        orderFields.sid ||
+        orderFields.playerId ||
+        orderFields.player_id ||
+        order.playerId ||
+        '';
+    } else if (key === 'email') {
+      val = orderFields.email || orderFields.correo || '';
+    } else if (key === 'password') {
+      val = orderFields.password || orderFields.pass || orderFields.contrasena || '';
+    } else if (key === 'account') {
+      val = orderFields.account || orderFields.character_name || order.playerId2 || '';
+    } else if (key === 'character_name') {
+      val = orderFields.character_name || orderFields.account || '';
+    } else {
+      val = orderFields[key] || '';
+    }
+
+    // Respaldo posicional si no coincidió por nombre:
+    if (!val) {
+      if (i === 0) {
+        val = order.playerId || Object.values(orderFields)[0] || '';
+      } else if (i === 1) {
+        val = order.playerId2 || Object.values(orderFields)[1] || '';
       }
     }
-  } else {
-    // Respaldo si no hay campos declarados en el juego: mapear alias y eliminar zone_id
-    Object.assign(fields, orderFields);
-    if (fields.zone_id && !fields.server_id) {
-      fields.server_id = fields.zone_id;
-    }
-    if (fields.zoneId && !fields.server_id) {
-      fields.server_id = fields.zoneId;
-    }
-    if (fields.playerId && !fields.player_id) {
-      fields.player_id = fields.playerId;
-    }
-    if (fields.serverId && !fields.server_id) {
-      fields.server_id = fields.serverId;
-    }
-    delete fields.zone_id;
-    delete fields.zoneId;
-    delete fields.playerId;
-    delete fields.serverId;
+
+    fields[key] = val.trim();
   }
+
+  // Medida de seguridad adicional: NUNCA enviar 'zone_id', 'zoneId', 'playerId' ni 'serverId'
+  delete fields.zone_id;
+  delete fields.zoneId;
+  delete fields.playerId;
+  delete fields.serverId;
 
   return fazercards.createTopup({
     categoryId,
