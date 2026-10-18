@@ -20,6 +20,7 @@ export type FazerFamily = 'topup' | 'gift_card' | 'game_key';
 
 const HOME_PRIORITY: Partial<Record<FazerFamily, string[]>> = {
   topup: [
+    FAZER_FREE_FIRE_ID,
     INEFABLE_FREE_FIRE_ID,
     'fz-topup-blood-strike',
     'fz-topup-pubg-mobile-auto',
@@ -106,7 +107,7 @@ export async function listFazerHomeGamesByFamily(family: FazerFamily, limit: num
     }),
   ]);
   const rank = new Map((HOME_PRIORITY[family] ?? []).map((id, index) => [id, index]));
-  const unique = new Map([...firstPage.filter((game) => game.id !== FAZER_FREE_FIRE_ID), ...pinned.filter((game): game is Game => Boolean(game))].map((game) => [game.id, game]));
+  const unique = new Map([...firstPage, ...pinned.filter((game): game is Game => Boolean(game))].map((game) => [game.id, game]));
   return [...unique.values()]
     .sort((a, b) => (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER)
       || (a.sortOrder ?? 0) - (b.sortOrder ?? 0)
@@ -132,12 +133,9 @@ export async function listManualInefableGames(): Promise<Game[]> {
 
 /** Cuenta categorías visibles sin leer cada documento del catálogo. */
 export async function countFazerGamesByFamily(family: FazerFamily): Promise<number> {
-  const [result, hidden] = await Promise.all([
-    games().where('provider', '==', 'fazercards').where('providerFamily', '==', family)
-      .where('active', '==', true).count().get(),
-    family === 'topup' ? games().doc(FAZER_FREE_FIRE_ID).get() : Promise.resolve(null),
-  ]);
-  return result.data().count - Number(hidden?.get('active') === true);
+  const result = await games().where('provider', '==', 'fazercards').where('providerFamily', '==', family)
+    .where('active', '==', true).count().get();
+  return result.data().count;
 }
 
 /** Lista una familia con cursor para que el catálogo grande no se lea completo. */
@@ -154,13 +152,7 @@ export async function pageFazerGamesByFamily(
     { orderBy: 'sortOrder', direction: 'asc', cursor: options.cursor, limit: options.limit, withTotal: !options.cursor },
     (id, data) => ({ id, ...data }) as Game
   );
-  if (family !== 'topup') return page;
-  const hidden = !options.cursor ? await games().doc(FAZER_FREE_FIRE_ID).get() : null;
-  return {
-    ...page,
-    items: page.items.filter((game) => game.id !== FAZER_FREE_FIRE_ID),
-    ...(page.total === undefined ? {} : { total: page.total - Number(hidden?.get('active') === true) }),
-  };
+  return page;
 }
 
 export async function getGame(gameId: string): Promise<Game> {

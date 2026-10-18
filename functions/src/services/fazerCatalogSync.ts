@@ -9,7 +9,6 @@ import { applyMargin, round } from '../lib/money';
 import { slugify } from '../lib/ids';
 import { getConfig } from './settings';
 import * as fazercards from './fazercards';
-import { FAZER_FREE_FIRE_ID } from '../lib/storefront';
 import type { PlayerField } from '../types/models';
 
 type Family = 'topup' | 'gift_card' | 'game_key';
@@ -52,7 +51,7 @@ function familyMeta(family: Family) {
 /** Prioridad inicial de categorías en portada; las demás se ordenan después. */
 const HOME_CATEGORY_ORDER: Partial<Record<Family, Record<string, number>>> = {
   topup: {
-    'fz-topup-free-fire-latam': 10,
+    'fz-topup-free-fire-latam': 0,
     'fz-topup-blood-strike': 20,
     'fz-topup-pubg-mobile-auto': 30,
     'fz-topup-mobile-legends-global': 40,
@@ -116,7 +115,13 @@ export interface FazerCatalogSummary {
  * Lee todas las categorías de recargas, tarjetas y keys permitidas para LATAM.
  * Los precios se recalculan con el margen vigente de la tienda.
  */
-export async function syncFazerCatalog(input: { family: Family; offset: number; limit: number }): Promise<FazerCatalogSummary> {
+export async function syncFazerCatalog(input: {
+  family: Family;
+  offset: number;
+  limit: number;
+  /** Si se indica, sólo se sincroniza esa categoría del proveedor. */
+  onlyCategoryId?: string;
+}): Promise<FazerCatalogSummary> {
   const config = await getConfig();
   const summary: FazerCatalogSummary = {
     createdGames: 0,
@@ -138,18 +143,15 @@ export async function syncFazerCatalog(input: { family: Family; offset: number; 
     summary.errors.push(`${family}: ${listed.message ?? 'no se pudo listar'}`);
     return summary;
   }
-  summary.totalCategories = listed.items.length;
-  const selected = listed.items.slice(input.offset, input.offset + input.limit);
+  const categories = input.onlyCategoryId
+    ? listed.items.filter((item) => item.categoryId === input.onlyCategoryId)
+    : listed.items;
+  summary.totalCategories = categories.length;
+  const selected = categories.slice(input.offset, input.offset + input.limit);
   summary.nextOffset = input.offset + selected.length;
-  summary.done = summary.nextOffset >= listed.items.length;
+  summary.done = summary.nextOffset >= categories.length;
 
   await Promise.all(selected.map(async (category) => {
-      // En el .com Free Fire se vende mediante el catálogo de Inefable.
-      // Una sincronización posterior no debe reactivar su duplicado FazerCards.
-      if (family === 'topup' && gameId(family, category.categoryId) === FAZER_FREE_FIRE_ID) {
-        summary.skipped += 1;
-        return;
-      }
       if (!visibleInLatam(family, category.name, category.note, category.region)) {
         summary.skipped += 1;
         return;

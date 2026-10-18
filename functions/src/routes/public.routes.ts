@@ -10,7 +10,7 @@ import * as catalog from '../services/catalog';
 import * as modalsService from '../services/modals';
 import { getConfig, toPublicConfig } from '../services/settings';
 import { buildSupportUrl } from '../services/whatsapp';
-import { assertStorefrontGame, belongsToStorefront, resolveStorefront, INEFABLE_FREE_FIRE_ID } from '../lib/storefront';
+import { assertStorefrontGame, belongsToStorefront, resolveStorefront, FAZER_FREE_FIRE_ID, INEFABLE_FREE_FIRE_ID } from '../lib/storefront';
 import { PAGE_LIMIT } from '../lib/pagination';
 import { rateLimit } from '../middleware/rateLimit';
 import * as fazerCards from '../services/fazercards';
@@ -118,7 +118,8 @@ publicRouter.get(
           if (currentFamily === 'topup' && family && !cursor && (!search || 'free-fire'.startsWith(search.toLowerCase()))) {
             const freeFire = await catalog.getGame(INEFABLE_FREE_FIRE_ID).catch(() => null);
             if (freeFire?.active && freeFire.provider === 'inefable') {
-              page.items.unshift(freeFire);
+              const fazerIndex = page.items.findIndex((item) => item.id === FAZER_FREE_FIRE_ID);
+              page.items.splice(fazerIndex + 1, 0, freeFire);
               if (page.total !== undefined) page.total += 1;
             }
           }

@@ -1,8 +1,8 @@
 /**
  * Separa los dos escaparates que comparten API y Firestore.
  *
- * En `recargasrefillstore.com`, Free Fire usa Inefable y las demás
- * categorías usan FazerCards. La selección se hace en el servidor para que un enlace directo
+ * En `recargasrefillstore.com`, Free Fire se vende por FazerCards y por Inefable;
+ * las demás categorías usan FazerCards. La selección se hace en el servidor para que un enlace directo
  * a un producto no permita saltarse el filtro visual de la portada.
  */
 import type { Request } from 'express';
@@ -62,7 +62,6 @@ export function resolveStorefront(req: Request): Storefront {
 export function belongsToStorefront(game: Game, storefront: Storefront): boolean {
   if (storefront === 'inefable') return (game.provider ?? 'inefable') === 'inefable';
   if (game.id === INEFABLE_FREE_FIRE_ID) return (game.provider ?? 'inefable') === 'inefable';
-  if (game.id === FAZER_FREE_FIRE_ID) return false;
   // Creado a mano desde el panel: el proveedor sólo decide por dónde se
   // despacha, no en qué tienda se muestra.
   if (game.manual === true && (game.provider ?? 'inefable') === 'inefable') return true;
