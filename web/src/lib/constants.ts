@@ -83,7 +83,7 @@ export const QUERY_KEYS = {
 } as const;
 
 /** Estados en los que conviene escuchar la orden en tiempo real. */
-export const LIVE_ORDER_STATUSES = ['verifying', 'paid', 'dispatching', 'failed'];
+export const LIVE_ORDER_STATUSES = ['verifying', 'paid', 'dispatching', 'in_review', 'failed'];
 
 export const ORDER_STATUS_OPTIONS = [
   { value: 'awaiting_payment', label: 'Esperando pago' },
@@ -92,8 +92,9 @@ export const ORDER_STATUS_OPTIONS = [
   { value: 'paid', label: 'Pagado' },
   { value: 'dispatching', label: 'Despachando' },
   { value: 'awaiting_manual', label: 'Manual pendiente' },
+  { value: 'in_review', label: 'En revisión' },
   { value: 'completed', label: 'Completado' },
-  { value: 'failed', label: 'En revisión' },
+  { value: 'failed', label: 'En revisión (legacy)' },
   { value: 'refunded', label: 'Reembolsado' },
   { value: 'cancelled', label: 'Cancelado' },
   { value: 'expired', label: 'Expirado' },

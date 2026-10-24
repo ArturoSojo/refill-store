@@ -19,7 +19,7 @@ const CANCELLABLE = ['awaiting_payment', 'payment_rejected'];
 
 const FILTERS = [
   { id: 'all', label: 'Todas', value: undefined },
-  { id: 'active', label: 'En curso', value: 'awaiting_payment,verifying,paid,dispatching,awaiting_manual,failed' },
+  { id: 'active', label: 'En curso', value: 'awaiting_payment,verifying,paid,dispatching,awaiting_manual,in_review,failed' },
   { id: 'done', label: 'Completadas', value: 'completed' },
 ] as const;
 

@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   ChevronLeft,
   Circle,
+  Clock,
   Copy,
   Eye,
   EyeOff,
@@ -23,7 +24,7 @@ import {
   useSetOrderNote,
 } from '@/hooks/useAdmin';
 import { useAuth } from '@/providers/AuthProvider';
-import { useDocumentTitle, useCopy } from '@/hooks/useMisc';
+import { useCountdown, useDocumentTitle, useCopy } from '@/hooks/useMisc';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Textarea } from '@/components/ui/Field';
@@ -53,6 +54,9 @@ export function AdminOrderDetail() {
   // Las contraseñas de las cuentas se ocultan por defecto: quedan a la vista de
   // cualquiera que mire la pantalla del panel.
   const [revealSensitive, setRevealSensitive] = useState(false);
+  const { display: reviewTimeLeft, expired: reviewExpired } = useCountdown(
+    data?.order.reviewDeadline ?? 0
+  );
 
   useDocumentTitle(data ? `Orden ${data.order.code}` : 'Orden');
 
@@ -70,11 +74,18 @@ export function AdminOrderDetail() {
   const walletApplied = order.pricing.walletAppliedUsd ?? 0;
 
   const canRetry =
-    order.fulfillment === 'auto' && ['failed', 'paid', 'dispatching'].includes(order.status);
-  const canComplete = ['paid', 'dispatching', 'failed', 'awaiting_manual'].includes(order.status);
-  const canRefund = ['paid', 'dispatching', 'failed', 'awaiting_manual', 'completed'].includes(
-    order.status
+    order.fulfillment === 'auto' &&
+    ['in_review', 'failed', 'paid', 'dispatching'].includes(order.status);
+  const canComplete = ['in_review', 'awaiting_manual', 'failed'].includes(order.status);
+  const alreadyRefunded = Boolean(
+    order.refundedAt ||
+      order.pricing.walletRefunded ||
+      order.status === 'cancelled' ||
+      order.status === 'refunded'
   );
+  const canRefund =
+    ['in_review', 'paid', 'dispatching', 'awaiting_manual', 'failed'].includes(order.status) ||
+    alreadyRefunded;
 
   return (
     <div className="space-y-4">
@@ -134,6 +145,22 @@ export function AdminOrderDetail() {
           </div>
         </div>
 
+        {order.status === 'in_review' && (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-200">
+            <span className="flex items-center gap-1.5 font-semibold">
+              <Clock className="h-4 w-4 text-amber-300" aria-hidden />
+              {order.reviewDeadline
+                ? reviewExpired
+                  ? 'Tiempo de revisión agotado (se reembolsará en el próximo barrido automático)'
+                  : `Tiempo restante para reembolso automático: ${reviewTimeLeft ?? '—'}`
+                : 'Orden en revisión manual (1 hora para reembolso automático)'}
+            </span>
+            {order.providerError && (
+              <span className="text-amber-300/90">Error proveedor: {order.providerError}</span>
+            )}
+          </div>
+        )}
+
         <div className="mt-4 flex flex-wrap gap-2 border-t border-base-600 pt-4">
           {canRetry && (
             <Button
@@ -166,10 +193,11 @@ export function AdminOrderDetail() {
             <Button
               size="sm"
               variant="danger"
+              disabled={alreadyRefunded || refund.isPending}
               leftIcon={<Undo2 className="h-4 w-4" aria-hidden />}
               onClick={() => setRefundOpen(true)}
             >
-              Reembolsar
+              {alreadyRefunded ? 'Ya reembolsada' : 'Reembolsar'}
             </Button>
           )}
 
@@ -382,9 +410,9 @@ export function AdminOrderDetail() {
             </ul>
           )}
 
-          {order.dispatch.lastError && (
+          {(order.providerError || order.dispatch.lastError) && (
             <p className="mt-3 rounded-xl bg-red-500/10 px-3 py-2 text-xs text-red-300">
-              Último error: {order.dispatch.lastError}
+              Último error: {order.providerError ?? order.dispatch.lastError}
             </p>
           )}
         </Card>
@@ -475,7 +503,7 @@ export function AdminOrderDetail() {
         message={
           <div className="space-y-4">
             <p>
-              La orden pasará a estado <strong>reembolsada</strong> y se descontará de los ingresos
+              La orden pasará a estado <strong>cancelada</strong> y se descontará de los ingresos
               del día.
             </p>
             <Switch

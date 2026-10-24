@@ -20,7 +20,7 @@ import {
 } from './config/env';
 import { createApp } from './app';
 import { log } from './lib/logger';
-import { expireStaleOrders } from './services/orders';
+import { expireStaleOrders, refundStaleReviewOrders } from './services/orders';
 import { refreshAutoRate, alertStaleRate } from './services/rate';
 import { resolveProcessingOrders } from './services/dispatch';
 import { STORE_TIMEZONE } from './services/stats';
@@ -61,6 +61,25 @@ export const expireOrders = onSchedule(
     const expired = await expireStaleOrders();
     const cleaned = await cleanupRateLimits();
     log.info('Mantenimiento periódico completado', { expired, cleaned });
+  }
+);
+
+/**
+ * Cancela y reembolsa automáticamente las órdenes `in_review` cuyo plazo de
+ * revisión manual (1 hora) ya venció.
+ */
+export const refundReviewOrders = onSchedule(
+  {
+    schedule: 'every 5 minutes',
+    timeZone: STORE_TIMEZONE,
+    timeoutSeconds: 120,
+    secrets: [TELEGRAM_BOT_TOKEN, GMAIL_APP_PASSWORD],
+  },
+  async () => {
+    const refunded = await refundStaleReviewOrders(50);
+    if (refunded > 0) {
+      log.info('Barrido de órdenes en revisión vencidas completado', { refunded });
+    }
   }
 );
 

@@ -385,10 +385,14 @@ adminRouter.post(
         note: z.string().trim().max(300).optional(),
       })
     );
-    const order = await ordersService.refundOrder(currentUser(req), id, {
-      toWallet: body.toWallet,
-      note: body.note ?? null,
-    });
+    const order = await ordersService.refundOrder(
+      id,
+      body.note ?? 'Reembolsado por el administrador',
+      {
+        actor: currentUser(req),
+        toWallet: body.toWallet,
+      }
+    );
     ok(res, { order });
   })
 );

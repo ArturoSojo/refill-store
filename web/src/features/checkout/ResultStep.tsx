@@ -36,7 +36,7 @@ export function ResultStep({ order, game, supportUrl }: ResultStepProps) {
   const isProcessing = ['paid', 'dispatching', 'verifying'].includes(order.status);
   const isDone = order.status === 'completed';
   const canRetryPayment = ['awaiting_payment', 'payment_rejected'].includes(order.status);
-  const paymentConfirmed = ['paid', 'dispatching', 'awaiting_manual', 'completed', 'failed'].includes(order.status);
+  const paymentConfirmed = ['paid', 'dispatching', 'awaiting_manual', 'in_review', 'completed', 'failed'].includes(order.status);
   const needsWhatsapp = order.status === 'awaiting_manual' && Boolean(order.whatsappUrl);
   // Manual sin chat: el equipo lo entrega y avisa. El cliente no tiene que
   // hacer nada, y decírselo así evita que escriba preguntando.
@@ -211,7 +211,7 @@ export function ResultStep({ order, game, supportUrl }: ResultStepProps) {
         </ButtonLink>
       </div>
 
-      {(order.status === 'failed' || order.status === 'payment_rejected') && supportUrl && (
+      {(order.status === 'in_review' || order.status === 'failed' || order.status === 'payment_rejected') && supportUrl && (
         <ButtonLink
           to={supportUrl}
           external

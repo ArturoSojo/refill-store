@@ -29,6 +29,7 @@ const COUNTS_AS_USE: OrderStatus[] = [
   'paid',
   'dispatching',
   'awaiting_manual',
+  'in_review',
   'completed',
   'failed',
   'refunded',

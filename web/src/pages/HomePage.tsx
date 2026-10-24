@@ -246,7 +246,7 @@ function ActiveOrdersStrip() {
   const { me } = useAuth();
 
   const active = (me?.recentOrders ?? []).filter((order) =>
-    ['awaiting_payment', 'verifying', 'paid', 'dispatching', 'awaiting_manual', 'failed'].includes(
+    ['awaiting_payment', 'verifying', 'paid', 'dispatching', 'awaiting_manual', 'in_review', 'failed'].includes(
       order.status
     )
   );

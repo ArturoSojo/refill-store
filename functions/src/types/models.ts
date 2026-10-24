@@ -269,9 +269,11 @@ export type OrderStatus =
   | 'dispatching'
   /** Producto manual pagado; pendiente de gestión humana por WhatsApp. */
   | 'awaiting_manual'
+  /** El despacho automático falló; en revisión manual por hasta 1 hora antes de reembolsar. */
+  | 'in_review'
   /** Entregado al jugador. */
   | 'completed'
-  /** Pago cobrado pero el despacho falló: requiere intervención del admin. */
+  /** Legado: pago cobrado pero el despacho falló en versiones anteriores. */
   | 'failed'
   | 'refunded'
   | 'cancelled'
@@ -283,6 +285,7 @@ export const PAID_STATUSES: OrderStatus[] = [
   'paid',
   'dispatching',
   'awaiting_manual',
+  'in_review',
   'completed',
   'failed',
 ];
@@ -496,6 +499,14 @@ export interface Order {
    */
   emailsSent: string[];
   status: OrderStatus;
+  /** Plazo máximo de revisión manual (1 hora desde el fallo del proveedor). */
+  reviewDeadline?: TimestampLike | null;
+  /** Resumen corto del error del proveedor (nunca JSON crudo). */
+  providerError?: string | null;
+  /** Marca de tiempo cuando se acreditó el reembolso determinístico. */
+  refundedAt?: TimestampLike | null;
+  /** Motivo del reembolso o cancelación. */
+  refundReason?: string | null;
   customerNote: string | null;
   adminNote: string | null;
   /** Metadatos anti-fraude. */

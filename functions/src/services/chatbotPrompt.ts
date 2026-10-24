@@ -19,7 +19,7 @@ export const STORE_FAQ = [
   {
     question: '¿Cuánto tarda en llegar mi recarga?',
     answer:
-      'Una recarga automática se despacha después de verificar el pago; puede tardar si el proveedor sigue procesándola. Un producto manual queda en gestión y se notifica cuando se complete. No prometas un tiempo exacto.',
+      'Una recarga automática se despacha después de verificar el pago; si el despacho automático falla, la orden queda en revisión manual y el saldo se devuelve automáticamente si no se completa en 1 hora. Un producto manual queda en gestión y se notifica cuando se complete. No prometas un tiempo exacto.',
   },
   {
     question: '¿Qué pasa si pago menos o más del monto?',

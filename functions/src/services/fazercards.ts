@@ -56,6 +56,17 @@ const pendingStatuses = new Set(['processing', 'pending', 'created', 'queued', '
 const str = (value: unknown): string | null =>
   value === undefined || value === null || value === '' ? null : String(value);
 
+/** Descarta cuerpos JSON/HTML crudos y acorta el texto de error del proveedor. */
+function cleanMessage(value: unknown): string | null {
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
+  const text = String(value).trim();
+  if (!text) return null;
+  if (/^[\[{<]/.test(text) || text.includes('{"') || /<!doctype|<html/i.test(text)) {
+    return null;
+  }
+  return text.slice(0, 180);
+}
+
 function orderFrom(raw: Raw): Raw {
   const data = raw.data && typeof raw.data === 'object' ? (raw.data as Raw) : null;
   const order = raw.order ?? data?.order ?? data ?? raw;
@@ -112,8 +123,18 @@ function parse(raw: Raw | null, httpStatus: number, fallback = ''): FazerResult 
     providerReference: str(order.reference_no ?? order.reference ?? root.reference_no),
     remainingBalance: null,
     message:
-      (str(root.error ?? order.error ?? root.message ?? order.message) ?? fallback) ||
-      (success ? 'Recarga entregada por FazerCards.' : processing ? 'Recarga aceptada por FazerCards.' : `FazerCards respondió HTTP ${httpStatus}.`),
+      cleanMessage(root.error) ??
+      cleanMessage(order.error) ??
+      cleanMessage(root.message) ??
+      cleanMessage(order.message) ??
+      cleanMessage(root.detail) ??
+      cleanMessage(order.detail) ??
+      cleanMessage(fallback) ??
+      (success
+        ? 'Recarga entregada por FazerCards.'
+        : processing
+          ? 'Recarga aceptada por FazerCards.'
+          : `FazerCards respondió HTTP ${httpStatus}.`),
     httpStatus,
     retryable: httpStatus === 0 || httpStatus >= 500 || httpStatus === 429,
     raw: (raw ? redactCodes(raw) : null) as Raw | null,

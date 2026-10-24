@@ -202,10 +202,18 @@ export const ORDER_STATUS_META: Record<OrderStatus, StatusMeta> = {
     description: '¡Listo! La recarga ya está en tu cuenta.',
     isLive: false,
   },
+  in_review: {
+    label: 'En revisión',
+    className: 'bg-orange-500/15 text-orange-300 border-orange-500/30',
+    description:
+      'Estamos procesando tu orden manualmente. Si no se completa en 1 hora, se te devuelve el saldo automáticamente.',
+    isLive: true,
+  },
   failed: {
     label: 'En revisión',
     className: 'bg-orange-500/15 text-orange-300 border-orange-500/30',
-    description: 'Tu pago está confirmado. Hubo un problema al entregar y ya lo estamos resolviendo.',
+    description:
+      'Estamos procesando tu orden manualmente. Si no se completa en 1 hora, se te devuelve el saldo automáticamente.',
     isLive: true,
   },
   refunded: {

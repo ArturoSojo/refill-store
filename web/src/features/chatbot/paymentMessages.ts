@@ -154,12 +154,11 @@ export function liveOrderMessages(order: Order, supportUrl?: string): BotMessage
         },
       ];
 
+    case 'in_review':
     case 'failed':
       return [
         {
-          text: order.pricing.walletRefunded 
-            ? 'No pudimos confirmar tu cuenta de juego. Revisa que el ID sea correcto e intenta nuevamente. Tus RefillCoins han sido reembolsadas.'
-            : 'Tu pago está confirmado, pero la entrega falló. El equipo ya lo está revisando.',
+          text: 'Estamos procesando tu orden manualmente. Si no se completa en 1 hora, se te devuelve el saldo automáticamente.',
           actions: [
             ...(supportUrl ? [{ id: 'support', label: '🛟 Hablar con soporte' }] : []),
             { id: 'menu', label: '🏠 Menú principal' },

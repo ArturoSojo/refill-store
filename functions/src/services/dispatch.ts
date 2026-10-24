@@ -13,7 +13,7 @@
  *  - Los productos manuales (Categoría B) no tocan el API del proveedor: se
  *    genera el enlace de WhatsApp y la orden queda esperando gestión humana.
  */
-import { orders, games, products, now, providerOrders } from '../config/firebase';
+import { db, orders, games, products, now, minutesFromNow, providerOrders } from '../config/firebase';
 import { createHash } from 'node:crypto';
 import { log } from '../lib/logger';
 import { notFound } from '../lib/errors';
@@ -26,7 +26,6 @@ import * as stats from './stats';
 import * as usersService from './users';
 import * as creatorsService from './creators';
 import { addEvent } from './orderEvents';
-import { refundWalletIfApplied } from './orders';
 import { getConfig } from './settings';
 import { sendOrderEmail } from './orderEmails';
 import { resolvePlayerFields } from './catalog';
@@ -39,6 +38,65 @@ import type {
   Order,
   OrderStatus,
 } from '../types/models';
+
+const REVIEW_CUSTOMER_MESSAGE =
+  'Estamos procesando tu orden manualmente. Si no se completa en 1 hora, se te devuelve el saldo automáticamente.';
+
+/**
+ * Limpia cualquier mensaje de error del proveedor para que nunca se guarde
+ * JSON crudo ni HTML en `providerError` o `dispatch.lastError`.
+ */
+export function sanitizeProviderError(raw: unknown, httpStatus?: number | null): string {
+  const fallback = httpStatus
+    ? `Error del proveedor (HTTP ${httpStatus}).`
+    : 'El proveedor no pudo completar la recarga.';
+
+  if (raw === null || raw === undefined) return fallback;
+
+  let text = typeof raw === 'string' ? raw.trim() : '';
+
+  if (typeof raw === 'object') {
+    const obj = raw as Record<string, unknown>;
+    const candidate =
+      (typeof obj.error === 'string' && obj.error) ||
+      (typeof obj.message === 'string' && obj.message) ||
+      (typeof obj.detail === 'string' && obj.detail) ||
+      (Array.isArray(obj.errors) && typeof obj.errors[0] === 'string' ? obj.errors[0] : '');
+    text = candidate ? candidate.trim() : '';
+  } else if (text.startsWith('{') || text.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(text) as Record<string, unknown>;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const candidate =
+          (typeof parsed.error === 'string' && parsed.error) ||
+          (typeof parsed.message === 'string' && parsed.message) ||
+          (typeof parsed.detail === 'string' && parsed.detail) ||
+          (Array.isArray(parsed.errors) && typeof parsed.errors[0] === 'string'
+            ? parsed.errors[0]
+            : '');
+        text = candidate ? candidate.trim() : '';
+      } else {
+        text = '';
+      }
+    } catch {
+      text = '';
+    }
+  }
+
+  if (
+    !text ||
+    text.startsWith('{') ||
+    text.startsWith('[') ||
+    text.startsWith('<!doctype') ||
+    text.startsWith('<html') ||
+    /[{}\[\]]/.test(text)
+  ) {
+    return fallback;
+  }
+
+  const singleLine = text.replace(/\s+/g, ' ').trim();
+  return singleLine.length > 160 ? `${singleLine.slice(0, 157)}...` : singleLine;
+}
 
 export interface DispatchOutcome {
   status: OrderStatus;
@@ -228,7 +286,20 @@ export async function dispatchOrder(
     const order = { id: snap.id, ...snap.data() } as Order;
 
     if (order.fulfillment !== 'auto') return { order, claimed: false as const };
-    if (!['paid', 'dispatching', 'failed'].includes(order.status)) {
+    if (
+      order.status === 'cancelled' ||
+      order.status === 'refunded' ||
+      Boolean(order.refundedAt) ||
+      order.pricing?.walletRefunded === true
+    ) {
+      log.warn('Intento de despachar una orden ya cancelada o reembolsada (ignorado)', {
+        orderId,
+        code: order.code,
+        status: order.status,
+      });
+      return { order, claimed: false as const };
+    }
+    if (!['paid', 'dispatching', 'in_review', 'failed'].includes(order.status)) {
       return { order, claimed: false as const };
     }
     // Otra ejecución ya está en marcha: no la duplicamos.
@@ -262,25 +333,14 @@ export async function dispatchOrder(
   const config = await getConfig();
 
   if (!config.features.autoDispatchEnabled) {
-    await orderRef.set(
-      {
-        status: 'failed',
-        dispatch: {
-          ...order.dispatch,
-          lastError: 'El despacho automático está desactivado desde el panel.',
-        },
-        updatedAt: now(),
-      },
-      { merge: true }
-    );
-    await addEvent({
-      orderId,
-      type: 'dispatch_paused',
-      message: 'Despacho automático desactivado. La orden espera acción del administrador.',
-      status: 'failed',
+    const reason = 'El despacho automático está desactivado desde el panel.';
+    const finalStatus = await finalizeDispatch(order, order.dispatch.calls, false, {
+      failure: reason,
+      actorUid: options.actorUid ?? null,
+      anyProcessing: false,
     });
     return {
-      status: 'failed',
+      status: finalStatus,
       calls: order.dispatch.calls,
       allSucceeded: false,
       message: 'El despacho automático está desactivado.',
@@ -299,12 +359,12 @@ export async function dispatchOrder(
 
   if (providerGameId === null) {
     const reason = `No se pudo determinar el game_id del proveedor para ${order.gameId}.`;
-    await orderRef.set(
-      { status: 'failed', dispatch: { ...order.dispatch, lastError: reason }, updatedAt: now() },
-      { merge: true }
-    );
-    await addEvent({ orderId, type: 'dispatch_failed', message: reason, status: 'failed' });
-    return { status: 'failed', calls: order.dispatch.calls, allSucceeded: false, message: reason };
+    const finalStatus = await finalizeDispatch(order, order.dispatch.calls, false, {
+      failure: reason,
+      actorUid: options.actorUid ?? null,
+      anyProcessing: false,
+    });
+    return { status: finalStatus, calls: order.dispatch.calls, allSucceeded: false, message: reason };
   }
 
   const calls = order.dispatch.calls.map((call) => ({ ...call }));
@@ -431,14 +491,15 @@ export async function dispatchOrder(
           },
         });
       } else {
+        const cleanMsg = sanitizeProviderError(result.message, result.httpStatus);
         call.status = 'error';
-        call.error = result.message;
-        failure = result.message;
+        call.error = cleanMsg;
+        failure = cleanMsg;
 
         await addEvent({
           orderId,
           type: 'dispatch_call_error',
-          message: `Falló la recarga ${call.index + 1}/${calls.length}: ${result.message}`,
+          message: `Falló la recarga ${call.index + 1}/${calls.length}: ${cleanMsg}`,
           data: {
             packageId: call.packageId,
             httpStatus: result.httpStatus,
@@ -449,15 +510,16 @@ export async function dispatchOrder(
         break;
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const rawMessage = error instanceof Error ? error.message : String(error);
+      const cleanMsg = sanitizeProviderError(rawMessage);
       call.status = 'error';
-      call.error = message;
-      failure = message;
+      call.error = cleanMsg;
+      failure = cleanMsg;
 
       await addEvent({
         orderId,
         type: 'dispatch_call_error',
-        message: `Error al contactar al proveedor en la recarga ${call.index + 1}: ${message}`,
+        message: `Error al contactar al proveedor en la recarga ${call.index + 1}: ${cleanMsg}`,
       });
       break;
     }
@@ -472,29 +534,22 @@ export async function dispatchOrder(
   const allSucceeded = calls.every((call) => call.status === 'success');
   const anyProcessing = calls.some((call) => call.status === 'processing');
 
-  // Mientras el proveedor tenga algo en curso la orden sigue «despachando»:
-  // marcarla fallida sería mentirle al cliente y disparar un aviso en balde.
-  const status: OrderStatus = allSucceeded
-    ? 'completed'
-    : anyProcessing
-      ? 'dispatching'
-      : 'failed';
-
-  await finalizeDispatch(order, calls, allSucceeded, {
+  const finalStatus = await finalizeDispatch(order, calls, allSucceeded, {
     failure,
     actorUid: options.actorUid ?? null,
     anyProcessing,
   });
 
   return {
-    status,
+    status: finalStatus,
     calls,
-    allSucceeded,
-    message: allSucceeded
-      ? 'Recarga entregada correctamente.'
-      : anyProcessing
-        ? 'El proveedor aceptó la recarga y la está procesando.'
-        : (failure ?? 'No se pudo completar el despacho.'),
+    allSucceeded: finalStatus === 'completed',
+    message:
+      finalStatus === 'completed'
+        ? 'Recarga entregada correctamente.'
+        : finalStatus === 'dispatching'
+          ? 'El proveedor aceptó la recarga y la está procesando.'
+          : (failure ?? 'No se pudo completar el despacho.'),
   };
 }
 
@@ -680,38 +735,105 @@ async function dispatchFazerCall(
  * significaría que a una de las dos vías se le olvide pagar la comisión o
  * mandar el correo.
  */
-async function finalizeDispatch(
+export async function finalizeDispatch(
   order: Order,
   calls: DispatchCallResult[],
   allSucceeded: boolean,
   options: { failure?: string | null; actorUid?: string | null; anyProcessing?: boolean } = {}
-): Promise<void> {
+): Promise<OrderStatus> {
   const orderId = order.id;
   const orderRef = orders().doc(orderId);
-  const failure = options.failure ?? calls.find((call) => call.error)?.error ?? null;
+  const rawFailure = options.failure ?? calls.find((call) => call.error)?.error ?? null;
+  const failure = rawFailure ? sanitizeProviderError(rawFailure) : null;
   const anyProcessing = options.anyProcessing ?? calls.some((c) => c.status === 'processing');
-  const status: OrderStatus = allSucceeded
+  const nextStatus: OrderStatus = allSucceeded
     ? 'completed'
     : anyProcessing
       ? 'dispatching'
-      : 'failed';
+      : 'in_review';
 
-  await orderRef.set(
-    {
-      status,
+  const txOutcome = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(orderRef);
+    if (!snap.exists) return { kind: 'missing' as const };
+    const current = { id: snap.id, ...snap.data() } as Order;
+
+    if (
+      current.status === 'cancelled' ||
+      current.status === 'refunded' ||
+      Boolean(current.refundedAt) ||
+      current.pricing?.walletRefunded === true
+    ) {
+      return { kind: 'already_cancelled' as const, current };
+    }
+
+    if (current.status === 'completed') {
+      return { kind: 'already_completed' as const, current };
+    }
+
+    if (!['paid', 'dispatching', 'in_review', 'failed'].includes(current.status)) {
+      return { kind: 'unexpected_status' as const, current };
+    }
+
+    const timestamp = now();
+    const updateData: Record<string, unknown> = {
+      status: nextStatus,
       dispatch: {
         calls,
-        startedAt: order.dispatch.startedAt ?? now(),
-        completedAt: allSucceeded ? now() : null,
+        startedAt: current.dispatch?.startedAt ?? order.dispatch?.startedAt ?? timestamp,
+        completedAt: allSucceeded ? timestamp : null,
         lastError: allSucceeded ? null : failure,
       },
       deliveredCodes: allSucceeded
         ? calls.flatMap((call) => call.deliveredCodes ?? [])
-        : order.deliveredCodes ?? [],
-      updatedAt: now(),
-    },
-    { merge: true }
-  );
+        : current.deliveredCodes ?? order.deliveredCodes ?? [],
+      updatedAt: timestamp,
+    };
+
+    if (nextStatus === 'in_review') {
+      updateData.reviewDeadline = current.reviewDeadline ?? minutesFromNow(60);
+      updateData.providerError = failure ?? 'No se pudo completar el despacho automático.';
+    } else if (nextStatus === 'completed') {
+      updateData.reviewDeadline = null;
+      updateData.providerError = null;
+    }
+
+    tx.set(orderRef, updateData, { merge: true });
+    return { kind: 'updated' as const, current, status: nextStatus };
+  });
+
+  if (txOutcome.kind === 'missing') {
+    return nextStatus;
+  }
+
+  if (txOutcome.kind === 'already_cancelled') {
+    if (allSucceeded || calls.some((c) => c.status === 'success')) {
+      log.error('entrega tardía en orden reembolsada: revisar manualmente', {
+        orderId,
+        code: txOutcome.current.code,
+        status: txOutcome.current.status,
+        refundedAt: txOutcome.current.refundedAt ?? null,
+      });
+    } else {
+      log.warn('Respuesta tardía de fallo del proveedor en orden ya cancelada (ignorada)', {
+        orderId,
+        code: txOutcome.current.code,
+        status: txOutcome.current.status,
+        error: failure,
+      });
+    }
+    return txOutcome.current.status;
+  }
+
+  if (txOutcome.kind !== 'updated') {
+    log.info('Despacho finalizado sin cambio de estado porque la orden ya cambió', {
+      orderId,
+      code: txOutcome.current.code,
+      status: txOutcome.current.status,
+    });
+    return txOutcome.current.status;
+  }
+
+  const status = txOutcome.status;
 
   // Aceptada y en curso: ni correo de entrega ni de fallo. La tarea programada
   // resolverá el estado real y disparará lo que corresponda.
@@ -724,7 +846,7 @@ async function finalizeDispatch(
       link: `/orden/${orderId}`,
     });
 
-    return;
+    return status;
   }
 
   if (allSucceeded) {
@@ -762,24 +884,18 @@ async function finalizeDispatch(
   } else {
     void sendOrderEmail('dispatch_failed', orderId);
 
-    const refundedAmount = await refundWalletIfApplied(order, failure ?? 'Despacho fallido');
-
     await addEvent({
       orderId,
       type: 'dispatch_failed',
-      message: refundedAmount > 0 
-        ? 'No pudimos completar la entrega. Tu saldo ha sido reembolsado para que puedas intentar nuevamente.'
-        : 'No pudimos completar la entrega. Nuestro equipo ya fue notificado y lo resolverá.',
-      status: 'failed',
+      message: REVIEW_CUSTOMER_MESSAGE,
+      status: 'in_review',
     });
 
     await Promise.all([
       notifications.notify({
         uid: order.uid,
-        title: refundedAmount > 0 ? 'Recarga fallida - Saldo reembolsado' : 'Estamos resolviendo tu recarga',
-        body: refundedAmount > 0 
-          ? 'No pudimos confirmar tu cuenta de juego o hubo un problema con el proveedor. Revisa que el ID sea correcto e intenta nuevamente. Tu saldo ha sido reembolsado.'
-          : `Tu pago de ${describeOrder(order)} está confirmado. Hubo un problema al entregar y ya lo estamos atendiendo.`,
+        title: 'Orden en revisión manual ⏳',
+        body: REVIEW_CUSTOMER_MESSAGE,
         type: 'order',
         link: `/orden/${orderId}`,
       }),
@@ -789,7 +905,7 @@ async function finalizeDispatch(
         actorUid: options.actorUid ?? null,
         targetType: 'order',
         targetId: orderId,
-        summary: `Falló el despacho de la orden ${order.code}.`,
+        summary: `Falló el despacho de la orden ${order.code}. Pasó a revisión manual.`,
         data: { error: failure },
       }),
       // El cliente ya pagó: esto necesita a una persona ya, no cuando alguien
@@ -797,7 +913,7 @@ async function finalizeDispatch(
       adminAlerts.alert({
         kind: 'dispatch_failed',
         severity: 'critical',
-        title: `Recarga fallida · ${order.code}`,
+        title: `Orden en revisión · ${order.code}`,
         body: [
           `${describeOrder(order)} (${order.gameName}) para el ID ${order.playerId}.`,
           `Cobrado: ${order.pricing.totalBs.toFixed(2)} Bs.`,
@@ -813,9 +929,10 @@ async function finalizeDispatch(
       }),
     ]);
 
-    log.error('Despacho fallido', { orderId, code: order.code, error: failure });
+    log.error('Despacho en revisión manual', { orderId, code: order.code, error: failure });
   }
 
+  return status;
 }
 
 /** Tras este tiempo sin resolverse, el equipo debe mirarlo. */
@@ -847,7 +964,23 @@ export async function resolveProcessingOrder(externalOrderId: string): Promise<s
   if (snap.empty) return 'orden no encontrada';
 
   const order = { id: snap.docs[0].id, ...snap.docs[0].data() } as Order;
-  if (order.status !== 'dispatching') return `la orden está en ${order.status}`;
+  if (
+    order.status === 'cancelled' ||
+    order.status === 'refunded' ||
+    Boolean(order.refundedAt) ||
+    order.pricing?.walletRefunded === true
+  ) {
+    log.error('entrega tardía en orden reembolsada: revisar manualmente', {
+      orderId: order.id,
+      code: order.code,
+      status: order.status,
+      externalOrderId,
+    });
+    return `la orden está en ${order.status}`;
+  }
+  if (!['dispatching', 'in_review'].includes(order.status)) {
+    return `la orden está en ${order.status}`;
+  }
 
   const resuelta = await resolveOne(order);
   return resuelta ? 'resuelta' : 'sigue en curso';
@@ -861,7 +994,23 @@ export async function resolveFazerProcessingOrder(providerOrderId: string): Prom
   const snap = await orders().doc(orderId).get();
   if (!snap.exists) return 'orden no encontrada';
   const order = { id: snap.id, ...snap.data() } as Order;
-  if (order.status !== 'dispatching') return `la orden está en ${order.status}`;
+  if (
+    order.status === 'cancelled' ||
+    order.status === 'refunded' ||
+    Boolean(order.refundedAt) ||
+    order.pricing?.walletRefunded === true
+  ) {
+    log.error('entrega tardía en orden reembolsada: revisar manualmente', {
+      orderId: order.id,
+      code: order.code,
+      status: order.status,
+      providerOrderId,
+    });
+    return `la orden está en ${order.status}`;
+  }
+  if (!['dispatching', 'in_review'].includes(order.status)) {
+    return `la orden está en ${order.status}`;
+  }
   return (await resolveOne(order)) ? 'resuelta' : 'sigue en curso';
 }
 
@@ -872,8 +1021,10 @@ export async function resolveFazerProcessingOrder(providerOrderId: string): Prom
  * sale de la API autenticada del proveedor, nunca de lo que llegue por fuera.
  */
 async function resolveOne(order: Order): Promise<boolean> {
-  const calls = order.dispatch?.calls ?? [];
-  if (!calls.some((call) => call.status === 'processing')) return false;
+  const calls = (order.dispatch?.calls ?? []).map((call) => ({ ...call }));
+  const canCheckCall = (call: DispatchCallResult) =>
+    call.status === 'processing' || (order.status === 'in_review' && call.status === 'error');
+  if (!calls.some(canCheckCall)) return false;
 
   const inicio = order.dispatch?.startedAt as { toMillis?: () => number } | null;
   const iniciadaMs =
@@ -882,7 +1033,7 @@ async function resolveOne(order: Order): Promise<boolean> {
   let cambio = false;
 
   for (const call of calls) {
-    if (call.status !== 'processing') continue;
+    if (!canCheckCall(call)) continue;
 
     const provider = call.provider ?? order.provider ?? 'inefable';
     const externalOrderId = `${order.code}-${call.index + 1}`;
@@ -913,9 +1064,13 @@ async function resolveOne(order: Order): Promise<boolean> {
       call.providerOrderId = fazerResult?.providerOrderId ?? inefableResult?.providerOrderId ?? call.providerOrderId;
       call.providerReference = fazerResult?.providerReference ?? inefableResult?.providerReference ?? call.providerReference;
       cambio = true;
-    } else if (failed) {
+    } else if (failed && call.status === 'processing') {
       call.status = 'error';
-      call.error = inefableResult?.error || fazerResult?.message || `El proveedor marcó la recarga como ${providerStatus}.`;
+      call.error = sanitizeProviderError(
+        inefableResult?.error ||
+          fazerResult?.message ||
+          `El proveedor marcó la recarga como ${providerStatus}.`
+      );
       call.providerStatus = providerStatus;
       cambio = true;
     }
@@ -932,15 +1087,23 @@ async function resolveOne(order: Order): Promise<boolean> {
   }
 
   if (cambio) {
-    await orders()
-      .doc(order.id)
-      .set({ dispatch: { ...order.dispatch, calls }, updatedAt: now() }, { merge: true });
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(orders().doc(order.id));
+      if (!snap.exists) return;
+      const current = snap.data() as Order;
+      if (!['dispatching', 'in_review'].includes(current.status)) return;
+      tx.set(
+        orders().doc(order.id),
+        { dispatch: { ...current.dispatch, calls }, updatedAt: now() },
+        { merge: true }
+      );
+    });
     return false;
   }
 
   // Sin novedad. Si lleva demasiado se avisa, y pasado el tope se cierra como
-  // fallida para que el equipo pueda atenderla a mano.
-  if (minutos >= PROCESSING_GIVE_UP_MINUTES) {
+  // en revisión para que el equipo pueda atenderla a mano.
+  if (order.status === 'dispatching' && minutos >= PROCESSING_GIVE_UP_MINUTES) {
     for (const call of calls) {
       if (call.status === 'processing') {
         call.status = 'error';
@@ -951,7 +1114,7 @@ async function resolveOne(order: Order): Promise<boolean> {
     return true;
   }
 
-  if (minutos >= PROCESSING_ALERT_MINUTES) {
+  if (order.status === 'dispatching' && minutos >= PROCESSING_ALERT_MINUTES) {
     await adminAlerts.alert({
       kind: 'dispatch_failed',
       severity: 'warning',

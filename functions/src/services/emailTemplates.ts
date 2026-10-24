@@ -88,9 +88,8 @@ function contenidoPara(kind: EmailKind, order: Order): Contenido {
         cinta: 'EN REVISIÓN',
         cintaColor: '#B45309',
         mensaje:
-          'Tu pago está confirmado, pero la entrega no se completó de forma automática. ' +
-          'Nuestro equipo ya fue avisado y lo está resolviendo a mano. No hace falta que ' +
-          'pagues de nuevo ni que crees otra orden.',
+          'Estamos procesando tu orden manualmente. Si no se completa en 1 hora, se te devuelve el saldo automáticamente. ' +
+          'No hace falta que pagues de nuevo ni que crees otra orden.',
       };
   }
 }

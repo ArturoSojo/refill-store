@@ -294,6 +294,105 @@ export interface WalletMovementInput {
   orderId?: string | null;
   orderCode?: string | null;
   actorUid?: string | null;
+  /** ID determinístico opcional para `users/{uid}/wallet/{movementId}`. */
+  movementId?: string;
+}
+
+export interface WalletTxReadState {
+  userRef: FirebaseFirestore.DocumentReference;
+  userSnap: FirebaseFirestore.DocumentSnapshot;
+  movementRef: FirebaseFirestore.DocumentReference;
+  movementSnap: FirebaseFirestore.DocumentSnapshot | null;
+}
+
+/**
+ * Fase de lectura en una transacción existente.
+ *
+ * Permite ejecutar todas las lecturas de Firestore (`tx.get`) antes de realizar
+ * cualquier escritura en la misma transacción.
+ */
+export async function readWalletInTx(
+  tx: FirebaseFirestore.Transaction,
+  uid: string,
+  movementId?: string
+): Promise<WalletTxReadState> {
+  const userRef = users().doc(uid);
+  const movementRef = movementId
+    ? userRef.collection('wallet').doc(movementId)
+    : userRef.collection('wallet').doc();
+
+  const [userSnap, movementSnap] = await Promise.all([
+    tx.get(userRef),
+    movementId ? tx.get(movementRef) : Promise.resolve(null),
+  ]);
+
+  return { userRef, userSnap, movementRef, movementSnap };
+}
+
+/**
+ * Fase de escritura sobre una transacción existente tras haber leído con `readWalletInTx`.
+ * Si el documento determinístico (`movementId`) ya existe, no vuelve a mover el saldo.
+ */
+export function writeWalletInTx(
+  tx: FirebaseFirestore.Transaction,
+  state: WalletTxReadState,
+  input: WalletMovementInput
+): {
+  balanceUsd: number;
+  transactionId: string;
+  alreadyExisted: boolean;
+} {
+  if (!state.userSnap.exists) throw notFound('Usuario no encontrado.');
+
+  const current = (state.userSnap.data()?.walletBalanceUsd as number | undefined) ?? 0;
+
+  if (state.movementSnap?.exists) {
+    return {
+      balanceUsd: round(current, 2),
+      transactionId: state.movementRef.id,
+      alreadyExisted: true,
+    };
+  }
+
+  const delta = round(input.deltaUsd, 2);
+  const next = round(current + delta, 2);
+  if (next < 0) throw failedPrecondition('Saldo insuficiente.');
+
+  const timestamp = now();
+  tx.set(state.userRef, { walletBalanceUsd: next, updatedAt: timestamp }, { merge: true });
+  tx.set(state.movementRef, {
+    type: delta >= 0 ? 'credit' : 'debit',
+    amountUsd: Math.abs(delta),
+    balanceAfterUsd: next,
+    reason: input.reason,
+    orderId: input.orderId ?? null,
+    orderCode: input.orderCode ?? null,
+    actorUid: input.actorUid ?? null,
+    createdAt: timestamp,
+  });
+
+  return {
+    balanceUsd: next,
+    transactionId: state.movementRef.id,
+    alreadyExisted: false,
+  };
+}
+
+/**
+ * Variante de `moveWallet` que recibe una transacción existente de Firestore
+ * sin anidar transacciones.
+ */
+export async function moveWalletInTx(
+  tx: FirebaseFirestore.Transaction,
+  input: WalletMovementInput,
+  preRead?: WalletTxReadState
+): Promise<{
+  balanceUsd: number;
+  transactionId: string;
+  alreadyExisted: boolean;
+}> {
+  const state = preRead ?? (await readWalletInTx(tx, input.uid, input.movementId));
+  return writeWalletInTx(tx, state, input);
 }
 
 /**
@@ -308,34 +407,8 @@ export async function moveWallet(input: WalletMovementInput): Promise<{
   balanceUsd: number;
   transactionId: string;
 }> {
-  const delta = round(input.deltaUsd, 2);
-  const userRef = users().doc(input.uid);
-  const movementRef = userRef.collection('wallet').doc();
-
-  const balance = await db.runTransaction(async (tx) => {
-    const snap = await tx.get(userRef);
-    if (!snap.exists) throw notFound('Usuario no encontrado.');
-
-    const current = (snap.data()?.walletBalanceUsd as number | undefined) ?? 0;
-    const next = round(current + delta, 2);
-    if (next < 0) throw failedPrecondition('Saldo insuficiente.');
-
-    tx.set(userRef, { walletBalanceUsd: next, updatedAt: now() }, { merge: true });
-    tx.set(movementRef, {
-      type: delta >= 0 ? 'credit' : 'debit',
-      amountUsd: Math.abs(delta),
-      balanceAfterUsd: next,
-      reason: input.reason,
-      orderId: input.orderId ?? null,
-      orderCode: input.orderCode ?? null,
-      actorUid: input.actorUid ?? null,
-      createdAt: now(),
-    });
-
-    return next;
-  });
-
-  return { balanceUsd: balance, transactionId: movementRef.id };
+  const result = await db.runTransaction((tx) => moveWalletInTx(tx, input));
+  return { balanceUsd: result.balanceUsd, transactionId: result.transactionId };
 }
 
 /** Ajuste manual de saldo desde el panel (reembolsos, cortesías). */

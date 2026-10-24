@@ -115,8 +115,8 @@ export function AdminDashboard() {
 
   const alerts = [
     counters.failedOrders > 0 && {
-      to: `${ROUTES.adminOrders}?status=failed`,
-      text: `${counters.failedOrders} orden(es) pagadas con fallo de entrega`,
+      to: `${ROUTES.adminOrders}?status=in_review`,
+      text: `${counters.failedOrders} orden(es) pagadas en revisión manual`,
       tone: 'danger' as const,
       icon: AlertTriangle,
     },

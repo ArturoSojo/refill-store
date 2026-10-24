@@ -824,6 +824,7 @@ const PAID_STATES: OrderStatus[] = [
   'paid',
   'dispatching',
   'awaiting_manual',
+  'in_review',
   'completed',
   'failed',
 ];
@@ -863,8 +864,8 @@ export async function verifyPayment(
       message:
         order.status === 'completed'
           ? 'Tu pago ya estaba verificado y la recarga fue entregada.'
-          : order.status === 'failed'
-            ? 'Tu pago está confirmado. La entrega falló y el equipo ya la está revisando.'
+          : order.status === 'in_review' || order.status === 'failed'
+            ? 'Estamos procesando tu orden manualmente. Si no se completa en 1 hora, se te devuelve el saldo automáticamente.'
             : order.status === 'awaiting_manual'
               ? 'Tu pago ya estaba verificado. El equipo está preparando tu recarga.'
               : 'Tu pago ya estaba verificado. Estamos entregando tu recarga.',
@@ -1260,9 +1261,11 @@ export async function verifyPayment(
     message:
       updated.status === 'completed'
         ? '¡Pago verificado y recarga entregada!'
-        : updated.status === 'awaiting_manual'
-          ? 'Pago verificado. Continúa por WhatsApp para recibir tu producto.'
-          : 'Pago verificado. Estamos procesando tu entrega.',
+        : updated.status === 'in_review'
+          ? 'Estamos procesando tu orden manualmente. Si no se completa en 1 hora, se te devuelve el saldo automáticamente.'
+          : updated.status === 'awaiting_manual'
+            ? 'Pago verificado. Continúa por WhatsApp para recibir tu producto.'
+            : 'Pago verificado. Estamos procesando tu entrega.',
   };
 }
 
@@ -1270,50 +1273,168 @@ export async function verifyPayment(
 // Acciones sobre la orden
 // ---------------------------------------------------------------------------
 
+interface TransactionalRefundOptions {
+  orderId: string;
+  allowedStatuses: OrderStatus[];
+  targetStatus?: OrderStatus;
+  motivo?: string | null;
+  actorUid?: string | null;
+  toWallet?: boolean;
+  amountMode: 'full_order' | 'applied_and_partial';
+}
+
+interface TransactionalRefundOutcome {
+  order: Order;
+  refundedAmountUsd: number;
+  statusChanged: boolean;
+  alreadyRefunded: boolean;
+}
+
 /**
- * Devuelve a la cartera el saldo que se descontó al crear la orden.
+ * Único helper transaccional de reembolso.
  *
- * Se llama al cancelar y al caducar. Es idempotente por bandera: se marca
- * `pricing.walletRefunded` para que un segundo cierre de la misma orden no
- * regale el saldo dos veces.
+ * Todos los caminos que devuelven saldo (`refundOrder` del admin, el barrido
+ * programado de 1 h y `refundWalletIfApplied` por expiración o cancelación)
+ * pasan por aquí:
+ *  - Todas las lecturas (`order` y `users/{uid}/wallet/refund_${orderId}`) se
+ *    hacen antes de las escrituras en la misma transacción de Firestore.
+ *  - Idempotente por tres vías: `order.refundedAt`, flag legacy
+ *    `order.pricing.walletRefunded === true` y documento determinístico
+ *    `refund_${orderId}`.
+ *  - Descripción fija: `"Reembolso de la orden RF-XXXXXX"`.
  */
-export async function refundWalletIfApplied(order: Order, reason: string): Promise<number> {
-  const alreadyRefunded = (order.pricing as { walletRefunded?: boolean })?.walletRefunded === true;
-  if (alreadyRefunded) return 0;
+async function executeOrderRefundTx(
+  options: TransactionalRefundOptions
+): Promise<TransactionalRefundOutcome> {
+  const orderRef = orders().doc(options.orderId);
+  const movementId = `refund_${options.orderId}`;
 
-  const applied = order.pricing?.walletAppliedUsd ?? 0;
+  return db.runTransaction(async (tx) => {
+    const orderSnap = await tx.get(orderRef);
+    if (!orderSnap.exists) throw notFound('Orden no encontrada.');
 
-  /**
-   * Lo que transfirió de verdad y no llegó a cubrir la orden.
-   *
-   * Sin esto, una orden que caduca con un pago parcial se llevaba ese dinero
-   * por delante: el cliente había transferido y se quedaba sin nada. Se le
-   * acredita al saldo, que es lo que puede gastar en la próxima compra.
-   *
-   * Se convierte con la tasa de la orden, no con la del día: es la tasa a la
-   * que se cotizó lo que pagó.
-   */
-  const partialUsd =
-    order.pricing.rate > 0
-      ? round((order.payment?.paidBs ?? 0) / order.pricing.rate, 2)
-      : 0;
+    const current = { id: orderSnap.id, ...orderSnap.data() } as Order;
+    const walletState = await usersService.readWalletInTx(tx, current.uid, movementId);
 
-  const total = round(applied + partialUsd, 2);
-  if (total <= 0) return 0;
+    const alreadyRefunded = Boolean(
+      current.refundedAt != null ||
+        current.pricing?.walletRefunded === true ||
+        walletState.movementSnap?.exists
+    );
 
-  await usersService.moveWallet({
-    uid: order.uid,
-    deltaUsd: total,
-    reason: partialUsd > 0 ? `${reason} (incluye lo transferido)` : reason,
-    orderId: order.id,
-    orderCode: order.code,
+    if (
+      current.status === 'completed' ||
+      current.status === 'cancelled' ||
+      current.status === 'refunded' ||
+      !options.allowedStatuses.includes(current.status)
+    ) {
+      return {
+        order: current,
+        refundedAmountUsd: 0,
+        statusChanged: false,
+        alreadyRefunded,
+      };
+    }
+
+    let amountToCredit = 0;
+    if (!alreadyRefunded && options.toWallet !== false) {
+      if (options.amountMode === 'full_order') {
+        amountToCredit = round(current.pricing?.totalUsd ?? 0, 2);
+      } else {
+        const applied = current.pricing?.walletAppliedUsd ?? 0;
+        const partialUsd =
+          (current.pricing?.rate ?? 0) > 0
+            ? round((current.payment?.paidBs ?? 0) / current.pricing.rate, 2)
+            : 0;
+        amountToCredit = round(applied + partialUsd, 2);
+      }
+    }
+
+    const timestamp = now();
+    const fixedReason = `Reembolso de la orden ${current.code}`;
+
+    if (amountToCredit > 0) {
+      usersService.writeWalletInTx(tx, walletState, {
+        uid: current.uid,
+        deltaUsd: amountToCredit,
+        reason: fixedReason,
+        orderId: current.id,
+        orderCode: current.code,
+        actorUid: options.actorUid ?? null,
+        movementId,
+      });
+    }
+
+    const statusChanged = Boolean(options.targetStatus && options.targetStatus !== current.status);
+    if (amountToCredit > 0 || statusChanged) {
+      const updateData: Record<string, unknown> = {
+        updatedAt: timestamp,
+      };
+
+      if (amountToCredit > 0 || options.targetStatus === 'cancelled') {
+        updateData.refundedAt = current.refundedAt ?? timestamp;
+        updateData.pricing = { walletRefunded: true };
+      }
+
+      if (options.targetStatus) {
+        updateData.status = options.targetStatus;
+        updateData.reviewDeadline = null;
+        if (options.motivo !== undefined) {
+          updateData.refundReason = options.motivo ?? current.refundReason ?? null;
+          if (options.targetStatus === 'cancelled' && options.amountMode === 'full_order') {
+            updateData.adminNote = options.motivo ?? current.adminNote ?? null;
+          }
+        }
+      }
+
+      tx.set(orderRef, updateData, { merge: true });
+    }
+
+    const updatedOrder: Order = {
+      ...current,
+      status: options.targetStatus ?? current.status,
+      refundedAt:
+        amountToCredit > 0 || options.targetStatus === 'cancelled'
+          ? (current.refundedAt ?? timestamp)
+          : current.refundedAt,
+      refundReason:
+        options.motivo !== undefined ? (options.motivo ?? current.refundReason ?? null) : current.refundReason,
+      reviewDeadline: options.targetStatus ? null : current.reviewDeadline,
+      pricing: {
+        ...current.pricing,
+        walletRefunded:
+          amountToCredit > 0 || options.targetStatus === 'cancelled'
+            ? true
+            : current.pricing?.walletRefunded,
+      },
+      updatedAt: timestamp,
+    };
+
+    return {
+      order: updatedOrder,
+      refundedAmountUsd: amountToCredit,
+      statusChanged,
+      alreadyRefunded,
+    };
   });
+}
 
-  await orders()
-    .doc(order.id)
-    .set({ pricing: { walletRefunded: true }, updatedAt: now() }, { merge: true });
-
-  return total;
+/**
+ * Devuelve a la cartera el saldo que se descontó al crear la orden (y pagos
+ * parciales si los hubo).
+ *
+ * Se llama al cancelar y al caducar órdenes impagas. Delega en el helper
+ * transaccional único con ID determinístico `refund_${orderId}`.
+ */
+export async function refundWalletIfApplied(order: Order, reason?: string): Promise<number> {
+  const outcome = await executeOrderRefundTx({
+    orderId: order.id,
+    allowedStatuses: ['awaiting_payment', 'payment_rejected'],
+    motivo: reason ?? null,
+    toWallet: true,
+    amountMode: 'applied_and_partial',
+  });
+  return outcome.refundedAmountUsd;
 }
 
 /** Cierra una orden impaga y devuelve el saldo que hubiera consumido. */
@@ -1526,7 +1647,7 @@ export async function retryDispatch(actor: AuthUser, orderId: string): Promise<O
   if (order.fulfillment !== 'auto') {
     throw failedPrecondition('Sólo las órdenes automáticas se pueden reintentar.');
   }
-  if (!['failed', 'paid', 'dispatching'].includes(order.status)) {
+  if (!['in_review', 'failed', 'paid', 'dispatching'].includes(order.status)) {
     throw failedPrecondition('Esta orden no está en un estado que permita reintentar.');
   }
 
@@ -1549,22 +1670,55 @@ export async function markCompleted(
   orderId: string,
   note: string | null
 ): Promise<Order> {
-  const order = await getOrder(orderId);
+  const orderRef = orders().doc(orderId);
 
-  if (order.status === 'completed') return order;
-  if (!['paid', 'dispatching', 'failed', 'awaiting_manual'].includes(order.status)) {
-    throw failedPrecondition('Sólo se pueden completar órdenes ya pagadas.');
+  const txResult = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(orderRef);
+    if (!snap.exists) throw notFound('Orden no encontrada.');
+
+    const current = { id: snap.id, ...snap.data() } as Order;
+    if (current.status === 'completed') {
+      return { order: current, changed: false };
+    }
+    if (!['in_review', 'awaiting_manual', 'failed'].includes(current.status)) {
+      throw failedPrecondition(
+        'Sólo se pueden completar manualmente órdenes en revisión o pendientes de entrega manual.'
+      );
+    }
+
+    const timestamp = now();
+    tx.set(
+      orderRef,
+      {
+        status: 'completed',
+        reviewDeadline: null,
+        providerError: null,
+        adminNote: note ?? current.adminNote,
+        dispatch: { ...current.dispatch, completedAt: timestamp, lastError: null },
+        updatedAt: timestamp,
+      },
+      { merge: true }
+    );
+
+    return {
+      order: {
+        ...current,
+        status: 'completed' as OrderStatus,
+        reviewDeadline: null,
+        providerError: null,
+        adminNote: note ?? current.adminNote,
+        dispatch: { ...current.dispatch, completedAt: timestamp, lastError: null },
+        updatedAt: timestamp,
+      },
+      changed: true,
+    };
+  });
+
+  if (!txResult.changed) {
+    return txResult.order;
   }
 
-  await orders().doc(orderId).set(
-    {
-      status: 'completed',
-      adminNote: note ?? order.adminNote,
-      dispatch: { ...order.dispatch, completedAt: now() },
-      updatedAt: now(),
-    },
-    { merge: true }
-  );
+  const order = txResult.order;
 
   // El cliente recibe el mismo comprobante de entrega tanto si la despachó el
   // proveedor como si la completó el equipo a mano.
@@ -1604,71 +1758,138 @@ export async function markCompleted(
   return getOrder(orderId);
 }
 
+export interface RefundOrderOptions {
+  actor?: AuthUser | null;
+  toWallet?: boolean;
+  note?: string | null;
+}
+
 /**
- * Reembolso. Acredita el total al saldo del usuario y libera la referencia para
- * que el equipo pueda reprocesarla si hace falta.
+ * Única función para cancelar y reembolsar una orden pagada (usada por el
+ * admin y por la tarea programada de 1 hora).
+ *
+ * - Corre en una transacción de Firestore leyendo el estado actual.
+ * - Idempotente por `refund_${orderId}`, `order.refundedAt` y flag legacy
+ *   `pricing.walletRefunded === true`.
+ * - Sólo reembolsa si el estado está en `in_review` (o pagada sin entregar:
+ *   `paid`, `dispatching`, `awaiting_manual`, `failed`). Si ya está
+ *   `completed` o `cancelled`, no hace nada.
+ * - Descripción fija en el movimiento: `"Reembolso de la orden RF-XXXXXX"`.
  */
 export async function refundOrder(
-  actor: AuthUser,
-  orderId: string,
-  options: { toWallet: boolean; note: string | null }
+  orderIdOrActor: string | AuthUser,
+  motivoOrOrderId?: string | null,
+  optionsArg?: RefundOrderOptions
 ): Promise<Order> {
-  const order = await getOrder(orderId);
+  let orderId: string;
+  let motivo: string | null;
+  let actor: AuthUser | null = null;
+  let toWallet = true;
 
-  if (!['paid', 'dispatching', 'failed', 'awaiting_manual', 'completed'].includes(order.status)) {
-    throw failedPrecondition('Sólo se pueden reembolsar órdenes pagadas.');
+  if (typeof orderIdOrActor === 'object' && orderIdOrActor !== null && 'uid' in orderIdOrActor) {
+    actor = orderIdOrActor;
+    orderId = String(motivoOrOrderId ?? '');
+    motivo = optionsArg?.note ?? null;
+    toWallet = optionsArg?.toWallet ?? true;
+  } else {
+    orderId = orderIdOrActor;
+    motivo = motivoOrOrderId ?? optionsArg?.note ?? null;
+    actor = optionsArg?.actor ?? null;
+    toWallet = optionsArg?.toWallet ?? true;
   }
 
-  if (options.toWallet) {
-    await usersService.adjustWallet(order.uid, order.pricing.totalUsd, {
-      reason: `Reembolso de la orden ${order.code}`,
-      orderId: order.id,
-      orderCode: order.code,
-      actorUid: actor.uid,
-    });
+  const outcome = await executeOrderRefundTx({
+    orderId,
+    allowedStatuses: ['in_review', 'paid', 'dispatching', 'awaiting_manual', 'failed'],
+    targetStatus: 'cancelled',
+    motivo,
+    actorUid: actor?.uid ?? null,
+    toWallet,
+    amountMode: 'full_order',
+  });
+
+  if (!outcome.statusChanged && outcome.refundedAmountUsd === 0) {
+    return outcome.order;
   }
+
+  const order = outcome.order;
+  const creditedUsd = outcome.refundedAmountUsd;
 
   // La venta deja de existir: la comisión del creador también.
   await creatorsService.revertCommission(order);
-
-  await orders().doc(orderId).set(
-    { status: 'refunded', adminNote: options.note ?? order.adminNote, updatedAt: now() },
-    { merge: true }
-  );
 
   await Promise.all([
     addEvent({
       orderId,
       type: 'refunded',
-      message: options.toWallet
-        ? `Reembolsado $${order.pricing.totalUsd.toFixed(2)} al saldo del usuario.`
-        : 'Orden marcada como reembolsada.',
-      status: 'refunded',
-      actor: 'admin',
-      actorUid: actor.uid,
+      message:
+        creditedUsd > 0
+          ? `Orden cancelada. Reembolsado $${creditedUsd.toFixed(2)} al saldo del usuario${
+              motivo ? ` (${motivo})` : ''
+            }.`
+          : `Orden cancelada${motivo ? `: ${motivo}` : '.'}`,
+      status: 'cancelled',
+      actor: actor ? 'admin' : 'system',
+      actorUid: actor?.uid ?? null,
     }),
     notifications.notify({
       uid: order.uid,
-      title: 'Orden reembolsada',
-      body: options.toWallet
-        ? `Acreditamos $${order.pricing.totalUsd.toFixed(2)} a tu saldo.`
-        : `Tu orden ${order.code} fue reembolsada.`,
+      title: 'Orden cancelada y reembolsada',
+      body:
+        creditedUsd > 0
+          ? `Acreditamos $${creditedUsd.toFixed(2)} a tu saldo por la orden ${order.code}.`
+          : `Tu orden ${order.code} fue cancelada.`,
       type: 'order',
       link: `/orden/${orderId}`,
     }),
     stats.trackEvent({ type: 'order_refunded', order }),
     audit.record({
       action: audit.ACTIONS.ORDER_REFUNDED,
-      actorUid: actor.uid,
-      actorEmail: actor.email,
+      actorUid: actor?.uid ?? null,
+      actorEmail: actor?.email ?? null,
       targetType: 'order',
       targetId: orderId,
-      summary: `Orden ${order.code} reembolsada${options.toWallet ? ' al saldo' : ''}.`,
-      data: { amountUsd: order.pricing.totalUsd, note: options.note },
+      summary: `Orden ${order.code} cancelada${
+        creditedUsd > 0 ? ` y reembolsada ($${creditedUsd.toFixed(2)})` : ''
+      }.`,
+      data: { amountUsd: creditedUsd, note: motivo },
     }),
   ]);
 
   return getOrder(orderId);
+}
+
+/**
+ * Cancela y reembolsa automáticamente las órdenes `in_review` cuyo plazo de
+ * revisión (`reviewDeadline`) ya venció (1 hora).
+ *
+ * Procesa por lotes con `try/catch` individual para que un fallo puntual no
+ * frene el resto del lote.
+ */
+export async function refundStaleReviewOrders(limit = 50): Promise<number> {
+  const snap = await orders()
+    .where('status', '==', 'in_review')
+    .where('reviewDeadline', '<=', now())
+    .limit(limit)
+    .get();
+
+  if (snap.empty) return 0;
+
+  let processed = 0;
+  for (const doc of snap.docs) {
+    try {
+      await refundOrder(doc.id, 'Tiempo de revisión manual agotado (1 hora)');
+      processed += 1;
+    } catch (error) {
+      log.warn('No se pudo reembolsar una orden en revisión vencida', {
+        orderId: doc.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  log.info('Órdenes en revisión vencidas reembolsadas', { count: processed });
+  return processed;
 }
 
 export async function setAdminNote(

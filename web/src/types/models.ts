@@ -193,6 +193,7 @@ export type OrderStatus =
   | 'paid'
   | 'dispatching'
   | 'awaiting_manual'
+  | 'in_review'
   | 'completed'
   | 'failed'
   | 'refunded'
@@ -323,6 +324,10 @@ export interface Order {
   whatsappUrl: string | null;
   contactPhone: string | null;
   status: OrderStatus;
+  reviewDeadline?: TimestampLike | null;
+  providerError?: string | null;
+  refundedAt?: TimestampLike | null;
+  refundReason?: string | null;
   customerNote: string | null;
   /** Sólo presente para staff. */
   adminNote?: string | null;

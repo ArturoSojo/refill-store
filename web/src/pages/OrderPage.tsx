@@ -127,7 +127,9 @@ export function OrderPage() {
             'mt-4 rounded-xl px-4 py-3 text-sm',
             order.status === 'completed'
               ? 'bg-emerald-500/10 text-emerald-200'
-              : order.status === 'failed' || order.status === 'payment_rejected'
+              : order.status === 'in_review' ||
+                  order.status === 'failed' ||
+                  order.status === 'payment_rejected'
                 ? 'bg-amber-500/10 text-amber-200'
                 : 'bg-base-900 text-slate-300'
           )}

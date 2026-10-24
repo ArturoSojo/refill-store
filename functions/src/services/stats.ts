@@ -267,7 +267,7 @@ export async function getLiveCounters(): Promise<{
   const [usersCount, pending, failed, manual] = await Promise.all([
     users().count().get(),
     orders().where('status', 'in', ['awaiting_payment', 'verifying']).count().get(),
-    orders().where('status', '==', 'failed').count().get(),
+    orders().where('status', 'in', ['in_review', 'failed']).count().get(),
     orders().where('status', '==', 'awaiting_manual').count().get(),
   ]);
 

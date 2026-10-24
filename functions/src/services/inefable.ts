@@ -227,9 +227,14 @@ export async function createOrder(input: InefableOrderInput): Promise<InefableOr
     429: 'El proveedor está limitando las peticiones. Reintenta en unos segundos.',
   };
 
+  const rawError = toStringOrNull(body?.error) ?? toStringOrNull(body?.message);
+  const cleanError =
+    rawError && !/^[\[{<]/.test(rawError.trim()) && !rawError.includes('{"')
+      ? rawError.trim().slice(0, 180)
+      : null;
+
   const message =
-    toStringOrNull(body?.error) ??
-    toStringOrNull(body?.message) ??
+    cleanError ??
     HTTP_REASONS[response.status] ??
     (success
       ? 'Recarga enviada al proveedor.'

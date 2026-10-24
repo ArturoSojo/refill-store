@@ -46,7 +46,7 @@ export function answerKnownSupportQuestion(
 
   if (/\b(?:donde|como) (?:puedo )?(?:ver|consultar|consulto|seguir|revisar) (?:mis?|las?)? ?(?:ordenes|pedidos|recargas)\b/.test(question) ||
       /\b(?:donde estan|donde veo) (?:mis?|las?)? ?(?:ordenes|pedidos|compras)\b/.test(question)) {
-    return answer('En «Mis órdenes» puedes consultar tus compras y seguir su estado. Si alguna aparece en revisión o el estado no coincide con lo que ocurrió, dime el problema y te indico qué hacer.', 'view_orders');
+    return answer('En «Mis órdenes» puedes consultar tus compras y seguir su estado. Si una orden queda en revisión, estamos procesándola manualmente y, si no se completa en 1 hora, se te devuelve el saldo automáticamente.', 'view_orders');
   }
 
   if (!hasProblem && (
