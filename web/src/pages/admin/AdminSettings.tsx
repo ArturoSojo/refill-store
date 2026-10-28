@@ -44,6 +44,11 @@ import { formatBs, formatDateTime, formatUsd } from '@/lib/format';
 import { ImageUpload } from '@/components/common/ImageUpload';
 import { errorMessage, isImageUrl } from '@/lib/utils';
 import type { StoreNotice } from '@/types/models';
+import {
+  ScrollJourneyPreview,
+  ScrollTargetField,
+} from '@/components/common/ScrollTargetAdmin';
+import { deriveScrollTargetFromManualUrl } from '@/lib/scrollTargets';
 
 export function AdminSettings() {
   useDocumentTitle('Panel · Configuración');
@@ -1120,7 +1125,8 @@ export function AdminSettings() {
                   </Button>
                 </div>
 
-                <div className="relative flex min-h-[40px] w-full flex-wrap items-center justify-center gap-1.5 overflow-hidden rounded-lg border border-neon-red/20 bg-gradient-to-r from-base-900 via-base-800 to-base-900 px-4 py-2 text-center text-sm text-slate-200 shadow-sm">
+                <div className="space-y-2.5">
+                  <div className="relative flex min-h-[40px] w-full flex-wrap items-center justify-center gap-1.5 overflow-hidden rounded-lg border border-neon-red/20 bg-gradient-to-r from-base-900 via-base-800 to-base-900 px-4 py-2 text-center text-sm text-slate-200 shadow-sm">
                   <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-neon-red/10 via-transparent to-transparent" />
                   {notice.iconUrl || (notice.icon && isImageUrl(notice.icon)) ? (
                     <img
@@ -1138,6 +1144,14 @@ export function AdminSettings() {
                   )}
                   <span>{notice.text || 'Ej: 🔥 Promoción especial'} {notice.highlightText && <strong className="text-neon-crimson font-semibold">{notice.highlightText}</strong>}</span>
                   {notice.linkText && <span className="ml-1 inline-flex items-center gap-0.5 font-medium text-neon-crimson underline underline-offset-2 hover:text-white transition-colors">{notice.linkText} <ChevronRight className="h-3 w-3" aria-hidden /></span>}
+                </div>
+
+                <ScrollJourneyPreview
+                  ctaLabel={notice.linkText || notice.highlightText || notice.text}
+                  url={notice.linkUrl}
+                  scrollTarget={notice.scrollTarget}
+                  fallbackCtaLabel="Enlace del aviso"
+                />
                 </div>
 
                 <div className="mt-2 grid gap-4 sm:grid-cols-2">
@@ -1159,7 +1173,33 @@ export function AdminSettings() {
                     />
                   </div>
                   <div className="sm:col-span-2">
-                    <Input label="URL destino (opcional)" value={notice.linkUrl || ''} maxLength={500} onChange={(event) => updateNotice(index, { linkUrl: event.target.value })} placeholder="Ej: /familia/topup o https://..." disabled={!isAdmin} />
+                    <Input
+                      label="URL destino (opcional)"
+                      value={notice.linkUrl || ''}
+                      maxLength={500}
+                      onChange={(event) => {
+                        const nextUrl = event.target.value;
+                        updateNotice(index, {
+                          linkUrl: nextUrl,
+                          scrollTarget: deriveScrollTargetFromManualUrl(nextUrl),
+                        });
+                      }}
+                      placeholder="Ej: /cuenta#telefono, /familia/topup o https://..."
+                      disabled={!isAdmin}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <ScrollTargetField
+                      url={notice.linkUrl || ''}
+                      scrollTarget={notice.scrollTarget}
+                      onChange={({ url, scrollTarget }) =>
+                        updateNotice(index, {
+                          linkUrl: url,
+                          scrollTarget,
+                        })
+                      }
+                      disabled={!isAdmin}
+                    />
                   </div>
                 </div>
               </div>

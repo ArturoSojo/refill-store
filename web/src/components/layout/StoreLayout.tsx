@@ -29,6 +29,7 @@ import { RefillChatbot } from '@/features/chatbot';
 import { formatBs, formatRefillCoins } from '@/lib/format';
 import { Button, ButtonLink } from '@/components/ui/Button';
 import type { StoreNotice } from '@/types/models';
+import { resolveNavigationTarget, useSmartStoreNavigate } from '@/lib/scrollTargets';
 
 function Logo() {
   return (
@@ -446,6 +447,7 @@ function Footer() {
 function AnnouncementBar() {
   const { config } = useConfig();
   const location = useLocation();
+  const smartNavigate = useSmartStoreNavigate();
   const activeNotices = useMemo<StoreNotice[]>(() => {
     const stored = Array.isArray(config?.announcement.notices) ? config.announcement.notices : [];
     if (stored.length === 0) {
@@ -475,7 +477,8 @@ function AnnouncementBar() {
   if (location.pathname.startsWith('/comprar')) return null;
 
   const notice = activeNotices[currentIndex] ?? activeNotices[0];
-  const isExternal = Boolean(notice.linkUrl && /^https?:\/\//i.test(notice.linkUrl));
+  const navTarget = resolveNavigationTarget(notice.linkUrl, notice.scrollTarget);
+  const isExternal = navTarget.isExternal;
 
   const innerContent = (
     <div className="flex flex-wrap items-center justify-center gap-1.5">
@@ -509,10 +512,10 @@ function AnnouncementBar() {
     </div>
   );
 
-  const content = notice.linkUrl ? (
+  const content = navTarget.fullHref ? (
     isExternal ? (
       <a
-        href={notice.linkUrl}
+        href={navTarget.fullHref}
         target="_blank"
         rel="noopener noreferrer"
         className="block hover:opacity-90"
@@ -520,7 +523,16 @@ function AnnouncementBar() {
         {innerContent}
       </a>
     ) : (
-      <Link to={notice.linkUrl} className="block hover:opacity-90">
+      <Link
+        to={navTarget.fullHref}
+        onClick={(event) => {
+          if (!event.metaKey && !event.ctrlKey && !event.shiftKey && event.button === 0) {
+            event.preventDefault();
+            smartNavigate(notice.linkUrl, notice.scrollTarget);
+          }
+        }}
+        className="block hover:opacity-90"
+      >
         {innerContent}
       </Link>
     )

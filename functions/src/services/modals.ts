@@ -21,6 +21,7 @@ function toModal(id: string, data: FirebaseFirestore.DocumentData): StoreModal {
     imageUrl: '',
     ctaLabel: '',
     ctaUrl: '',
+    scrollTarget: '',
     active: false,
     frequency: 'once',
     placement: 'home',
@@ -52,6 +53,7 @@ export interface ModalInput {
   imageUrl: string;
   ctaLabel: string;
   ctaUrl: string;
+  scrollTarget?: string;
   active: boolean;
   frequency: StoreModal['frequency'];
   placement: StoreModal['placement'];

@@ -15,6 +15,7 @@ interface FieldWrapperProps {
   error?: string | null;
   required?: boolean;
   htmlFor?: string;
+  id?: string;
   className?: string;
   children: ReactNode;
 }
@@ -25,11 +26,12 @@ export function FieldWrapper({
   error,
   required,
   htmlFor,
+  id,
   className,
   children,
 }: FieldWrapperProps) {
   return (
-    <div className={cn('w-full', className)}>
+    <div id={id} className={cn('w-full', className)}>
       {label && (
         <label htmlFor={htmlFor} className="label-base">
           {label}
@@ -55,11 +57,12 @@ export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   error?: string | null;
   leftIcon?: ReactNode;
   rightSlot?: ReactNode;
+  containerId?: string;
   containerClassName?: string;
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
-  { label, hint, error, leftIcon, rightSlot, className, containerClassName, required, id, ...props },
+  { label, hint, error, leftIcon, rightSlot, className, containerClassName, containerId, required, id, ...props },
   ref
 ) {
   const generatedId = useId();
@@ -71,6 +74,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
       hint={hint}
       error={error}
       required={required}
+      id={containerId}
       htmlFor={inputId}
       className={containerClassName}
     >

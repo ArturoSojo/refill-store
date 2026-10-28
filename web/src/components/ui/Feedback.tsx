@@ -11,7 +11,7 @@ export function Spinner({ className }: { className?: string }) {
 
 export function FullPageLoader({ label = 'Cargando…' }: { label?: string }) {
   return (
-    <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4">
+    <div data-page-loader="true" className="flex min-h-[60vh] flex-col items-center justify-center gap-4">
       <div className="relative">
         <div className="h-12 w-12 animate-spin-slow rounded-full border-2 border-base-600 border-t-neon-red" />
         <div className="absolute inset-0 animate-pulse-glow rounded-full bg-neon-red/20 blur-xl" />

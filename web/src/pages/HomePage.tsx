@@ -167,7 +167,7 @@ function Hero() {
             <button
               type="button"
               onClick={() => {
-                document.getElementById('catalogo')?.scrollIntoView({ behavior: 'smooth' });
+                document.getElementById('juegos')?.scrollIntoView({ behavior: 'smooth' });
               }}
               className="group inline-flex h-14 items-center gap-2.5 rounded-2xl bg-brand-gradient px-7 text-base font-black text-white shadow-glow transition active:scale-[0.98]"
             >
@@ -313,7 +313,8 @@ export function HomePage() {
       <Hero />
       <ActiveOrdersStrip />
 
-      <div id="catalogo" className="scroll-mt-20 space-y-10">
+      <span id="catalogo" className="sr-only" aria-hidden />
+        <div id="juegos" className="scroll-mt-20 space-y-10 rounded-3xl transition-all duration-500">
         {isLoading ? (
           (['topup', 'gift_card', 'game_key'] as const).map((family) => (
             <section key={family} className="mx-auto max-w-6xl px-4">

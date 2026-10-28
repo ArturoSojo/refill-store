@@ -1609,10 +1609,20 @@ const configPatchSchema = z.object({
         icon: z.string().trim().max(1000).optional(),
         iconUrl: z.string().trim().max(1000).optional(),
         linkUrl: z.string().trim().max(500).refine(
-          (value) => !value || (/^\/(?!\/)/.test(value) || /^https:\/\/[^\s]+$/i.test(value)),
+          (value) => !value || /^\/(?!\/)/.test(value) || /^#[a-zA-Z0-9_-]+$/.test(value) || /^https:\/\/[^\s]+$/i.test(value),
           'El enlace debe ser una ruta interna o una URL HTTPS.'
         ).optional(),
         linkText: z.string().trim().max(60).optional(),
+        scrollTarget: z
+          .string()
+          .trim()
+          .max(80)
+          .transform((value) => value.replace(/^#+/, '').trim())
+          .refine(
+            (value) => !value || /^[a-zA-Z0-9_-]+$/.test(value),
+            'El ID de scroll sólo admite letras, números, guion y guion bajo.'
+          )
+          .optional(),
         active: z.boolean(),
       })).max(20),
       intervalSeconds: z.coerce.number().int().min(2).max(60),
@@ -2255,6 +2265,16 @@ const modalSchema = z.object({
   imageUrl: z.string().trim().max(500).default(''),
   ctaLabel: z.string().trim().max(40).default(''),
   ctaUrl: z.string().trim().max(300).default(''),
+  scrollTarget: z
+    .string()
+    .trim()
+    .max(80)
+    .default('')
+    .transform((value) => value.replace(/^#+/, '').trim())
+    .refine(
+      (value) => !value || /^[a-zA-Z0-9_-]+$/.test(value),
+      'El ID de scroll sólo admite letras, números, guion y guion bajo.'
+    ),
   active: z.boolean().default(false),
   frequency: z.enum(['once', 'daily', 'always']).default('once'),
   placement: z.enum(['home', 'store', 'manual']).default('home'),

@@ -11,6 +11,7 @@ import { useLocation } from 'react-router-dom';
 import { GraduationCap, X } from 'lucide-react';
 import { useStoreModals } from '@/hooks/useMisc';
 import { Button } from '@/components/ui/Button';
+import { resolveNavigationTarget, useSmartStoreNavigate } from '@/lib/scrollTargets';
 import { cn } from '@/lib/utils';
 import type { StoreModal } from '@/types/models';
 
@@ -48,6 +49,9 @@ function markSeen(modal: StoreModal): void {
 }
 
 function ModalCard({ modal, onClose }: { modal: StoreModal; onClose: () => void }) {
+  const smartNavigate = useSmartStoreNavigate();
+  const navTarget = resolveNavigationTarget(modal.ctaUrl, modal.scrollTarget);
+
   // Cada línea del cuerpo es un paso: es como lo escribe quien lo redacta y
   // ahorra tener que meter un editor con formato.
   const steps = modal.body
@@ -114,15 +118,25 @@ function ModalCard({ modal, onClose }: { modal: StoreModal; onClose: () => void 
             </ol>
           )}
 
-          {modal.ctaLabel && modal.ctaUrl && (
-            <a
-              href={modal.ctaUrl}
-              target={modal.ctaUrl.startsWith('http') ? '_blank' : undefined}
-              rel="noreferrer"
-              className="block"
-            >
-              <Button fullWidth>{modal.ctaLabel}</Button>
-            </a>
+          {modal.ctaLabel && navTarget.fullHref && (
+            navTarget.isExternal ? (
+              <a
+                href={navTarget.fullHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={onClose}
+                className="block"
+              >
+                <Button fullWidth>{modal.ctaLabel}</Button>
+              </a>
+            ) : (
+              <Button
+                fullWidth
+                onClick={() => smartNavigate(modal.ctaUrl, modal.scrollTarget, onClose)}
+              >
+                {modal.ctaLabel}
+              </Button>
+            )
           )}
 
           <Button variant="secondary" fullWidth onClick={onClose}>

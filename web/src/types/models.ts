@@ -514,6 +514,7 @@ export interface StoreModal {
   imageUrl: string;
   ctaLabel: string;
   ctaUrl: string;
+  scrollTarget?: string;
   active: boolean;
   frequency: ModalFrequency;
   placement: ModalPlacement;
@@ -565,6 +566,7 @@ export interface StoreNotice {
   iconUrl?: string;
   linkUrl?: string;
   linkText?: string;
+  scrollTarget?: string;
   active: boolean;
 }
 

@@ -91,7 +91,7 @@ function TierCard() {
     : 100;
 
   return (
-    <Card className="relative overflow-hidden">
+    <Card id="mi-nivel" className="relative scroll-mt-24 overflow-hidden transition-all duration-500">
       <div
         className={cn('pointer-events-none absolute inset-0 bg-gradient-to-br opacity-10', tier.className)}
         aria-hidden
@@ -202,6 +202,7 @@ export function AccountPage() {
   const queryClient = useQueryClient();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const phoneInputRef = useRef<HTMLInputElement>(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
 
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
@@ -485,7 +486,10 @@ export function AccountPage() {
       </Card>
 
       <Link to={ROUTES.wallet} className="block">
-        <Card className="border-amber-500/30 bg-amber-500/5 transition hover:border-amber-400/50">
+        <Card
+          id="refillcoins"
+          className="scroll-mt-24 border-amber-500/30 bg-amber-500/5 transition-all duration-500 hover:border-amber-400/50"
+        >
           <div className="flex items-center gap-3">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-400">
               <Coins className="h-5 w-5" aria-hidden />
@@ -509,7 +513,10 @@ export function AccountPage() {
 
       <TierCard />
 
-      <div className="grid grid-cols-2 gap-3">
+      <div
+        id="accesos-rapidos"
+        className="grid scroll-mt-24 grid-cols-2 gap-3 rounded-2xl transition-all duration-500"
+      >
         {shortcuts.map((item) => (
           <Link
             key={item.to}
@@ -529,7 +536,7 @@ export function AccountPage() {
       </div>
 
       {me.recentOrders.length > 0 && (
-        <Card>
+        <Card id="ultimas-ordenes" className="scroll-mt-24 transition-all duration-500">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-white">Últimas órdenes</h2>
             <Link to={ROUTES.orders} className="text-xs font-semibold text-neon-crimson hover:underline">
@@ -560,7 +567,7 @@ export function AccountPage() {
         </Card>
       )}
 
-      <Card>
+      <Card id="datos-preferencias" className="scroll-mt-24 transition-all duration-500">
         <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
           <Sparkles className="h-4 w-4 text-neon-red" aria-hidden />
           Datos y preferencias
@@ -574,6 +581,9 @@ export function AccountPage() {
             placeholder="Tu nombre"
           />
           <Input
+            ref={phoneInputRef}
+            containerId="telefono"
+            containerClassName="-mx-2.5 scroll-mt-24 rounded-2xl px-2.5 py-2 transition-all duration-500"
             label="Teléfono (opcional)"
             value={phone}
             onChange={(event) => setPhone(event.target.value.slice(0, 20))}
@@ -608,7 +618,7 @@ export function AccountPage() {
         </div>
       </Card>
 
-      <Card>
+      <Card id="seguridad" className="scroll-mt-24 transition-all duration-500">
         <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
           <KeyRound className="h-4 w-4 text-neon-red" aria-hidden />
           Seguridad

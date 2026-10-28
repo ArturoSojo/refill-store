@@ -777,6 +777,8 @@ export interface StoreModal {
   imageUrl: string;
   ctaLabel: string;
   ctaUrl: string;
+  /** ID semántico del bloque/campo hacia el que debe hacer scroll suave al abrir (ej. `telefono`). */
+  scrollTarget?: string;
   active: boolean;
   frequency: ModalFrequency;
   placement: ModalPlacement;
@@ -828,6 +830,8 @@ export interface StoreNotice {
   iconUrl?: string;
   linkUrl?: string;
   linkText?: string;
+  /** ID semántico del bloque/campo hacia el que debe hacer scroll suave al abrir (ej. `telefono`). */
+  scrollTarget?: string;
   active: boolean;
 }
 

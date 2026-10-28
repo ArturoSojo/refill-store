@@ -20,6 +20,15 @@ import { Button } from '@/components/ui/Button';
 import { Input, Select, Switch, Textarea } from '@/components/ui/Field';
 import { Modal, ConfirmDialog } from '@/components/ui/Modal';
 import { Badge, EmptyState, ErrorState, Skeleton } from '@/components/ui/Feedback';
+import {
+  ScrollJourneyPreview,
+  ScrollTargetField,
+} from '@/components/common/ScrollTargetAdmin';
+import {
+  deriveScrollTargetFromManualUrl,
+  resolveEffectiveScrollTarget,
+  resolveNavigationTarget,
+} from '@/lib/scrollTargets';
 import { errorMessage } from '@/lib/utils';
 import type { StoreModal } from '@/types/models';
 
@@ -30,6 +39,7 @@ const VACIO = {
   imageUrl: '',
   ctaLabel: '',
   ctaUrl: '',
+  scrollTarget: '',
   active: false,
   frequency: 'once' as StoreModal['frequency'],
   placement: 'home' as StoreModal['placement'],
@@ -83,13 +93,17 @@ export function AdminModals() {
 
   useEffect(() => {
     if (!editing) return;
+    const effectiveScroll = resolveEffectiveScrollTarget(editing.ctaUrl, editing.scrollTarget);
+    const resolvedNav = resolveNavigationTarget(editing.ctaUrl, effectiveScroll);
+
     setForm({
       title: editing.title,
       body: editing.body,
       videoUrl: editing.videoUrl,
       imageUrl: editing.imageUrl,
       ctaLabel: editing.ctaLabel,
-      ctaUrl: editing.ctaUrl,
+      ctaUrl: editing.ctaUrl || effectiveScroll ? resolvedNav.fullHref : '',
+      scrollTarget: effectiveScroll,
       active: editing.active,
       frequency: editing.frequency,
       placement: editing.placement,
@@ -101,6 +115,7 @@ export function AdminModals() {
   const abrirNuevo = () => {
     setEditing(null);
     setForm(VACIO);
+    setPreview(false);
     setOpen(true);
   };
 
@@ -110,12 +125,17 @@ export function AdminModals() {
       return;
     }
 
+    const effectiveScroll = resolveEffectiveScrollTarget(form.ctaUrl, form.scrollTarget);
+    const resolvedNav = resolveNavigationTarget(form.ctaUrl, effectiveScroll);
+
     save.mutate(
       {
         id: editing?.id,
         data: {
           ...form,
           title: form.title.trim(),
+          ctaUrl: form.ctaUrl.trim() || effectiveScroll ? resolvedNav.fullHref : '',
+          scrollTarget: effectiveScroll,
           sortOrder: Number(form.sortOrder) || 99,
         },
       },
@@ -135,6 +155,7 @@ export function AdminModals() {
     .filter(Boolean);
 
   const videoListo = embedUrl(form.videoUrl);
+  const formNavTarget = resolveNavigationTarget(form.ctaUrl, form.scrollTarget);
 
   if (modals.error) return <ErrorState message="No pudimos cargar los modales." />;
 
@@ -168,50 +189,58 @@ export function AdminModals() {
         />
       ) : (
         <Card className="p-0">
-          {list.map((modal) => (
-            <div
-              key={modal.id}
-              className="flex flex-wrap items-center gap-3 border-b border-base-700 px-4 py-3 last:border-b-0"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-semibold text-white">{modal.title}</span>
-                  {modal.active ? (
-                    <Badge variant="success">Activo</Badge>
-                  ) : (
-                    <Badge variant="danger">Oculto</Badge>
-                  )}
-                  {modal.videoUrl && <Badge variant="info">Con vídeo</Badge>}
-                </div>
-                <p className="mt-0.5 text-xs text-slate-400">
-                  {UBICACION[modal.placement]} · {FRECUENCIA[modal.frequency]} · {modal.audience === 'web' ? 'Web' : modal.audience === 'app' ? 'App' : 'Web y app'} · orden{' '}
-                  {modal.sortOrder}
-                </p>
-              </div>
+          {list.map((modal) => {
+            const modalScroll = resolveEffectiveScrollTarget(modal.ctaUrl, modal.scrollTarget);
 
-              <div className="flex shrink-0 gap-2">
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => {
-                    setEditing(modal);
-                    setOpen(true);
-                  }}
-                >
-                  Editar
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="text-red-300"
-                  leftIcon={<Trash2 className="h-3.5 w-3.5" aria-hidden />}
-                  onClick={() => setToDelete(modal)}
-                >
-                  Borrar
-                </Button>
+            return (
+              <div
+                key={modal.id}
+                className="flex flex-wrap items-center gap-3 border-b border-base-700 px-4 py-3 last:border-b-0"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold text-white">{modal.title}</span>
+                    {modal.active ? (
+                      <Badge variant="success">Activo</Badge>
+                    ) : (
+                      <Badge variant="danger">Oculto</Badge>
+                    )}
+                    {modal.videoUrl && <Badge variant="info">Con vídeo</Badge>}
+                    {modalScroll && (
+                      <Badge variant="brand">🎯 Scroll: #{modalScroll}</Badge>
+                    )}
+                  </div>
+                  <p className="mt-0.5 text-xs text-slate-400">
+                    {UBICACION[modal.placement]} · {FRECUENCIA[modal.frequency]} ·{' '}
+                    {modal.audience === 'web' ? 'Web' : modal.audience === 'app' ? 'App' : 'Web y app'} · orden{' '}
+                    {modal.sortOrder}
+                  </p>
+                </div>
+
+                <div className="flex shrink-0 gap-2">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => {
+                      setEditing(modal);
+                      setOpen(true);
+                    }}
+                  >
+                    Editar
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-red-300"
+                    leftIcon={<Trash2 className="h-3.5 w-3.5" aria-hidden />}
+                    onClick={() => setToDelete(modal)}
+                  >
+                    Borrar
+                  </Button>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </Card>
       )}
 
@@ -262,16 +291,35 @@ export function AdminModals() {
               label="Texto del botón (opcional)"
               value={form.ctaLabel}
               onChange={(e) => setForm({ ...form, ctaLabel: e.target.value.slice(0, 40) })}
-              placeholder="Recargar ahora"
+              placeholder="Vincular número"
               hint="También es el texto del botón flotante."
             />
             <Input
               label="Enlace del botón"
               value={form.ctaUrl}
-              onChange={(e) => setForm({ ...form, ctaUrl: e.target.value })}
-              placeholder="/ o https://..."
+              onChange={(e) => {
+                const nextUrl = e.target.value;
+                setForm({
+                  ...form,
+                  ctaUrl: nextUrl,
+                  scrollTarget: deriveScrollTargetFromManualUrl(nextUrl),
+                });
+              }}
+              placeholder="/cuenta#telefono, / o https://..."
             />
           </div>
+
+          <ScrollTargetField
+            url={form.ctaUrl}
+            scrollTarget={form.scrollTarget}
+            onChange={({ url, scrollTarget }) =>
+              setForm({
+                ...form,
+                ctaUrl: url,
+                scrollTarget,
+              })
+            }
+          />
 
           <div className="grid gap-3 sm:grid-cols-3">
             <Select
@@ -331,16 +379,23 @@ export function AdminModals() {
             {preview ? 'Ocultar vista previa' : 'Ver cómo queda'}
           </Button>
 
-          {preview && (
-            <div className="rounded-2xl border border-base-600 bg-base-900 p-3">
+          {preview ? (
+            <div className="space-y-3 rounded-2xl border border-base-600 bg-base-900 p-3">
               <p className="text-sm font-bold text-white">{form.title || 'Sin título'}</p>
               {videoListo && (
-                <div className="mt-2 aspect-video overflow-hidden rounded-xl bg-black">
+                <div className="aspect-video overflow-hidden rounded-xl bg-black">
                   <iframe src={videoListo} title="Vista previa" className="h-full w-full" />
                 </div>
               )}
+              {form.imageUrl.trim() && (
+                <img
+                  src={form.imageUrl}
+                  alt=""
+                  className="max-h-48 w-full rounded-xl object-cover"
+                />
+              )}
               {pasos.length > 0 && (
-                <ol className="mt-2 space-y-1.5">
+                <ol className="space-y-1.5">
                   {pasos.map((paso, i) => (
                     <li key={i} className="flex gap-2 text-xs text-slate-300">
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-brand-gradient text-[10px] font-black text-white">
@@ -351,7 +406,28 @@ export function AdminModals() {
                   ))}
                 </ol>
               )}
+              {form.ctaLabel.trim() && formNavTarget.fullHref && (
+                <div className="pt-1">
+                  <span className="flex h-10 w-full items-center justify-center rounded-xl bg-brand-gradient px-4 text-xs font-bold text-white shadow-glow">
+                    {form.ctaLabel}
+                  </span>
+                </div>
+              )}
+
+              <ScrollJourneyPreview
+                ctaLabel={form.ctaLabel}
+                url={form.ctaUrl}
+                scrollTarget={form.scrollTarget}
+                fallbackCtaLabel="Botón del modal"
+              />
             </div>
+          ) : (
+            <ScrollJourneyPreview
+              ctaLabel={form.ctaLabel}
+              url={form.ctaUrl}
+              scrollTarget={form.scrollTarget}
+              fallbackCtaLabel="Botón del modal"
+            />
           )}
 
           <Button fullWidth loading={save.isPending} onClick={submit}>
