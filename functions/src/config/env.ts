@@ -78,6 +78,12 @@ export const INEFABLE_WEBHOOK_SECRET = defineSecret('INEFABLE_WEBHOOK_SECRET');
  */
 export const INEFABLE_WEBHOOK_TOKEN = defineSecret('INEFABLE_WEBHOOK_TOKEN');
 
+/**
+ * Clave compartida para `POST /api/orders/sync-whatsapp` desde RefillBot.
+ * Vive en Secret Manager; el mismo valor va en `SYNC_SECRET_KEY` del .env del bot.
+ */
+export const SYNC_SECRET_KEY = defineSecret('SYNC_SECRET_KEY');
+
 /** Todos los secretos que necesita la función `api`. */
 export const API_SECRETS = [
   PABILO_API_KEY,
@@ -93,6 +99,7 @@ export const API_SECRETS = [
   GMAIL_APP_PASSWORD,
   INEFABLE_WEBHOOK_SECRET,
   INEFABLE_WEBHOOK_TOKEN,
+  SYNC_SECRET_KEY,
 ];
 
 // --- Configuración no secreta ----------------------------------------------
@@ -114,6 +121,23 @@ export const inefableBaseUrl = () =>
  */
 export const inefableRechargePath = () =>
   fromEnv('INEFABLE_RECHARGE_PATH', '/api/v1/recharge');
+
+/** Timeout explícito por petición al despacho de Inefable (15 s por defecto). */
+export const inefableTimeoutMs = (): number => {
+  const parsed = Number(fromEnv('INEFABLE_TIMEOUT_MS', '15000'));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 15_000;
+};
+
+/** Clave compartida para el endpoint `POST /api/orders/sync-whatsapp` desde RefillBot. */
+export const syncSecretKey = (): string => {
+  try {
+    const fromSecret = SYNC_SECRET_KEY.value().trim();
+    if (fromSecret) return fromSecret;
+  } catch {
+    // Fuera de Cloud Functions el secreto no esta enlazado.
+  }
+  return fromEnv('SYNC_SECRET_KEY', '');
+};
 
 /** Base v2 de FazerCards. */
 export const fazerBaseUrl = () => fromEnv('FAZERCARDS_BASE_URL', 'https://api.fzr.cards/api/v2');

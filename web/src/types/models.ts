@@ -211,6 +211,26 @@ export type OrderStatus =
  */
 export type DispatchCallStatus = 'pending' | 'processing' | 'success' | 'error';
 
+export type OrderChannel = 'WEB' | 'WHATSAPP';
+
+export type OrderBusinessEstado =
+  | 'PAGO_VALIDADO'
+  | 'DESPACHANDO_INEFABLE'
+  | 'COMPLETADO'
+  | 'ENTREGA_PARCIAL_COMBO'
+  | 'REVISION_MANUAL';
+
+export interface OrderSubOrden {
+  product_id: number | string;
+  package_id?: number | string;
+  exito: boolean;
+  order_id: string | null;
+  status: string | null;
+  error: string | null;
+  httpStatus?: number | null;
+  timestamp: string;
+}
+
 export interface DispatchCallResult {
   packageId: number | string;
   /** Juego del proveedor con el que se envió. `null` = el del juego. */
@@ -332,6 +352,25 @@ export interface Order {
   /** Sólo presente para staff. */
   adminNote?: string | null;
   meta?: { ip: string | null; userAgent: string | null };
+  /** Campos unificados de ventas, finanzas y canal (Web + RefillBot WhatsApp). */
+  canal?: OrderChannel;
+  origen?: OrderChannel;
+  referencia?: string | null;
+  clienteContacto?: string | null;
+  chatJid?: string | null;
+  userId?: string | null;
+  juego?: string;
+  paqueteNombre?: string;
+  productIds?: Array<number | string>;
+  montoBs?: number;
+  tasaBcv?: number;
+  montoUsd?: number;
+  costoProveedorUsd?: number;
+  gananciaNetaUsd?: number;
+  tipoDespacho?: 'AUTOMATICO' | 'MANUAL';
+  estado?: OrderBusinessEstado;
+  subOrdenes?: OrderSubOrden[];
+  metricsAccounted?: boolean;
   createdAt: TimestampLike;
   updatedAt: TimestampLike;
   expiresAt: TimestampLike;

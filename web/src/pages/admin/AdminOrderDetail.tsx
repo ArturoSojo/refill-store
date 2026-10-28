@@ -72,6 +72,8 @@ export function AdminOrderDetail() {
   const { order, events, customer } = data;
   const playerFields = data.playerFieldLabels ?? [];
   const walletApplied = order.pricing.walletAppliedUsd ?? 0;
+  const isWhatsapp = order.origen === 'WHATSAPP' || order.canal === 'WHATSAPP';
+  const whatsappContact = order.clienteContacto ?? order.contactPhone ?? null;
 
   const canRetry =
     order.fulfillment === 'auto' &&
@@ -114,6 +116,7 @@ export function AdminOrderDetail() {
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="font-mono text-lg font-bold text-white">{order.code}</h1>
               <OrderStatusBadge status={order.status} />
+              {isWhatsapp && <Badge variant="success">WhatsApp</Badge>}
               <Badge variant={order.fulfillment === 'auto' ? 'brand' : 'success'}>
                 {order.fulfillment === 'auto' ? 'Automática' : 'Manual'}
               </Badge>
@@ -153,7 +156,9 @@ export function AdminOrderDetail() {
                 ? reviewExpired
                   ? 'Tiempo de revisión agotado (se reembolsará en el próximo barrido automático)'
                   : `Tiempo restante para reembolso automático: ${reviewTimeLeft ?? '—'}`
-                : 'Orden en revisión manual (1 hora para reembolso automático)'}
+                : isWhatsapp
+                  ? 'Orden de WhatsApp en revisión manual por operador'
+                  : 'Orden en revisión manual (1 hora para reembolso automático)'}
             </span>
             {order.providerError && (
               <span className="text-amber-300/90">Error proveedor: {order.providerError}</span>
@@ -226,6 +231,22 @@ export function AdminOrderDetail() {
               <dt className="text-slate-400">Nombre</dt>
               <dd className="truncate text-white">{order.user.displayName ?? '—'}</dd>
             </div>
+            {whatsappContact && (
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-slate-400">Teléfono / WhatsApp</dt>
+                <dd className="flex items-center gap-2">
+                  <span className="tabular text-white">{whatsappContact}</span>
+                  <button
+                    type="button"
+                    onClick={() => void copy(whatsappContact, 'phone')}
+                    className="rounded p-1 text-slate-500 hover:text-white"
+                    aria-label="Copiar teléfono"
+                  >
+                    <Copy className="h-3.5 w-3.5" aria-hidden />
+                  </button>
+                </dd>
+              </div>
+            )}
             {/* Todos los datos que pidió el juego. Para un Mobile Legends son
                 dos, y sin el Zone ID no se puede reenviar la recarga a mano. */}
             {(playerFields.length > 0

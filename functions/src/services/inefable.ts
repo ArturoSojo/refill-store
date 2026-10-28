@@ -28,7 +28,7 @@
  * llegó al jugador: por eso cada llamada se registra por separado en la orden y
  * el reintento del panel sólo repite las llamadas que quedaron en error.
  */
-import { INEFABLE_API_KEY, inefableBaseUrl, inefableRechargePath } from '../config/env';
+import { INEFABLE_API_KEY, inefableBaseUrl, inefableRechargePath, inefableTimeoutMs } from '../config/env';
 import { fetchJson } from '../lib/fetchJson';
 import { log } from '../lib/logger';
 import { providerError } from '../lib/errors';
@@ -181,8 +181,8 @@ export async function createOrder(input: InefableOrderInput): Promise<InefableOr
       ...(input.playerId2 ? { player_id2: input.playerId2 } : {}),
       external_order_id: input.externalOrderId,
     },
-    // El proveedor tarda 2-3 s en responder; se deja margen holgado.
-    timeoutMs: 45_000,
+    // Timeout explícito por petición (15 s por defecto; configurable vía INEFABLE_TIMEOUT_MS).
+    timeoutMs: inefableTimeoutMs(),
     // Sin reintentos automáticos: una recarga duplicada cuesta dinero real. El
     // reintento es una decisión explícita del panel de administración.
     retries: 0,

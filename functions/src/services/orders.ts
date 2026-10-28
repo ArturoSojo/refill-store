@@ -135,7 +135,10 @@ export async function listOrders(options: ListOrdersOptions): Promise<Order[]> {
  * Vista de la orden para el cliente: sin la nota interna, sin los metadatos
  * anti-fraude y, sobre todo, sin el costo ni la utilidad del negocio.
  */
-export type CustomerOrder = Omit<Order, 'adminNote' | 'meta' | 'creator' | 'pricing'> & {
+export type CustomerOrder = Omit<
+  Order,
+  'adminNote' | 'meta' | 'creator' | 'pricing' | 'costoProveedorUsd' | 'gananciaNetaUsd'
+> & {
   pricing: Omit<OrderPricing, 'costUsd' | 'profitUsd'>;
 };
 
@@ -147,6 +150,8 @@ export function toCustomerOrder(order: Order): CustomerOrder {
     adminNote: _adminNote,
     meta: _meta,
     creator: _creator,
+    costoProveedorUsd: _costoProveedorUsd,
+    gananciaNetaUsd: _gananciaNetaUsd,
     pricing: fullPricing,
     ...rest
   } = order;
@@ -445,9 +450,36 @@ export async function createOrder(
     });
   }
 
+  const plannedCalls =
+    product.fulfillment === 'auto'
+      ? Array.from({ length: quantity }, () => buildCallPlan(product.calls))
+          .flat()
+          .map((call, index) => ({ ...call, index }))
+      : [];
+  const productIds = product.calls.flatMap((c) =>
+    Array.from({ length: Math.max(1, c.quantity * quantity) }, () => c.packageId)
+  );
+
   const order: Omit<Order, 'id'> = {
     code: generateOrderCode(),
     uid: user.uid,
+    userId: user.uid,
+    canal: 'WEB',
+    origen: 'WEB',
+    clienteContacto: contactPhone ?? user.email ?? '',
+    juego: game.name,
+    paqueteNombre: product.name,
+    productIds,
+    montoBs: totalBs,
+    tasaBcv: rate,
+    montoUsd: totalUsd,
+    costoProveedorUsd: costUsd,
+    gananciaNetaUsd: round(totalUsd - costUsd, 4),
+    tipoDespacho: product.fulfillment === 'auto' ? 'AUTOMATICO' : 'MANUAL',
+    ...(paidWithWallet
+      ? { estado: product.fulfillment === 'auto' ? 'PAGO_VALIDADO' : 'REVISION_MANUAL' }
+      : {}),
+    subOrdenes: [],
     user: {
       email: user.email,
       displayName: profile.displayName ?? user.displayName,
@@ -501,12 +533,7 @@ export async function createOrder(
       // El plan se calcula ahora y se guarda en la orden: si el admin edita el
       // producto más tarde, esta orden conserva las llamadas que se cotizaron
       // al comprar. Con cantidad > 1 el plan completo se repite.
-      calls:
-        product.fulfillment === 'auto'
-          ? Array.from({ length: quantity }, () => buildCallPlan(product.calls))
-              .flat()
-              .map((call, index) => ({ ...call, index }))
-          : [],
+      calls: plannedCalls,
       startedAt: null,
       completedAt: null,
       lastError: null,
@@ -1156,22 +1183,37 @@ export async function verifyPayment(
     });
   }
 
-  // --- Pago confirmado ---
-  await orders().doc(orderId).set(
-    {
-      status: 'paid',
-      // Igual que arriba: nada de esparcir el objeto viejo, o `attempts` vuelve
-      // a cero.
-      payment: {
-        reference,
-        reportedAmountBs,
-        verifiedAt: now(),
-        providerResponse: result.raw,
+    // --- Pago confirmado (Tarea B: registro unificado de venta y finanzas) ---
+    await orders().doc(orderId).set(
+      {
+        status: 'paid',
+        referencia: reference,
+        canal: order.canal ?? 'WEB',
+        origen: order.origen ?? 'WEB',
+        clienteContacto: order.contactPhone ?? order.user.email ?? order.uid,
+        juego: order.gameName,
+        paqueteNombre: order.productName,
+        productIds: (order.dispatch?.calls ?? []).map((c) => c.packageId),
+        montoBs: reportedAmountBs ?? order.pricing.totalBs,
+        tasaBcv: order.pricing.rate,
+        montoUsd: order.pricing.totalUsd,
+        costoProveedorUsd: order.pricing.costUsd,
+        gananciaNetaUsd: order.pricing.profitUsd,
+        tipoDespacho: order.fulfillment === 'auto' ? 'AUTOMATICO' : 'MANUAL',
+        estado: order.fulfillment === 'auto' ? 'PAGO_VALIDADO' : 'REVISION_MANUAL',
+        subOrdenes: order.subOrdenes ?? [],
+        // Igual que arriba: nada de esparcir el objeto viejo, o `attempts` vuelve
+        // a cero.
+        payment: {
+          reference,
+          reportedAmountBs,
+          verifiedAt: now(),
+          providerResponse: result.raw,
+        },
+        updatedAt: now(),
       },
-      updatedAt: now(),
-    },
-    { merge: true }
-  );
+      { merge: true }
+    );
 
   // Pagó de más: la orden se acepta igual (está cubierta), pero el excedente no
   // se queda callado. Es dinero del cliente y el equipo decide si se lo abona al
@@ -1314,12 +1356,15 @@ async function executeOrderRefundTx(
     if (!orderSnap.exists) throw notFound('Orden no encontrada.');
 
     const current = { id: orderSnap.id, ...orderSnap.data() } as Order;
-    const walletState = await usersService.readWalletInTx(tx, current.uid, movementId);
+    const isWhatsappGuest = current.uid.startsWith('whatsapp:');
+    const walletState = isWhatsappGuest
+      ? null
+      : await usersService.readWalletInTx(tx, current.uid, movementId);
 
     const alreadyRefunded = Boolean(
       current.refundedAt != null ||
         current.pricing?.walletRefunded === true ||
-        walletState.movementSnap?.exists
+        walletState?.movementSnap?.exists
     );
 
     if (
@@ -1337,7 +1382,12 @@ async function executeOrderRefundTx(
     }
 
     let amountToCredit = 0;
-    if (!alreadyRefunded && options.toWallet !== false) {
+    if (
+      !alreadyRefunded &&
+      options.toWallet !== false &&
+      !isWhatsappGuest &&
+      Boolean(walletState?.userSnap.exists)
+    ) {
       if (options.amountMode === 'full_order') {
         amountToCredit = round(current.pricing?.totalUsd ?? 0, 2);
       } else {
@@ -1353,7 +1403,7 @@ async function executeOrderRefundTx(
     const timestamp = now();
     const fixedReason = `Reembolso de la orden ${current.code}`;
 
-    if (amountToCredit > 0) {
+    if (amountToCredit > 0 && walletState) {
       usersService.writeWalletInTx(tx, walletState, {
         uid: current.uid,
         deltaUsd: amountToCredit,
@@ -1577,6 +1627,7 @@ export async function payWithWallet(user: AuthUser, orderId: string): Promise<Or
   const timestamp = now();
   await orders().doc(orderId).update({
     status: 'paid',
+    estado: order.fulfillment === 'auto' ? 'PAGO_VALIDADO' : 'REVISION_MANUAL',
     'payment.method': 'wallet',
     'payment.verifiedAt': timestamp,
     'pricing.walletAppliedUsd': round((order.pricing.walletAppliedUsd ?? 0) + dueUsd, 2),
@@ -1678,7 +1729,7 @@ export async function markCompleted(
 
     const current = { id: snap.id, ...snap.data() } as Order;
     if (current.status === 'completed') {
-      return { order: current, changed: false };
+      return { order: current, changed: false, alreadyAccounted: true };
     }
     if (!['in_review', 'awaiting_manual', 'failed'].includes(current.status)) {
       throw failedPrecondition(
@@ -1686,11 +1737,14 @@ export async function markCompleted(
       );
     }
 
+    const alreadyAccounted = current.metricsAccounted === true;
     const timestamp = now();
     tx.set(
       orderRef,
       {
         status: 'completed',
+        estado: 'COMPLETADO',
+        metricsAccounted: true,
         reviewDeadline: null,
         providerError: null,
         adminNote: note ?? current.adminNote,
@@ -1704,6 +1758,8 @@ export async function markCompleted(
       order: {
         ...current,
         status: 'completed' as OrderStatus,
+        estado: 'COMPLETADO' as const,
+        metricsAccounted: true,
         reviewDeadline: null,
         providerError: null,
         adminNote: note ?? current.adminNote,
@@ -1711,6 +1767,7 @@ export async function markCompleted(
         updatedAt: timestamp,
       },
       changed: true,
+      alreadyAccounted,
     };
   });
 
@@ -1719,6 +1776,7 @@ export async function markCompleted(
   }
 
   const order = txResult.order;
+  const isWhatsappGuest = order.uid.startsWith('whatsapp:');
 
   // El cliente recibe el mismo comprobante de entrega tanto si la despachó el
   // proveedor como si la completó el equipo a mano.
@@ -1733,17 +1791,23 @@ export async function markCompleted(
       actor: 'admin',
       actorUid: actor.uid,
     }),
-    notifications.notify({
-      uid: order.uid,
-      title: '¡Tu recarga fue entregada! 🎮',
-      body: `${describeOrder(order)} ya está acreditado en ${order.playerId}.`,
-      type: 'order',
-      link: `/orden/${orderId}`,
-    }),
-    usersService.registerCompletedPurchase(order.uid, order.pricing.totalUsd),
+    !isWhatsappGuest
+      ? notifications.notify({
+          uid: order.uid,
+          title: '¡Tu recarga fue entregada! 🎮',
+          body: `${describeOrder(order)} ya está acreditado en ${order.playerId}.`,
+          type: 'order',
+          link: `/orden/${orderId}`,
+        })
+      : Promise.resolve(),
+    !txResult.alreadyAccounted
+      ? usersService.registerCompletedPurchase(order.uid, order.pricing.totalUsd)
+      : Promise.resolve(),
     // Idempotente: si el despacho automático ya la devengó, ésta no hace nada.
     creatorsService.accrueCommission(order),
-    stats.trackEvent({ type: 'order_completed', order: { ...order, status: 'completed' } }),
+    !txResult.alreadyAccounted
+      ? stats.trackEvent({ type: 'order_completed', order: { ...order, status: 'completed' } })
+      : Promise.resolve(),
     audit.record({
       action: audit.ACTIONS.ORDER_COMPLETED_MANUALLY,
       actorUid: actor.uid,
@@ -1832,16 +1896,18 @@ export async function refundOrder(
       actor: actor ? 'admin' : 'system',
       actorUid: actor?.uid ?? null,
     }),
-    notifications.notify({
-      uid: order.uid,
-      title: 'Orden cancelada y reembolsada',
-      body:
-        creditedUsd > 0
-          ? `Acreditamos $${creditedUsd.toFixed(2)} a tu saldo por la orden ${order.code}.`
-          : `Tu orden ${order.code} fue cancelada.`,
-      type: 'order',
-      link: `/orden/${orderId}`,
-    }),
+    !order.uid.startsWith('whatsapp:')
+      ? notifications.notify({
+          uid: order.uid,
+          title: 'Orden cancelada y reembolsada',
+          body:
+            creditedUsd > 0
+              ? `Acreditamos $${creditedUsd.toFixed(2)} a tu saldo por la orden ${order.code}.`
+              : `Tu orden ${order.code} fue cancelada.`,
+          type: 'order',
+          link: `/orden/${orderId}`,
+        })
+      : Promise.resolve(),
     stats.trackEvent({ type: 'order_refunded', order }),
     audit.record({
       action: audit.ACTIONS.ORDER_REFUNDED,

@@ -17,6 +17,10 @@ import { errorMessage } from '@/lib/utils';
 import type { Order } from '@/types/models';
 
 function OrderRow({ order }: { order: Order }) {
+  const isWhatsapp = order.origen === 'WHATSAPP' || order.canal === 'WHATSAPP';
+  const customerContact =
+    order.user.email ?? order.clienteContacto ?? order.contactPhone ?? 'Sin correo';
+
   return (
     <Link
       to={ROUTES.adminOrder(order.id)}
@@ -27,6 +31,11 @@ function OrderRow({ order }: { order: Order }) {
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-mono text-xs font-semibold text-neon-crimson">{order.code}</span>
             <OrderStatusBadge status={order.status} />
+            {isWhatsapp && (
+              <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
+                WHATSAPP
+              </span>
+            )}
             {order.fulfillment === 'manual' && (
               <span className="rounded-full bg-green-500/15 px-2 py-0.5 text-[10px] font-semibold text-green-300">
                 MANUAL
@@ -36,7 +45,7 @@ function OrderRow({ order }: { order: Order }) {
 
           <p className="mt-1 truncate text-sm text-white">{shortOrderItem(order)}</p>
           <p className="mt-0.5 truncate text-xs text-slate-400">
-            {order.user.email ?? 'Sin correo'} · ID <span className="tabular">{order.playerId}</span>
+            {customerContact} · ID <span className="tabular">{order.playerId}</span>
           </p>
           <p className="mt-0.5 text-xs text-slate-500">{formatDateTime(order.createdAt)}</p>
         </div>

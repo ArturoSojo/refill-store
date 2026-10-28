@@ -11,6 +11,7 @@ import { parseAllowedOrigins } from './config/env';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { optionalAuth } from './middleware/auth';
 import { publicRouter } from './routes/public.routes';
+import { whatsappSyncRouter } from './routes/whatsappSync.routes';
 import { ordersRouter } from './routes/orders.routes';
 import { meRouter } from './routes/me.routes';
 import { adminRouter } from './routes/admin.routes';
@@ -73,6 +74,7 @@ export function createApp() {
 
   mount('/', publicRouter);
   mount('/auth', authRouter);
+  mount('/orders', whatsappSyncRouter);
   mount('/orders', ordersRouter);
   mount('/me', meRouter);
   mount('/admin', adminRouter);

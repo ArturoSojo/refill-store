@@ -17,6 +17,7 @@ import { db, orders, games, products, now, minutesFromNow, providerOrders } from
 import { createHash } from 'node:crypto';
 import { log } from '../lib/logger';
 import { notFound } from '../lib/errors';
+import { round } from '../lib/money';
 import * as inefable from './inefable';
 import * as fazercards from './fazercards';
 import * as audit from './audit';
@@ -311,6 +312,7 @@ export async function dispatchOrder(
       orderRef,
       {
         status: 'dispatching',
+        estado: 'DESPACHANDO_INEFABLE',
         dispatch: { ...order.dispatch, startedAt: order.dispatch.startedAt ?? now() },
         updatedAt: now(),
       },
@@ -746,11 +748,30 @@ export async function finalizeDispatch(
   const rawFailure = options.failure ?? calls.find((call) => call.error)?.error ?? null;
   const failure = rawFailure ? sanitizeProviderError(rawFailure) : null;
   const anyProcessing = options.anyProcessing ?? calls.some((c) => c.status === 'processing');
+  const anySucceeded = calls.some((c) => c.status === 'success');
+  const esEntregaParcial = !allSucceeded && !anyProcessing && anySucceeded;
   const nextStatus: OrderStatus = allSucceeded
     ? 'completed'
     : anyProcessing
       ? 'dispatching'
       : 'in_review';
+  const nextEstado = allSucceeded
+    ? 'COMPLETADO'
+    : anyProcessing
+      ? 'DESPACHANDO_INEFABLE'
+      : esEntregaParcial
+        ? 'ENTREGA_PARCIAL_COMBO'
+        : 'REVISION_MANUAL';
+  const subOrdenes = calls.map((c) => ({
+    product_id: c.packageId,
+    package_id: c.packageId,
+    exito: c.status === 'success',
+    order_id: c.providerOrderId ?? null,
+    status: c.providerStatus ?? c.status,
+    error: c.error ?? null,
+    httpStatus: c.httpStatus ?? null,
+    timestamp: new Date().toISOString(),
+  }));
 
   const txOutcome = await db.runTransaction(async (tx) => {
     const snap = await tx.get(orderRef);
@@ -775,8 +796,11 @@ export async function finalizeDispatch(
     }
 
     const timestamp = now();
+    const isWhatsappOrigin = current.origen === 'WHATSAPP' || current.canal === 'WHATSAPP';
     const updateData: Record<string, unknown> = {
       status: nextStatus,
+      estado: nextEstado,
+      subOrdenes,
       dispatch: {
         calls,
         startedAt: current.dispatch?.startedAt ?? order.dispatch?.startedAt ?? timestamp,
@@ -790,11 +814,14 @@ export async function finalizeDispatch(
     };
 
     if (nextStatus === 'in_review') {
-      updateData.reviewDeadline = current.reviewDeadline ?? minutesFromNow(60);
+      updateData.reviewDeadline = isWhatsappOrigin
+        ? null
+        : (current.reviewDeadline ?? minutesFromNow(60));
       updateData.providerError = failure ?? 'No se pudo completar el despacho automático.';
     } else if (nextStatus === 'completed') {
       updateData.reviewDeadline = null;
       updateData.providerError = null;
+      updateData.metricsAccounted = true;
     }
 
     tx.set(orderRef, updateData, { merge: true });
@@ -834,17 +861,21 @@ export async function finalizeDispatch(
   }
 
   const status = txOutcome.status;
+  const isWhatsappGuest = order.uid.startsWith('whatsapp:');
+  const alreadyAccounted = txOutcome.current.metricsAccounted === true;
 
   // Aceptada y en curso: ni correo de entrega ni de fallo. La tarea programada
   // resolverá el estado real y disparará lo que corresponda.
   if (anyProcessing && !allSucceeded) {
-    await notifications.notify({
-      uid: order.uid,
-      title: 'Tu recarga está en camino ⏳',
-      body: `${describeOrder(order)}: el proveedor la está procesando. Te avisamos al terminar.`,
-      type: 'order',
-      link: `/orden/${orderId}`,
-    });
+    if (!isWhatsappGuest) {
+      await notifications.notify({
+        uid: order.uid,
+        title: 'Tu recarga está en camino ⏳',
+        body: `${describeOrder(order)}: el proveedor la está procesando. Te avisamos al terminar.`,
+        type: 'order',
+        link: `/orden/${orderId}`,
+      });
+    }
 
     return status;
   }
@@ -860,18 +891,24 @@ export async function finalizeDispatch(
     });
 
     await Promise.all([
-      notifications.notify({
-        uid: order.uid,
-        title: '¡Recarga entregada! 🎮',
-        body: `${describeOrder(order)} ya está en tu cuenta (ID ${order.playerId}).`,
-        type: 'order',
-        link: `/orden/${orderId}`,
-      }),
-      usersService.registerCompletedPurchase(order.uid, order.pricing.totalUsd),
+      !isWhatsappGuest
+        ? notifications.notify({
+            uid: order.uid,
+            title: '¡Recarga entregada! 🎮',
+            body: `${describeOrder(order)} ya está en tu cuenta (ID ${order.playerId}).`,
+            type: 'order',
+            link: `/orden/${orderId}`,
+          })
+        : Promise.resolve(),
+      !alreadyAccounted
+        ? usersService.registerCompletedPurchase(order.uid, order.pricing.totalUsd)
+        : Promise.resolve(),
       // No lanza: la recarga ya llegó al jugador y un fallo contable no puede
       // deshacerla. Deja rastro en el registro para conciliar.
       creatorsService.accrueCommission(order),
-      stats.trackEvent({ type: 'order_completed', order: { ...order, status } }),
+      !alreadyAccounted
+        ? stats.trackEvent({ type: 'order_completed', order: { ...order, status } })
+        : Promise.resolve(),
       audit.record({
         action: audit.ACTIONS.ORDER_DISPATCHED,
         actorUid: options.actorUid ?? null,
@@ -891,14 +928,36 @@ export async function finalizeDispatch(
       status: 'in_review',
     });
 
+    const providerUpper = (order.provider ?? 'inefable').toUpperCase();
+    const entregados = calls.filter((c) => c.status === 'success');
+    const fallidos = calls.filter((c) => c.status !== 'success');
+    const entregadosTxt =
+      entregados.length > 0
+        ? entregados
+            .map((c) => `package_id ${c.packageId} (order #${c.providerOrderId ?? 'OK'})`)
+            .join(', ')
+        : 'Ninguno';
+    const fallidosTxt = fallidos
+      .map((c) => `package_id ${c.packageId} (${c.error ?? c.providerStatus ?? 'error'})`)
+      .join(', ');
+    const pabiloRef = order.payment?.reference ?? order.referencia ?? null;
+    const montoBsPagado = round(
+      order.payment?.paidBs && order.payment.paidBs > 0
+        ? order.payment.paidBs
+        : (order.pricing?.totalBs ?? 0),
+      2
+    );
+
     await Promise.all([
-      notifications.notify({
-        uid: order.uid,
-        title: 'Orden en revisión manual ⏳',
-        body: REVIEW_CUSTOMER_MESSAGE,
-        type: 'order',
-        link: `/orden/${orderId}`,
-      }),
+      !isWhatsappGuest
+        ? notifications.notify({
+            uid: order.uid,
+            title: 'Orden en revisión manual ⏳',
+            body: REVIEW_CUSTOMER_MESSAGE,
+            type: 'order',
+            link: `/orden/${orderId}`,
+          })
+        : Promise.resolve(),
       stats.trackEvent({ type: 'order_failed', order: { ...order, status } }),
       audit.record({
         action: audit.ACTIONS.ORDER_DISPATCH_FAILED,
@@ -906,23 +965,37 @@ export async function finalizeDispatch(
         targetType: 'order',
         targetId: orderId,
         summary: `Falló el despacho de la orden ${order.code}. Pasó a revisión manual.`,
-        data: { error: failure },
+        data: { error: failure, subOrdenes },
       }),
       // El cliente ya pagó: esto necesita a una persona ya, no cuando alguien
       // se acuerde de abrir el panel.
       adminAlerts.alert({
         kind: 'dispatch_failed',
         severity: 'critical',
-        title: `Orden en revisión · ${order.code}`,
+        title: `⚠️ RECARGA PASADA A MANUAL (FALLO API ${providerUpper}) · ${order.code}`,
         body: [
-          `${describeOrder(order)} (${order.gameName}) para el ID ${order.playerId}.`,
-          `Cobrado: ${order.pricing.totalBs.toFixed(2)} Bs.`,
-          `Motivo: ${failure ?? 'sin detalle del proveedor'}.`,
-        ].join('\n'),
+          `⚠️ RECARGA PASADA A MANUAL (FALLO API ${providerUpper})`,
+          esEntregaParcial ? '🔴 ATENCIÓN: ENTREGA PARCIAL EN COMBO' : null,
+          `🎮 Juego: ${order.gameName}`,
+          `💎 Paquete: ${describeOrder(order)}`,
+          `🆔 Player ID: ${order.playerId}`,
+          `✅ Entregados: ${entregadosTxt}`,
+          `❌ Fallidos: ${fallidosTxt || 'Todos'}`,
+          pabiloRef
+            ? `🧾 Ref Pabilo: ${pabiloRef} (✅ Pago ya verificado en BDV)`
+            : `💳 Método: ${order.payment?.method ?? 'wallet'}`,
+          `💰 Monto en Bs: ${montoBsPagado.toFixed(2)} Bs`,
+          `⚙️ Motivo técnico: ${failure ?? 'sin detalle del proveedor'}.`,
+        ]
+          .filter(Boolean)
+          .join('\n'),
         link: `/admin/ordenes/${orderId}`,
         data: {
           code: order.code,
           playerId: order.playerId,
+          referencia: pabiloRef,
+          montoBs: montoBsPagado,
+          estado: nextEstado,
           error: failure,
           customer: order.user.email,
         },

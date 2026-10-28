@@ -181,24 +181,29 @@ export async function registerCompletedPurchase(
   uid: string,
   amountUsd: number
 ): Promise<void> {
+  if (!uid || uid.startsWith('whatsapp:')) return;
+
   const ref = users().doc(uid);
   const snap = await ref.get();
+  if (!snap.exists) return;
+
   const data = snap.data() ?? {};
   const current = (data.stats?.totalSpentUsd as number | undefined) ?? 0;
   const completedBefore = (data.stats?.completedOrders as number | undefined) ?? 0;
   const referredBy = (data.referredBy as string | null | undefined) ?? null;
-  const newTotal = round(current + amountUsd, 2);
+  const cleanAmount = round(amountUsd, 2);
+  const newTotal = round(current + cleanAmount, 2);
   const ladder = await activeLadder();
 
   await ref.set(
     {
       stats: {
         completedOrders: FieldValue.increment(1),
-        totalSpentUsd: newTotal,
+        totalSpentUsd: FieldValue.increment(cleanAmount),
         lastOrderAt: now(),
       },
       // 1 punto por cada 0,10 USD gastados.
-      points: FieldValue.increment(Math.round(amountUsd * 10)),
+      points: FieldValue.increment(Math.round(cleanAmount * 10)),
       tier: tiers.tierForSpend(newTotal, ladder),
       updatedAt: now(),
     },
@@ -225,6 +230,8 @@ export async function registerCompletedPurchase(
 }
 
 export async function registerCreatedOrder(uid: string): Promise<void> {
+  if (!uid || uid.startsWith('whatsapp:')) return;
+
   await users()
     .doc(uid)
     .set(
