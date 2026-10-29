@@ -1,0 +1,8 @@
+# https://www.robotstxt.org/robotstxt.html
+User-agent: *
+Allow: /
+Allow: /brand/
+Allow: /favicon.ico
+
+Sitemap: https://recargasrefillstore.com/sitemap.xml
+
