@@ -835,6 +835,59 @@ async function releaseReferenceLock(reference: string): Promise<void> {
   }
 }
 
+/**
+ * Busca si alguna OTRA orden de la tienda ya se encuentra en un estado pagado/despachado
+ * con la misma referencia bancaria.
+ */
+async function findPaidOrderWithReference(
+  reference: string,
+  excludeOrderId: string
+): Promise<{ id: string; code: string } | null> {
+  try {
+    const [byReferencia, byPaymentRef] = await Promise.all([
+      orders().where('referencia', '==', reference).limit(3).get(),
+      orders().where('payment.reference', '==', reference).limit(3).get(),
+    ]);
+
+    const allDocs = [...byReferencia.docs, ...byPaymentRef.docs];
+    for (const doc of allDocs) {
+      if (doc.id === excludeOrderId) continue;
+      const data = doc.data() as Partial<Order>;
+      if (data.status && PAID_STATES.includes(data.status as OrderStatus)) {
+        return { id: doc.id, code: data.code ?? doc.id };
+      }
+    }
+  } catch (error) {
+    log.warn('Error al buscar órdenes en conflicto por referencia', {
+      reference: `***${reference.slice(-4)}`,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return null;
+}
+
+/**
+ * Comprueba si la orden registra un fallo previo con el verificador (timeout o caída de red).
+ */
+async function hadProviderErrorEvent(orderId: string, reference?: string): Promise<boolean> {
+  try {
+    const snap = await orders()
+      .doc(orderId)
+      .collection('events')
+      .where('type', '==', 'payment_provider_error')
+      .limit(5)
+      .get();
+    if (snap.empty) return false;
+    if (!reference) return true;
+    return snap.docs.some((d) => {
+      const data = d.data() as { data?: { reference?: string } };
+      return !data.data?.reference || data.data.reference === reference;
+    });
+  } catch {
+    return false;
+  }
+}
+
 export interface VerifyPaymentResult {
   order: Order;
   verified: boolean;
@@ -1001,11 +1054,17 @@ export async function verifyPayment(
       amount: pendienteMoneda,
     });
   } catch (error) {
-    // El proveedor está caído: se libera el candado y se devuelve la orden a
-    // "esperando pago" para que el cliente pueda reintentar sin perder nada.
+    // El proveedor está caído o tardó más de 45 s: se libera el candado local
+    // y se devuelve la orden a "esperando pago" para que el cliente pueda
+    // reintentar. Se guarda la referencia intentada para poder conciliar
+    // automáticamente si Pabilo sí la procesó en segundo plano.
     await releaseReferenceLock(reference);
     await orders().doc(orderId).set(
-      { status: 'awaiting_payment', updatedAt: now() },
+      {
+        status: 'awaiting_payment',
+        payment: { lastAttemptedReference: reference },
+        updatedAt: now(),
+      },
       { merge: true }
     );
     await addEvent({
@@ -1013,6 +1072,7 @@ export async function verifyPayment(
       type: 'payment_provider_error',
       message: 'No se pudo contactar al verificador de pagos. Se puede reintentar.',
       status: 'awaiting_payment',
+      data: { reference },
     });
     throw error;
   }
@@ -1120,19 +1180,61 @@ export async function verifyPayment(
     });
   }
 
-  if (!result.isNew || !amountOk) {
+  // --- Conciliación de reintentos legítimos (`is_new: false`) ---
+  //
+  // Si Pabilo encontró el pago (`result.found === true`) y el monto cubre la orden
+  // (`amountOk === true`), pero Pabilo devuelve `is_new === false` ("Pago móvil duplicado"):
+  //
+  // Esto ocurre cuando la petición anterior de ESTA MISMA ORDEN sufrió un corte
+  // de red o timeout local después de que Pabilo ya hubiera registrado el pago
+  // en su base de datos (habitual en horas pico con el BDV). Al reintentar,
+  // Pabilo ya tiene el movimiento guardado y devuelve `is_new: false`.
+  //
+  // Comprobamos si es seguro conciliarlo automáticamente:
+  //  1. Ninguna OTRA orden en la tienda ha usado esa referencia.
+  //  2. Esta orden es la misma que intentó pagarlo (reintento legítimo).
+  let reconciledDuplicate = false;
+  let conflictPaidOrder: { id: string; code: string } | null = null;
+
+  if (result.found && amountOk && !result.isNew) {
+    conflictPaidOrder = await findPaidOrderWithReference(reference, orderId);
+
+    if (!conflictPaidOrder) {
+      const isSelfRetry =
+        order.payment?.reference === reference ||
+        order.payment?.lastAttemptedReference === reference ||
+        (order.payment?.attempts ?? 0) > 1 ||
+        (await hadProviderErrorEvent(orderId, reference));
+
+      if (isSelfRetry) {
+        log.info('Pago conciliado automáticamente tras reintento con Pabilo', {
+          orderId,
+          orderCode: order.code,
+          reference: `***${reference.slice(-4)}`,
+          reportedAmount: result.reportedAmount,
+        });
+        reconciledDuplicate = true;
+      }
+    }
+  }
+
+  const paymentApproved = (result.isNew || reconciledDuplicate) && amountOk;
+
+  if (!paymentApproved) {
     await releaseReferenceLock(reference);
 
     const reason = !result.found
       ? 'No encontramos ningún pago con esa referencia. Revisa que la hayas copiado completa.'
-      : !result.isNew
-        ? 'Pabilo encontró el pago, pero indica que esa referencia ya había sido verificada. No podemos atribuirla automáticamente a esta orden. No pagues de nuevo: contacta al soporte para revisarla.'
-        : amountCheck === null
-          ? 'No pudimos leer el monto de ese pago. Escríbenos por WhatsApp y lo revisamos.'
-      : `Ese pago es de ${esBinancePay ? `${result.reportedAmount!.toFixed(2)} USDT` : `${result.reportedAmount!.toFixed(2)} Bs`} y la orden es de ` +
-            `${esBinancePay ? `${order.pricing.amountDueUsd.toFixed(2)} USDT` : `${order.pricing.totalBs.toFixed(2)} Bs`}: faltan ` +
-            `${esBinancePay ? `${amountCheck.shortfallBs.toFixed(2)} USDT` : `${shortfallBs!.toFixed(2)} Bs`}. Paga el monto exacto y ` +
-            'verifica con esa nueva referencia.';
+      : conflictPaidOrder
+        ? `Esa referencia ya fue utilizada en la orden ${conflictPaidOrder.code}.`
+        : !result.isNew
+          ? 'Pabilo encontró el pago, pero indica que esa referencia ya había sido verificada en otra operación. Si pagaste recientemente, contacta al soporte.'
+          : amountCheck === null
+            ? 'No pudimos leer el monto de ese pago. Escríbenos por WhatsApp y lo revisamos.'
+            : `Ese pago es de ${esBinancePay ? `${result.reportedAmount!.toFixed(2)} USDT` : `${result.reportedAmount!.toFixed(2)} Bs`} y la orden es de ` +
+              `${esBinancePay ? `${order.pricing.amountDueUsd.toFixed(2)} USDT` : `${order.pricing.totalBs.toFixed(2)} Bs`}: faltan ` +
+              `${esBinancePay ? `${amountCheck.shortfallBs.toFixed(2)} USDT` : `${shortfallBs!.toFixed(2)} Bs`}. Paga el monto exacto y ` +
+              'verifica con esa nueva referencia.';
 
     await orders().doc(orderId).set(
       {
@@ -1226,11 +1328,17 @@ export async function verifyPayment(
     addEvent({
       orderId,
       type: 'payment_verified',
-      message: surplusIsRelevant
-        ? `Pago verificado. Transferiste ${surplusBs.toFixed(2)} Bs de más; ya lo estamos revisando.`
-        : 'Pago verificado correctamente.',
+      message: reconciledDuplicate
+        ? 'Pago verificado exitosamente mediante conciliación automática de reintento.'
+        : surplusIsRelevant
+          ? `Pago verificado. Transferiste ${surplusBs.toFixed(2)} Bs de más; ya lo estamos revisando.`
+          : 'Pago verificado correctamente.',
       status: 'paid',
-      data: { reportedAmountBs, surplusBs },
+      data: {
+        reportedAmountBs,
+        surplusBs,
+        reconciledDuplicate: reconciledDuplicate || undefined,
+      },
     }),
     audit.record({
       action: audit.ACTIONS.ORDER_PAYMENT_VERIFIED,

@@ -163,7 +163,10 @@ async function query(
       // una búsqueda por monto exacto.
       ...(amount === null ? {} : { amount: Number(amount.toFixed(2)) }),
     },
-    timeoutMs: 25_000,
+    // Timeout de 45 s: el Banco de Venezuela (BDV) en horas pico puede tardar
+    // entre 20 y 35 s en responder a Pabilo. Un timeout de 25 s provocaba abortos
+    // prematuros por timeout cuando el pago sí se estaba registrando en Pabilo.
+    timeoutMs: 45_000,
     // Betaserio registra el pago en Pabilo. Si la respuesta se pierde después
     // del registro, repetir el POST devuelve is_new=false y parece que otra
     // compra consumió la referencia. Un fallo incierto se concilia, no se

@@ -420,6 +420,8 @@ export interface OrderPayment {
   paidBs: number;
   verifiedAt: TimestampLike | null;
   attempts: number;
+  /** Última referencia intentada ante el verificador (útil para conciliar timeouts). */
+  lastAttemptedReference?: string | null;
   /** Eco de la respuesta relevante de Pabilo, para auditoría. */
   providerResponse: Record<string, unknown> | null;
   /** Datos bancarios mostrados al cliente, congelados en la orden. */
