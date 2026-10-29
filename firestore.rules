@@ -69,7 +69,8 @@ service cloud.firestore {
       // El usuario sólo puede tocar preferencias cosméticas de su perfil.
       // Nada de role, walletBalance, banned, stats, points… eso es del backend.
       allow update: if isSelf(uid) && onlyChanges([
-        'displayName', 'photoURL', 'phone', 'preferences', 'updatedAt'
+        'displayName', 'photoURL', 'photoUrl', 'avatarUrl', 'phone',
+        'preferences', 'updatedAt'
       ]);
 
       allow create, delete: if false;

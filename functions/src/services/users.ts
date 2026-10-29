@@ -98,7 +98,11 @@ export async function ensureProfile(authUser: AuthUser): Promise<UserProfile> {
     // Mantiene sincronizados los datos que Google puede haber cambiado.
     const patch: Record<string, unknown> = { lastLoginAt: timestamp };
     if (authUser.email && profile.email !== authUser.email) patch.email = authUser.email;
-    if (authUser.photoURL && profile.photoURL !== authUser.photoURL) {
+    const hasCustomPhoto =
+      typeof profile.photoURL === 'string' &&
+      (profile.photoURL.includes('firebasestorage.googleapis.com') ||
+        profile.photoURL.includes('avatars/'));
+    if (!profile.photoURL && !hasCustomPhoto && authUser.photoURL) {
       patch.photoURL = authUser.photoURL;
     }
     if (!profile.displayName && authUser.displayName) patch.displayName = authUser.displayName;

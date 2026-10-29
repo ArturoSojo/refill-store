@@ -30,7 +30,8 @@ import {
   type User,
 } from 'firebase/auth';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { auth, googleProvider } from '@/lib/firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { auth, db, googleProvider } from '@/lib/firebase';
 import { api } from '@/lib/api';
 import { normalizePhone } from '@/lib/phone';
 import { QUERY_KEYS } from '@/lib/constants';
@@ -136,6 +137,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     staleTime: 60_000,
     retry: 1,
   });
+
+  useEffect(() => {
+    if (!user) return;
+    const unsub = onSnapshot(doc(db, 'users', user.uid), (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        const newPhoto = data.photoURL || data.photoUrl || data.avatarUrl;
+        if (newPhoto) {
+          queryClient.setQueryData(QUERY_KEYS.me, (old: MeResponse | undefined) => {
+            if (!old) return old;
+            return {
+              ...old,
+              profile: {
+                ...old.profile,
+                photoURL: newPhoto,
+              },
+            };
+          });
+        }
+      }
+    });
+    return () => unsub();
+  }, [user, queryClient]);
 
   const signInWithGoogle = useCallback(async () => {
     setSigningIn(true);

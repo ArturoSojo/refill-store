@@ -12,6 +12,30 @@ window.addEventListener('vite:preloadError', () => {
   window.location.reload();
 });
 
+// Recarga completa cuando la pestaña estuvo oculta 10 minutos o más. Así se
+// refrescan la tasa BCV, el catálogo y la sesión al volver a primer plano.
+const BACKGROUND_RELOAD_MS = 10 * 60 * 1000;
+let backgroundTimestamp: number | null = null;
+
+function reloadIfBackgroundExpired() {
+  if (document.visibilityState !== 'visible') return;
+  const timestamp = backgroundTimestamp;
+  backgroundTimestamp = null;
+  if (timestamp !== null && Date.now() - timestamp >= BACKGROUND_RELOAD_MS) {
+    window.location.reload();
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    backgroundTimestamp = Date.now();
+  } else {
+    reloadIfBackgroundExpired();
+  }
+});
+
+window.addEventListener('focus', reloadIfBackgroundExpired);
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
