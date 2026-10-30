@@ -167,10 +167,10 @@ function CategoryNav() {
 
   return (
     <nav
-      className="sticky top-14 z-30 border-b border-base-600/60 bg-base-900/90 px-4 py-2 backdrop-blur-lg"
+      className="sticky top-14 z-30 border-b border-base-600/60 bg-base-900/90 backdrop-blur-lg"
       aria-label="Catálogo"
     >
-      <div className="mx-auto flex max-w-6xl items-center gap-2 overflow-x-auto no-scrollbar">
+      <div className="mx-auto flex max-w-6xl items-center gap-2 overflow-x-auto px-4 py-2 no-scrollbar">
         {links.map((link) => (
           <NavLink
             key={link.to}
