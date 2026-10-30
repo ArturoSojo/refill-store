@@ -129,6 +129,35 @@ function Header({ onOpenMenu }: { onOpenMenu: () => void }) {
   );
 }
 
+function GooglePlayIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 466 512"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      aria-hidden="true"
+    >
+      <path
+        fill="#EA4335"
+        d="M199.9 237.8 1.4 470.17c7.22 24.57 30.16 41.81 55.8 41.81 11.16 0 20.93-2.79 29.3-8.37l244.16-139.46L199.9 237.8z"
+      />
+      <path
+        fill="#FBBC04"
+        d="m433.91 205.1-104.65-60-111.61 110.22 113.01 108.83 104.64-58.6c18.14-9.77 30.7-29.3 30.7-50.23-1.4-20.93-13.95-40.46-32.09-50.22z"
+      />
+      <path
+        fill="#34A853"
+        d="M199.42 273.45 329.27 145.1 87.9 8.37C79.53 2.79 68.36 0 57.2 0 30.7 0 6.98 18.14 1.4 41.86l198.02 231.59z"
+      />
+      <path
+        fill="#4285F4"
+        d="M1.39 41.86C0 46.04 0 51.63 0 57.2v397.64c0 5.57 0 9.76 1.4 15.34l216.27-214.86L1.39 41.86z"
+      />
+    </svg>
+  );
+}
+
 function CategoryNav() {
   const links = [
     { to: ROUTES.family('topup'), label: 'Juegos' },
@@ -141,7 +170,7 @@ function CategoryNav() {
       className="sticky top-14 z-30 border-b border-base-600/60 bg-base-900/90 px-4 py-2 backdrop-blur-lg"
       aria-label="Catálogo"
     >
-      <div className="mx-auto flex max-w-6xl gap-2 overflow-x-auto no-scrollbar">
+      <div className="mx-auto flex max-w-6xl items-center gap-2 overflow-x-auto no-scrollbar">
         {links.map((link) => (
           <NavLink
             key={link.to}
@@ -156,6 +185,17 @@ function CategoryNav() {
             {link.label}
           </NavLink>
         ))}
+
+        <a
+          href="https://play.google.com/store/apps/details?id=com.refillstore.app"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Descargar app oficial en Google Play"
+          className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-base-600 bg-base-800/70 px-4 py-1.5 text-xs font-bold text-slate-300 transition hover:border-neon-red/50 hover:bg-base-800 hover:text-white"
+        >
+          <GooglePlayIcon className="h-3.5 w-3.5 shrink-0" />
+          <span>Descargar App</span>
+        </a>
       </div>
     </nav>
   );
