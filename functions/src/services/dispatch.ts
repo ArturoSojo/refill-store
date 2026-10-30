@@ -389,6 +389,83 @@ export async function dispatchOrder(
     // tampoco: el pedido ya está puesto y repetirlo lo cobraría dos veces.
     if (call.status === 'success' || call.status === 'processing') continue;
 
+    const externalOrderId = `${order.code}-${call.index + 1}`;
+    const callProvider = call.provider ?? provider;
+
+    // Candado anti-doble cobro en reintentos (Inefable):
+    // Si la llamada viene de un reintento (tenía intentos previos o estaba en estado error),
+    // consultamos primero al proveedor para verificar si ya fue completada antes de disparar un nuevo POST.
+    if (callProvider === 'inefable' && (options.isRetry || call.attempts > 0 || call.status === 'error')) {
+      try {
+        const existing = await inefable.getOrderStatus(externalOrderId);
+        if (existing.found && existing.status) {
+          if (inefable.isSuccessStatus(existing.status)) {
+            log.info('Candado anti-doble cobro: la recarga ya figuraba completada en Inefable', {
+              orderId,
+              externalOrderId,
+              providerOrderId: existing.providerOrderId,
+              providerReference: existing.providerReference,
+            });
+
+            call.status = 'success';
+            call.error = null;
+            call.completedAt = now();
+            call.providerOrderId = existing.providerOrderId ?? call.providerOrderId;
+            call.providerReference = existing.providerReference ?? call.providerReference;
+            call.providerStatus = existing.status;
+            call.httpStatus = 200;
+
+            await addEvent({
+              orderId,
+              type: 'dispatch_call_ok',
+              message: `Recarga ${call.index + 1}/${calls.length} ya estaba completada en el proveedor (paquete ${call.packageId}).`,
+              data: {
+                providerOrderId: call.providerOrderId,
+              },
+            });
+
+            // Continúa con la siguiente llamada pendiente del combo
+            continue;
+          }
+
+          if (inefable.isPendingStatus(existing.status)) {
+            log.info('Candado anti-doble cobro: la recarga sigue en proceso en Inefable', {
+              orderId,
+              externalOrderId,
+              providerOrderId: existing.providerOrderId,
+            });
+
+            call.status = 'processing';
+            call.error = null;
+            call.providerOrderId = existing.providerOrderId ?? call.providerOrderId;
+            call.providerReference = existing.providerReference ?? call.providerReference;
+            call.providerStatus = existing.status;
+            call.httpStatus = 202;
+
+            await addEvent({
+              orderId,
+              type: 'dispatch_call_processing',
+              message: `El proveedor sigue procesando la recarga ${call.index + 1}/${calls.length}.`,
+              data: {
+                packageId: call.packageId,
+                providerOrderId: call.providerOrderId,
+                providerStatus: call.providerStatus,
+              },
+            });
+
+            // No reintentar mientras esté en proceso
+            continue;
+          }
+        }
+      } catch (err) {
+        log.warn('No se pudo verificar getOrderStatus previo al reintento en Inefable', {
+          orderId,
+          externalOrderId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
     call.attempts += 1;
 
     try {
@@ -402,7 +479,7 @@ export async function dispatchOrder(
               packageId: requireInefableId(call.packageId, 'package_id'),
               playerId: order.playerId,
               playerId2: order.playerId2 ?? null,
-              externalOrderId: `${order.code}-${call.index + 1}`,
+              externalOrderId,
             });
 
       // Una compra de saldo digital no se puede marcar entregada sin que el

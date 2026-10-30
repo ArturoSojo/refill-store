@@ -135,6 +135,10 @@ export function isSuccessStatus(status: string): boolean {
   return SUCCESS_STATUSES.includes(status.toLowerCase());
 }
 
+export function isPendingStatus(status: string): boolean {
+  return PENDING_STATUSES.includes(status.toLowerCase());
+}
+
 export function isFailureStatus(status: string): boolean {
   return FAILURE_STATUSES.includes(status.toLowerCase());
 }
@@ -181,12 +185,88 @@ export async function createOrder(input: InefableOrderInput): Promise<InefableOr
       ...(input.playerId2 ? { player_id2: input.playerId2 } : {}),
       external_order_id: input.externalOrderId,
     },
-    // Timeout explícito por petición (15 s por defecto; configurable vía INEFABLE_TIMEOUT_MS).
+    // Timeout explícito por petición (45 s por defecto; configurable vía INEFABLE_TIMEOUT_MS).
     timeoutMs: inefableTimeoutMs(),
     // Sin reintentos automáticos: una recarga duplicada cuesta dinero real. El
     // reintento es una decisión explícita del panel de administración.
     retries: 0,
   });
+
+  // Rescate automático ante corte de red o timeout (status === 0):
+  // Si la petición se cortó, el proveedor puede haberla recibido y procesado igual.
+  // Verificamos su estado real antes de darla por fallida y cortar combos.
+  if (response.status === 0 && input.externalOrderId) {
+    log.warn('Respuesta HTTP 0 de Inefable (timeout o corte de red); verificando estado real...', {
+      externalOrderId: input.externalOrderId,
+      packageId: input.packageId,
+    });
+
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    // a) Espera 2.5 segundos y ejecuta getOrderStatus(externalOrderId)
+    await sleep(2500);
+    let check = await getOrderStatus(input.externalOrderId).catch(() => null);
+
+    // d) Si en ese primer intento aún no aparece o falla la consulta, espera otros 3 segundos y haz un segundo intento
+    if (!check || !check.found) {
+      await sleep(3000);
+      check = await getOrderStatus(input.externalOrderId).catch(() => null);
+    }
+
+    if (check && check.found && check.status) {
+      const qStatus = check.status.toLowerCase();
+      const isOk = isSuccessStatus(qStatus);
+      const isPend = isPendingStatus(qStatus);
+
+      // b) Si getOrderStatus devuelve found: true y la orden está completada, retorna como exitosa
+      if (isOk) {
+        log.info('Recarga rescatada exitosamente tras HTTP 0 vía getOrderStatus', {
+          externalOrderId: input.externalOrderId,
+          providerOrderId: check.providerOrderId,
+          providerReference: check.providerReference,
+          status: check.status,
+        });
+
+        return {
+          success: true,
+          processing: false,
+          providerOrderId: check.providerOrderId,
+          providerStatus: check.status,
+          playerName: null,
+          providerReference: check.providerReference,
+          remainingBalance: null,
+          message: 'Recarga enviada al proveedor (confirmada tras reconexión).',
+          raw: { rescuedFromHttp0: true, orderStatus: check },
+          httpStatus: 200,
+          retryable: false,
+        };
+      }
+
+      // c) Si devuelve found: true y sigue en proceso, retorna estado processing: true
+      if (isPend || (!isFailureStatus(qStatus) && !check.error)) {
+        log.info('Recarga en proceso en Inefable tras HTTP 0', {
+          externalOrderId: input.externalOrderId,
+          providerOrderId: check.providerOrderId,
+          providerReference: check.providerReference,
+          status: check.status,
+        });
+
+        return {
+          success: false,
+          processing: true,
+          providerOrderId: check.providerOrderId,
+          providerStatus: check.status,
+          playerName: null,
+          providerReference: check.providerReference,
+          remainingBalance: null,
+          message: 'Recarga en proceso en el proveedor.',
+          raw: { rescuedFromHttp0: true, orderStatus: check },
+          httpStatus: 202,
+          retryable: false,
+        };
+      }
+    }
+  }
 
   const body = response.data ?? null;
   const status = toStringOrNull(body?.status);

@@ -122,10 +122,10 @@ export const inefableBaseUrl = () =>
 export const inefableRechargePath = () =>
   fromEnv('INEFABLE_RECHARGE_PATH', '/api/v1/recharge');
 
-/** Timeout explícito por petición al despacho de Inefable (15 s por defecto). */
+/** Timeout explícito por petición al despacho de Inefable (45 s por defecto). */
 export const inefableTimeoutMs = (): number => {
-  const parsed = Number(fromEnv('INEFABLE_TIMEOUT_MS', '15000'));
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 15_000;
+  const parsed = Number(fromEnv('INEFABLE_TIMEOUT_MS', '45000'));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 45_000;
 };
 
 /** Clave compartida para el endpoint `POST /api/orders/sync-whatsapp` desde RefillBot. */
