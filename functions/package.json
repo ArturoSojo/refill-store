@@ -5,7 +5,7 @@
   "description": "API de Refill Store sobre Cloud Functions v2",
   "main": "lib/index.js",
   "engines": {
-    "node": "20"
+    "node": "22"
   },
   "scripts": {
     "build": "tsc",
