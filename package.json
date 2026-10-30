@@ -23,7 +23,8 @@
     "emulators": "firebase emulators:start",
     "setup": "node scripts/setup.mjs bootstrap",
     "seed": "node scripts/setup.mjs seed",
-    "brand": "node scripts/build-brand.mjs"
+    "brand": "node scripts/build-brand.mjs",
+    "extract:testers": "node scripts/extract-tester-emails.mjs"
   },
   "devDependencies": {
     "sharp": "^0.34.2"

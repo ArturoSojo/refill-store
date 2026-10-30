@@ -46,6 +46,10 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# --- Exportaciones y temporales ---------------------------------------------
+testers-export/
+*.csv
+
 # --- Sistema operativo y editores -------------------------------------------
 .DS_Store
 .DS_Store?
