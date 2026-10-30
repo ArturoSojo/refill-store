@@ -191,7 +191,7 @@ function CategoryNav() {
           target="_blank"
           rel="noopener noreferrer"
           title="Descargar app oficial en Google Play"
-          className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-base-600 bg-base-800/70 px-4 py-1.5 text-xs font-bold text-slate-300 transition hover:border-neon-red/50 hover:bg-base-800 hover:text-white"
+          className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-base-600 bg-base-800/70 px-4 py-1.5 text-xs font-bold text-slate-300 transition hover:border-neon-red/50 hover:bg-base-800 hover:text-white sm:ml-auto"
         >
           <GooglePlayIcon className="h-3.5 w-3.5 shrink-0" />
           <span>Descargar App</span>
