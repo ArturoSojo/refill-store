@@ -50,6 +50,13 @@ export const SETUP_TOKEN = defineSecret('SETUP_TOKEN');
 export const TELEGRAM_BOT_TOKEN = defineSecret('TELEGRAM_BOT_TOKEN');
 
 /**
+ * Token del bot de Telegram para atención al cliente y administración rápida.
+ *
+ *   firebase functions:secrets:set TELEGRAM_SUPPORT_BOT_TOKEN
+ */
+export const TELEGRAM_SUPPORT_BOT_TOKEN = defineSecret('TELEGRAM_SUPPORT_BOT_TOKEN');
+
+/**
  * Contraseña de aplicación de Gmail para enviar los correos al cliente.
  *
  * No es la contraseña de la cuenta: se genera aparte en la seguridad de Google
@@ -100,6 +107,7 @@ export const API_SECRETS = [
   INEFABLE_WEBHOOK_SECRET,
   INEFABLE_WEBHOOK_TOKEN,
   SYNC_SECRET_KEY,
+  TELEGRAM_SUPPORT_BOT_TOKEN,
 ];
 
 // --- Configuración no secreta ----------------------------------------------
@@ -126,6 +134,17 @@ export const inefableRechargePath = () =>
 export const inefableTimeoutMs = (): number => {
   const parsed = Number(fromEnv('INEFABLE_TIMEOUT_MS', '45000'));
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 45_000;
+};
+
+/** Token para el segundo bot de Telegram (Soporte al cliente y administración rápida). */
+export const telegramSupportBotToken = (): string => {
+  try {
+    const fromSecret = TELEGRAM_SUPPORT_BOT_TOKEN.value().trim();
+    if (fromSecret) return fromSecret;
+  } catch {
+    // Fuera de Cloud Functions el secreto no está enlazado.
+  }
+  return fromEnv('TELEGRAM_SUPPORT_BOT_TOKEN', '');
 };
 
 /** Clave compartida para el endpoint `POST /api/orders/sync-whatsapp` desde RefillBot. */

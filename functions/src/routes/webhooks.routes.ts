@@ -30,6 +30,8 @@ import {
 import { asyncHandler } from '../lib/http';
 import { log } from '../lib/logger';
 import { resolveFazerProcessingOrder, resolveProcessingOrder } from '../services/dispatch';
+import { handleTelegramSupportWebhook } from '../services/telegramSupportBot';
+
 
 export const webhooksRouter = Router();
 
@@ -176,5 +178,26 @@ webhooksRouter.post(
     // proveedor, que es lo que hace que un aviso falsificado sea inofensivo.
     const resultado = await resolveProcessingOrder(externalOrderId);
     return responder(resultado);
+  })
+);
+
+/**
+ * Webhook para el bot de Telegram de soporte automatizado y administración rápida.
+ *
+ * CRÍTICO: Debe esperarse (`await`) la resolución completa de `handleTelegramSupportWebhook`
+ * ANTES de enviar el 200 OK para evitar que Google Cloud estrangule la CPU y corte las
+ * llamadas asíncronas a Firestore / proveedores externos.
+ */
+webhooksRouter.post(
+  ['/telegram/support', '/telegram/support/:token'],
+  asyncHandler(async (req, res) => {
+    try {
+      await handleTelegramSupportWebhook(req.body, req.params.token);
+    } catch (err) {
+      log.error('Error procesando webhook de Telegram Support Bot', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return res.status(200).json({ ok: true });
   })
 );
