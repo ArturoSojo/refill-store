@@ -23,7 +23,7 @@ import { ROUTES } from '@/lib/constants';
 import { formatBs, formatDateTime, formatUsd, formatRefillCoins, statusMeta } from '@/lib/format';
 import { describeOrder } from '@/lib/orderItem';
 import { cn, errorMessage, openWhatsapp } from '@/lib/utils';
-import { buildTelegramOrderUrl, getActiveSupportChannels } from '@/lib/support';
+import { buildTelegramOrderUrl, getActiveSupportChannels, resolveManualWhatsappUrl } from '@/lib/support';
 import type { OrderEvent } from '@/types/models';
 
 function Timeline({ events }: { events: OrderEvent[] }) {
@@ -102,6 +102,9 @@ export function OrderPage() {
 
   const labels = data?.playerFieldLabels ?? [];
   const walletApplied = order.pricing.walletAppliedUsd ?? 0;
+  const isWalletOnly =
+    order.payment.method === 'wallet' ||
+    (walletApplied > 0 && !order.payment.reference && (order.pricing.totalBs ?? 0) <= 0);
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-6">
@@ -151,33 +154,36 @@ export function OrderPage() {
           </div>
         )}
 
-        {order.status === 'awaiting_manual' && (
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            {showWhatsapp && order.whatsappUrl && (
-              <Button
-                variant="whatsapp"
-                size="lg"
-                fullWidth
-                leftIcon={<MessageCircle className="h-5 w-5" aria-hidden />}
-                onClick={() => openWhatsapp(order.whatsappUrl!)}
-              >
-                Continuar por WhatsApp
-              </Button>
-            )}
-            {showTelegram && (
-              <ButtonLink
-                to={buildTelegramOrderUrl(order.code, true, config)}
-                external
-                variant="telegram"
-                size="lg"
-                fullWidth
-                leftIcon={<Send className="h-5 w-5" aria-hidden />}
-              >
-                Continuar por Telegram
-              </ButtonLink>
-            )}
-          </div>
-        )}
+        {order.status === 'awaiting_manual' && (() => {
+          const manualWhatsappUrl = resolveManualWhatsappUrl(order, config);
+          return (
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {showWhatsapp && manualWhatsappUrl && (
+                <Button
+                  variant="whatsapp"
+                  size="lg"
+                  fullWidth
+                  leftIcon={<MessageCircle className="h-5 w-5" aria-hidden />}
+                  onClick={() => openWhatsapp(manualWhatsappUrl)}
+                >
+                  Continuar por WhatsApp
+                </Button>
+              )}
+              {showTelegram && (
+                <ButtonLink
+                  to={buildTelegramOrderUrl(order.code, true, config)}
+                  external
+                  variant="telegram"
+                  size="lg"
+                  fullWidth
+                  leftIcon={<Send className="h-5 w-5" aria-hidden />}
+                >
+                  Continuar por Telegram
+                </ButtonLink>
+              )}
+            </div>
+          );
+        })()}
 
         {canPay && (
           <>
@@ -286,7 +292,23 @@ export function OrderPage() {
 
         <div className="card">
           <h2 className="mb-3 text-sm font-semibold text-white">Pago</h2>
-          {order.payment.reference ? (
+          {isWalletOnly ? (
+            <div className="space-y-1.5 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3">
+              <div className="flex items-center gap-2 text-sm font-medium text-amber-300">
+                <Coins className="h-4 w-4" aria-hidden />
+                <span>RefillCoins (Saldo en billetera)</span>
+              </div>
+              <p className="flex items-center gap-1.5 text-xs text-slate-400">
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" aria-hidden />
+                Verificado automáticamente
+                {order.payment.verifiedAt && (
+                  <span className="text-slate-500">
+                    · {formatDateTime(order.payment.verifiedAt)}
+                  </span>
+                )}
+              </p>
+            </div>
+          ) : order.payment.reference ? (
             <div className="space-y-2">
               <CopyField label="Referencia" value={order.payment.reference} />
               <p className="flex items-center gap-1.5 text-xs text-slate-500">
@@ -301,22 +323,26 @@ export function OrderPage() {
           )}
 
           <dl className="mt-4 space-y-1.5 border-t border-base-600 pt-3 text-xs">
-            <div className="flex justify-between gap-3">
-              <dt className="text-slate-500">Banco</dt>
-              <dd className="text-slate-300">
-                {order.payment.bankSnapshot.code} · {order.payment.bankSnapshot.name}
-              </dd>
-            </div>
-            {/* Saber por dónde pagó ahorra la mitad de las consultas cuando el
-                cliente reclama que «sí transfirió». */}
-            {order.payment.method !== 'wallet' && (
+            {!isWalletOnly && order.payment.bankSnapshot?.name && (
               <div className="flex justify-between gap-3">
-                <dt className="text-slate-500">Método</dt>
+                <dt className="text-slate-500">Banco</dt>
                 <dd className="text-slate-300">
-                  {order.payment.method === 'transfer' ? 'Transferencia' : order.payment.method === 'binance_pay' ? 'Binance Pay' : 'Pago Móvil'}
+                  {order.payment.bankSnapshot.code} · {order.payment.bankSnapshot.name}
                 </dd>
               </div>
             )}
+            <div className="flex justify-between gap-3">
+              <dt className="text-slate-500">Método</dt>
+              <dd className="text-slate-300">
+                {isWalletOnly
+                  ? 'RefillCoins'
+                  : order.payment.method === 'transfer'
+                    ? 'Transferencia'
+                    : order.payment.method === 'binance_pay'
+                      ? 'Binance Pay'
+                      : 'Pago Móvil'}
+              </dd>
+            </div>
             <div className="flex justify-between gap-3">
               <dt className="text-slate-500">Creada</dt>
               <dd className="text-slate-300">{formatDateTime(order.createdAt)}</dd>

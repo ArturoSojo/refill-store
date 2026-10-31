@@ -12,7 +12,7 @@ import { statusMeta, formatBs } from '@/lib/format';
 import { describeOrder } from '@/lib/orderItem';
 import { openWhatsapp } from '@/lib/utils';
 import { useConfig } from '@/providers/ConfigProvider';
-import { buildTelegramOrderUrl, getActiveSupportChannels } from '@/lib/support';
+import { buildTelegramOrderUrl, getActiveSupportChannels, resolveManualWhatsappUrl } from '@/lib/support';
 import type { Game, Order } from '@/types/models';
 
 interface ResultStepProps {
@@ -42,9 +42,10 @@ export function ResultStep({ order, game, supportUrl }: ResultStepProps) {
   const canRetryPayment = ['awaiting_payment', 'payment_rejected'].includes(order.status);
   const paymentConfirmed = ['paid', 'dispatching', 'awaiting_manual', 'in_review', 'completed', 'failed'].includes(order.status);
   const isManualAwaiting = order.status === 'awaiting_manual';
-  const needsFulfillmentChat = isManualAwaiting && (Boolean(order.whatsappUrl) || showTelegram);
+  const manualWhatsappUrl = resolveManualWhatsappUrl(order, config);
+  const needsFulfillmentChat = isManualAwaiting && (Boolean(manualWhatsappUrl) || showTelegram);
   // Manual sin chat: el equipo lo entrega y avisa si ningún canal de chat está activo.
-  const manualPending = isManualAwaiting && !order.whatsappUrl && !showTelegram;
+  const manualPending = isManualAwaiting && !manualWhatsappUrl && !showTelegram;
 
   return (
     <div className="space-y-5">
@@ -147,13 +148,13 @@ export function ResultStep({ order, game, supportUrl }: ResultStepProps) {
             Este producto lo activa un asesor. Elige por dónde prefieres continuar para completar la entrega:
           </p>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            {showWhatsapp && order.whatsappUrl && (
+            {showWhatsapp && manualWhatsappUrl && (
               <Button
                 variant="whatsapp"
                 size="lg"
                 fullWidth
                 leftIcon={<MessageCircle className="h-5 w-5" aria-hidden />}
-                onClick={() => openWhatsapp(order.whatsappUrl!)}
+                onClick={() => openWhatsapp(manualWhatsappUrl)}
               >
                 Continuar por WhatsApp
               </Button>

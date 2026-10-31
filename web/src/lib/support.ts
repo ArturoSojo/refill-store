@@ -49,3 +49,41 @@ export function getActiveSupportChannels(config?: PublicConfig | null) {
   };
 }
 
+/**
+ * Resuelve el enlace de WhatsApp para órdenes de entrega manual (`awaiting_manual`).
+ * Si `order.whatsappUrl` ya viene generado, lo devuelve directamente.
+ * Si viene vacío o null, construye automáticamente el enlace `https://wa.me/...`
+ * con el teléfono administrativo o de soporte de `config` y el mensaje prellenado.
+ */
+export function resolveManualWhatsappUrl(
+  order: {
+    code: string;
+    productName: string;
+    playerId?: string | null;
+    gameName?: string | null;
+    pricing?: { totalBs?: number; totalUsd?: number } | null;
+    payment?: { reference?: string | null } | null;
+    whatsappUrl?: string | null;
+  },
+  config?: PublicConfig | null
+): string | null {
+  if (order.whatsappUrl && order.whatsappUrl.trim().length > 0) {
+    return order.whatsappUrl.trim();
+  }
+
+  // Extraer número telefónico destino
+  const rawNumber =
+    config?.whatsapp?.supportNumber ||
+    (config?.supportUrl ? config.supportUrl.replace(/.*wa\.me\/(\d+).*/, '$1') : null) ||
+    '584122686326';
+  const cleanNumber = String(rawNumber).replace(/\D/g, '');
+
+  if (!cleanNumber) return null;
+
+  const playerPart = order.playerId ? ` para el ID *${order.playerId}*` : '';
+  const refPart = order.payment?.reference ? ` (Ref: ${order.payment.reference})` : '';
+  const message = `Hola, acabo de pagar mi orden *${order.code}* (${order.productName})${playerPart}${refPart}. ¿Me ayudan a activarla, por favor?`;
+
+  return `https://wa.me/${cleanNumber}?text=${encodeURIComponent(message)}`;
+}
+

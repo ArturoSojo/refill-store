@@ -179,10 +179,13 @@ export async function prepareManualOrder(orderId: string): Promise<DispatchOutco
     ? resolvePlayerFields({ id: gameSnap.id, ...gameSnap.data() } as Game)
     : [];
 
-  // Sólo el flujo `whatsapp` empuja al cliente al chat. En los otros dos se
-  // queda en la tienda y se le avisa cuando esté lista.
-  const whatsappUrl =
-    flow === 'whatsapp' ? buildManualOrderUrl(order, config.whatsapp.adminNumber, fields) : null;
+  // Toda orden manual que pasa a awaiting_manual genera siempre su whatsappUrl
+  // usando adminNumber con fallback a supportNumber.
+  const adminPhone =
+    config.whatsapp?.adminNumber?.trim() ||
+    config.whatsapp?.supportNumber?.trim() ||
+    '584122686326';
+  const whatsappUrl = buildManualOrderUrl(order, adminPhone, fields);
 
   await orders().doc(orderId).set(
     {

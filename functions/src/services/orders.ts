@@ -46,6 +46,7 @@ import * as stats from './stats';
 import * as usersService from './users';
 import { addEvent } from './orderEvents';
 import { getConfig } from './settings';
+import { buildManualOrderUrl } from './whatsapp';
 import { buildCallPlan } from './dispatch';
 import { resolveWebUserForWhatsappOrder } from './whatsappSync';
 import type { AuthUser } from '../middleware/auth';
@@ -65,7 +66,18 @@ import type {
 export async function getOrder(orderId: string): Promise<Order> {
   const snap = await orders().doc(orderId).get();
   if (!snap.exists) throw notFound('Orden no encontrada.');
-  return { id: snap.id, ...snap.data() } as Order;
+  const order = { id: snap.id, ...snap.data() } as Order;
+  if (order.status === 'awaiting_manual' && !order.whatsappUrl) {
+    try {
+      const config = await getConfig();
+      const adminPhone =
+        config.whatsapp?.adminNumber?.trim() ||
+        config.whatsapp?.supportNumber?.trim() ||
+        '584122686326';
+      order.whatsappUrl = buildManualOrderUrl(order, adminPhone);
+    } catch (_) { }
+  }
+  return order;
 }
 
 /** Carga la orden verificando que pertenezca al usuario (o que sea staff). */
