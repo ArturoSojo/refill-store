@@ -440,6 +440,14 @@ export interface OrderPayment {
     accountType?: 'corriente' | 'ahorro';
     binancePayId?: string;
   };
+  /** Excedente transferido por encima del total requerido (en Bs). */
+  surplusBs?: number | null;
+  /** Excedente convertido a RefillCoins (truncado hacia abajo a 2 decimales). */
+  surplusUsd?: number | null;
+  /** Marca si el excedente fue acreditado automáticamente como RefillCoins. */
+  surplusCredited?: boolean;
+  /** UID del usuario que recibió las RefillCoins del excedente. */
+  surplusCreditedToUid?: string | null;
 }
 
 export interface Order {

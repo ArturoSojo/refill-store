@@ -47,6 +47,7 @@ import * as usersService from './users';
 import { addEvent } from './orderEvents';
 import { getConfig } from './settings';
 import { buildCallPlan } from './dispatch';
+import { resolveWebUserForWhatsappOrder } from './whatsappSync';
 import type { AuthUser } from '../middleware/auth';
 import type {
   Order,
@@ -1285,6 +1286,86 @@ export async function verifyPayment(
     });
   }
 
+    // --- Cálculo del excedente de pago (Sobran bolívares / USDT) ---
+    const surplusBs = round((amountCheck?.surplusBs ?? 0) * (esBinancePay ? order.pricing.rate : 1), 2);
+    const surplusThresholdBs = (amountCheck?.alertAboveBs ?? 0) * (esBinancePay ? order.pricing.rate : 1);
+    const surplusIsRelevant = surplusBs > surplusThresholdBs;
+
+    // Regla de seguridad financiera: truncado hacia abajo a 2 decimales (Math.floor)
+    // para nunca acreditar fracciones de centavo por encima del dinero real recibido.
+    const rawSurplusUsd = esBinancePay
+      ? (amountCheck?.surplusBs ?? 0)
+      : (order.pricing.rate > 0 ? surplusBs / order.pricing.rate : 0);
+    const surplusUsd = Math.floor(Math.max(0, rawSurplusUsd) * 100) / 100;
+
+    let surplusCredited = false;
+    let surplusTargetUid: string | null = null;
+
+    if (surplusUsd >= 0.01) {
+      let targetUid: string | null = null;
+
+      if (!order.uid.startsWith('whatsapp:')) {
+        targetUid = order.uid;
+      } else {
+        // Resolución de compradores de WhatsApp que ya tengan cuenta Web vinculada:
+        try {
+          const matched = await resolveWebUserForWhatsappOrder({
+            explicitUserId: null,
+            phoneRaw: order.contactPhone ?? order.uid.replace(/^whatsapp:/, ''),
+            playerId: order.playerId,
+          });
+          if (matched?.uid) {
+            targetUid = matched.uid;
+          }
+        } catch (err) {
+          log.warn('No se pudo resolver usuario web para orden WhatsApp con excedente', {
+            orderId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      if (targetUid) {
+        try {
+          const walletResult = await usersService.moveWallet({
+            uid: targetUid,
+            deltaUsd: surplusUsd,
+            reason: `Excedente de pago en orden ${order.code} (${surplusBs.toFixed(2)} Bs)`,
+            orderId,
+            orderCode: order.code,
+            movementId: `surplus_${orderId}`,
+          });
+
+          surplusCredited = true;
+          surplusTargetUid = targetUid;
+
+          log.info('Excedente acreditado automáticamente a RefillCoins', {
+            orderId,
+            code: order.code,
+            surplusBs,
+            surplusUsd,
+            targetUid,
+            newBalance: walletResult.balanceUsd,
+          });
+
+          void notifications.notify({
+            uid: targetUid,
+            title: '¡RefillCoins acreditadas por pago excedente! 🪙',
+            body: `Transferiste ${surplusBs.toFixed(2)} Bs de más en la orden ${order.code}. Acreditamos $${surplusUsd.toFixed(2)} RefillCoins a tu cuenta.`,
+            type: 'order',
+            link: `/orden/${orderId}`,
+          }).catch(() => undefined);
+        } catch (err) {
+          log.error('Error al acreditar excedente a RefillCoins', {
+            orderId,
+            code: order.code,
+            targetUid,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    }
+
     // --- Pago confirmado (Tarea B: registro unificado de venta y finanzas) ---
     await orders().doc(orderId).set(
       {
@@ -1304,73 +1385,83 @@ export async function verifyPayment(
         tipoDespacho: order.fulfillment === 'auto' ? 'AUTOMATICO' : 'MANUAL',
         estado: order.fulfillment === 'auto' ? 'PAGO_VALIDADO' : 'REVISION_MANUAL',
         subOrdenes: order.subOrdenes ?? [],
-        // Igual que arriba: nada de esparcir el objeto viejo, o `attempts` vuelve
-        // a cero.
         payment: {
           reference,
           reportedAmountBs,
           verifiedAt: now(),
           providerResponse: result.raw,
+          ...(surplusBs > 0
+            ? {
+                surplusBs,
+                surplusUsd,
+                surplusCredited,
+                surplusCreditedToUid: surplusTargetUid,
+              }
+            : {}),
         },
         updatedAt: now(),
       },
       { merge: true }
     );
 
-  // Pagó de más: la orden se acepta igual (está cubierta), pero el excedente no
-  // se queda callado. Es dinero del cliente y el equipo decide si se lo abona al
-  // saldo o se lo devuelve.
-  const surplusBs = round((amountCheck?.surplusBs ?? 0) * (esBinancePay ? order.pricing.rate : 1), 2);
-  const surplusThresholdBs = (amountCheck?.alertAboveBs ?? 0) * (esBinancePay ? order.pricing.rate : 1);
-  const surplusIsRelevant = surplusBs > surplusThresholdBs;
-
-  await Promise.all([
-    addEvent({
-      orderId,
-      type: 'payment_verified',
-      message: reconciledDuplicate
-        ? 'Pago verificado exitosamente mediante conciliación automática de reintento.'
+    const paymentVerifiedMessage = reconciledDuplicate
+      ? 'Pago verificado exitosamente mediante conciliación automática de reintento.'
+      : surplusCredited
+        ? `Pago verificado. Transferiste ${surplusBs.toFixed(2)} Bs de más; acreditamos automáticamente $${surplusUsd.toFixed(2)} RefillCoins a tu saldo.`
         : surplusIsRelevant
           ? `Pago verificado. Transferiste ${surplusBs.toFixed(2)} Bs de más; ya lo estamos revisando.`
-          : 'Pago verificado correctamente.',
-      status: 'paid',
-      data: {
-        reportedAmountBs,
-        surplusBs,
-        reconciledDuplicate: reconciledDuplicate || undefined,
-      },
-    }),
-    audit.record({
-      action: audit.ACTIONS.ORDER_PAYMENT_VERIFIED,
-      actorUid: user.uid,
-      actorEmail: user.email,
-      targetType: 'order',
-      targetId: orderId,
-      summary: `Pago verificado en la orden ${order.code} (${order.pricing.totalBs} Bs).`,
-      data: { reportedAmountBs, surplusBs },
-      ip,
-    }),
-    order.gameId !== 'wallet'
-      ? catalog.decrementStock(order.productId, order.pricing.quantity)
-      : Promise.resolve(),
-    order.pricing.couponCode
-      ? couponsService.consume(order.pricing.couponCode)
-      : Promise.resolve(),
-    surplusIsRelevant
-      ? adminAlerts.alert({
-          kind: 'payment_rejected',
-          severity: 'info',
-          title: `Pagaron de más · ${order.code}`,
-          body: [
-            `${order.user.email ?? 'Un cliente'} pagó ${reportedAmountBs?.toFixed(2)} ${esBinancePay ? 'USDT' : 'Bs'}`,
-            `para una orden de ${order.pricing.totalBs.toFixed(2)} Bs.`,
-            `Sobran ${surplusBs.toFixed(2)} Bs: puedes abonárselos al saldo desde su ficha.`,
-          ].join(' '),
-          link: `/admin/ordenes/${orderId}`,
-          data: { code: order.code, surplusBs, reportedAmountBs },
-        })
-      : Promise.resolve(),
-  ]);
+          : 'Pago verificado correctamente.';
+
+    await Promise.all([
+      addEvent({
+        orderId,
+        type: 'payment_verified',
+        message: paymentVerifiedMessage,
+        status: 'paid',
+        data: {
+          reportedAmountBs,
+          surplusBs,
+          surplusUsd: surplusCredited ? surplusUsd : undefined,
+          surplusCredited: surplusCredited || undefined,
+          reconciledDuplicate: reconciledDuplicate || undefined,
+        },
+      }),
+      audit.record({
+        action: audit.ACTIONS.ORDER_PAYMENT_VERIFIED,
+        actorUid: user.uid,
+        actorEmail: user.email,
+        targetType: 'order',
+        targetId: orderId,
+        summary: `Pago verificado en la orden ${order.code} (${order.pricing.totalBs} Bs).`,
+        data: { reportedAmountBs, surplusBs, surplusUsd, surplusCredited },
+        ip,
+      }),
+      order.gameId !== 'wallet'
+        ? catalog.decrementStock(order.productId, order.pricing.quantity)
+        : Promise.resolve(),
+      order.pricing.couponCode
+        ? couponsService.consume(order.pricing.couponCode)
+        : Promise.resolve(),
+      surplusIsRelevant
+        ? adminAlerts.alert({
+            kind: 'payment_review',
+            severity: 'info',
+            title: surplusCredited
+              ? `Sobrepago acreditado automáticamente · ${order.code}`
+              : `Pagaron de más · ${order.code}`,
+            body: surplusCredited
+              ? `${order.user.email ?? 'Cliente'} pagó ${reportedAmountBs?.toFixed(2)} ${esBinancePay ? 'USDT' : 'Bs'} (sobraron ${surplusBs.toFixed(2)} Bs). Se le acreditaron automáticamente $${surplusUsd.toFixed(2)} RefillCoins a su cuenta.`
+              : [
+                  `${order.user.email ?? 'Un cliente'} pagó ${reportedAmountBs?.toFixed(2)} ${esBinancePay ? 'USDT' : 'Bs'}`,
+                  `para una orden de ${order.pricing.totalBs.toFixed(2)} Bs.`,
+                  `Sobran ${surplusBs.toFixed(2)} Bs: ${order.uid.startsWith('whatsapp:') ? 'cliente de WhatsApp sin cuenta web vinculada.' : 'puedes abonárselos al saldo desde su ficha.'}`,
+                ].join(' '),
+            link: `/admin/ordenes/${orderId}`,
+            data: { code: order.code, surplusBs, surplusUsd, surplusCredited, reportedAmountBs },
+          })
+        : Promise.resolve(),
+    ]);
+
 
   // Sin `await`: el comprobante no debe retrasar la respuesta al cliente, que
   // está esperando ver si su recarga salió.

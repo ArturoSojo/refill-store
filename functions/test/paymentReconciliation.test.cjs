@@ -446,3 +446,71 @@ test('Rechazo estricto si una referencia con is_new: false ya pertenece a OTRA o
   assert.equal(hackerOrder.status, 'payment_rejected');
   assert.equal(dispatchCalledWith, null, 'No debe despachar');
 });
+
+test('Acreditación automática de saldo excedente a RefillCoins con truncado financiero a 2 decimales', async () => {
+  store.clear();
+
+  dispatchCalledWith = null;
+
+  const uid = 'user-surplus-test';
+  const orderId = 'ord-surplus-1';
+  const reference = '99998888';
+
+  store.set(`users/${uid}`, {
+    uid,
+    email: 'surplus@example.com',
+    walletBalanceUsd: 10.0,
+  });
+
+  store.set(`orders/${orderId}`, {
+    id: orderId,
+    code: 'RF-SURPLUS',
+    uid,
+    status: 'awaiting_payment',
+    expiresAt: Timestamp.fromMillis(Date.now() + 20 * 60_000),
+    gameId: 'free-fire',
+    fulfillment: 'auto',
+    user: { email: 'surplus@example.com' },
+    pricing: { totalBs: 11956.0, totalUsd: 12.53, rate: 953.8027, quantity: 1 },
+    payment: { method: 'pagomovil_bdv', reference: null, paidBs: 0, attempts: 0 },
+  });
+
+  mockPabiloResult = {
+    isNew: true,
+    found: true,
+    reportedAmount: 14892.30,
+    amountVerifiedByProvider: false,
+    reportedDate: '2026-10-30',
+    message: 'Pago recibido',
+    raw: { is_new: true, amount: 14892.30 },
+    httpStatus: 200,
+  };
+
+  const result = await ordersService.verifyPayment(
+    { uid, email: 'surplus@example.com' },
+    orderId,
+    reference,
+    '127.0.0.1'
+  );
+
+  assert.equal(result.verified, true);
+
+  const updatedOrder = store.get(`orders/${orderId}`);
+  assert.equal(updatedOrder.status, 'paid');
+  assert.equal(updatedOrder.payment.surplusBs, 2936.30);
+  assert.equal(updatedOrder.payment.surplusUsd, 3.07, 'Debe truncar hacia abajo a 3.07 en lugar de redondear a 3.08');
+  assert.equal(updatedOrder.payment.surplusCredited, true);
+
+  const updatedUser = store.get(`users/${uid}`);
+  assert.equal(updatedUser.walletBalanceUsd, 13.07);
+
+  const events = [];
+  for (const [k, v] of store.entries()) {
+    if (k.startsWith(`orders/${orderId}/events/`)) {
+      events.push(v);
+    }
+  }
+  const surplusEvent = events.find((e) => e.type === 'payment_verified');
+  assert.ok(surplusEvent);
+  assert.ok(surplusEvent.message.includes('$3.07 RefillCoins'));
+});
