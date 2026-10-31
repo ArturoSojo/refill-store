@@ -44,6 +44,9 @@ import type {
 const subOrdenSchema = z.object({
   product_id: z.number(),
   package_id: z.number().optional(),
+  provider_game_id: z.union([z.number(), z.string()]).nullable().optional(),
+  is_fallback: z.boolean().optional(),
+  costo: z.number().nullable().optional(),
   exito: z.boolean(),
   order_id: z.union([z.number(), z.string()]).nullable().optional(),
   status: z.string(),
@@ -349,6 +352,9 @@ export async function syncWhatsappOrder(rawInput: unknown): Promise<SyncWhatsapp
   const subOrdenes: OrderSubOrden[] = input.subOrdenes.map((s) => ({
     product_id: s.product_id,
     package_id: s.package_id ?? s.product_id,
+    provider_game_id: s.provider_game_id != null ? s.provider_game_id : null,
+    is_fallback: s.is_fallback,
+    costo: s.costo != null ? s.costo : null,
     exito: s.exito,
     order_id: s.order_id != null ? String(s.order_id) : null,
     status: s.status,
@@ -384,7 +390,7 @@ export async function syncWhatsappOrder(rawInput: unknown): Promise<SyncWhatsapp
       subOrdenes.length > 0
         ? subOrdenes.map((sub, idx) => ({
             packageId: Number(sub.package_id ?? sub.product_id),
-            providerGameId,
+            providerGameId: sub.provider_game_id != null ? sub.provider_game_id : providerGameId,
             index: idx,
             provider: isBloodStrike ? 'fazercards' : 'inefable',
             status: sub.exito ? 'success' : 'error',
@@ -398,21 +404,25 @@ export async function syncWhatsappOrder(rawInput: unknown): Promise<SyncWhatsapp
             attempts: 1,
             completedAt: sub.exito ? timestamp : null,
           }))
+        : (existing?.dispatch?.calls && existing.dispatch.calls.length > 0)
+        ? existing.dispatch.calls
+        : input.tipoDespacho === 'MANUAL'
+        ? []
         : input.productIds.map((pkgId, idx) => ({
             packageId: pkgId,
             providerGameId,
             index: idx,
             provider: isBloodStrike ? 'fazercards' : 'inefable',
-            status: nextStatus === 'completed' ? 'success' : 'pending',
+            status: 'pending',
             providerOrderId: null,
-            providerStatus: nextStatus === 'completed' ? 'completed' : null,
+            providerStatus: null,
             playerName: null,
             providerReference: null,
             error: null,
             httpStatus: null,
             providerResponse: null,
-            attempts: nextStatus === 'completed' ? 1 : 0,
-            completedAt: nextStatus === 'completed' ? timestamp : null,
+            attempts: 0,
+            completedAt: null,
           }));
 
     const providerError =
@@ -515,7 +525,10 @@ export async function syncWhatsappOrder(rawInput: unknown): Promise<SyncWhatsapp
       dispatch: {
         calls: dispatchCalls,
         startedAt: existing?.dispatch?.startedAt ?? createdAt,
-        completedAt: nextStatus === 'completed' ? (existing?.dispatch?.completedAt ?? timestamp) : null,
+        completedAt:
+          dispatchCalls.length > 0 && dispatchCalls.every((c) => c.status === 'success')
+            ? (existing?.dispatch?.completedAt ?? timestamp)
+            : (existing?.dispatch?.completedAt ?? null),
         lastError: providerError,
       },
       whatsappUrl: null,

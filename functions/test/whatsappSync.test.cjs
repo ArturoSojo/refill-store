@@ -469,3 +469,70 @@ test('4) Endpoint HTTP POST /api/orders/sync-whatsapp valida x-api-secret y vinc
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test('5) No fabrica despacho exitoso falso si una orden fallida se completa manualmente, preservando el error real', async () => {
+  store.clear();
+
+  const failPayload = {
+    referencia: '11002233',
+    canal: 'WHATSAPP',
+    clienteContacto: '584145550000@s.whatsapp.net',
+    juego: 'Free Fire',
+    paqueteNombre: '100 + 10 Diamantes',
+    productIds: [6],
+    playerId: '9988776655',
+    montoBs: 901.76,
+    tasaBcv: 969.64,
+    montoUsd: 0.93,
+    tipoDespacho: 'AUTOMATICO',
+    estado: 'REVISION_MANUAL',
+    subOrdenes: [
+      {
+        product_id: 6,
+        package_id: 6,
+        exito: false,
+        order_id: null,
+        status: 'fallida',
+        error: 'Paquete 6 no encontrado o inactivo',
+        httpStatus: 404,
+        timestamp: new Date().toISOString(),
+      },
+    ],
+  };
+
+  await syncWhatsappOrder(failPayload);
+
+  const initialOrder = (await mockDb.collection('orders').doc('wa_11002233').get()).data();
+  assert.equal(initialOrder.status, 'in_review');
+  assert.equal(initialOrder.dispatch.calls.length, 1);
+  assert.equal(initialOrder.dispatch.calls[0].status, 'error');
+  assert.equal(initialOrder.dispatch.calls[0].httpStatus, 404);
+  assert.equal(initialOrder.dispatch.calls[0].completedAt, null);
+
+  const completedPayload = {
+    referencia: '11002233',
+    canal: 'WHATSAPP',
+    clienteContacto: '584145550000@s.whatsapp.net',
+    juego: 'Free Fire',
+    paqueteNombre: '100 + 10 Diamantes',
+    productIds: [6],
+    playerId: '9988776655',
+    montoBs: 901.76,
+    tasaBcv: 969.64,
+    montoUsd: 0.93,
+    tipoDespacho: 'AUTOMATICO',
+    estado: 'COMPLETADO',
+    subOrdenes: [],
+  };
+
+  await syncWhatsappOrder(completedPayload);
+
+  const updatedOrder = (await mockDb.collection('orders').doc('wa_11002233').get()).data();
+  assert.equal(updatedOrder.status, 'completed');
+  assert.equal(updatedOrder.estado, 'COMPLETADO');
+  assert.equal(updatedOrder.dispatch.calls.length, 1);
+  assert.equal(updatedOrder.dispatch.calls[0].status, 'error');
+  assert.equal(updatedOrder.dispatch.calls[0].httpStatus, 404);
+  assert.equal(updatedOrder.dispatch.calls[0].error, 'Paquete 6 no encontrado o inactivo');
+  assert.equal(updatedOrder.dispatch.completedAt, null);
+});

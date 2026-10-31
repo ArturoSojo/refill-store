@@ -322,6 +322,9 @@ export type OrderBusinessEstado =
 export interface OrderSubOrden {
   product_id: number | string;
   package_id?: number | string;
+  provider_game_id?: number | string | null;
+  is_fallback?: boolean;
+  costo?: number | null;
   exito: boolean;
   order_id: string | null;
   status: string | null;
