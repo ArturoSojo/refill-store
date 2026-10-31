@@ -140,7 +140,7 @@ webhooksRouter.post(
 );
 
 webhooksRouter.post(
-  '/inefable/:token',
+  ['/inefable', '/inefable/:token'],
   asyncHandler(async (req, res) => {
     // Siempre 200, y cuanto antes: si el proveedor recibe un error o tarda,
     // reintenta, y un aviso repetido no aporta nada. Lo que haya que arreglar
@@ -148,7 +148,7 @@ webhooksRouter.post(
     const responder = (resultado: string) => res.status(200).json({ ok: true, resultado });
 
     const token = INEFABLE_WEBHOOK_TOKEN.value();
-    if (token && req.params.token !== token) {
+    if (req.params.token && token && req.params.token !== token) {
       log.warn('Webhook de Inefable con token inválido');
       return responder('token inválido');
     }
