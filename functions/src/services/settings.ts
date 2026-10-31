@@ -102,6 +102,8 @@ export const DEFAULT_CONFIG: AppConfig = {
     instagram: '',
     telegram: '',
   },
+  telegramSupportBotUsername: 'V2RefillBot',
+  supportChannelMode: 'both',
   chatbot: {
     enabled: true,
     name: 'Asistente Refill',
@@ -221,6 +223,9 @@ export function toPublicConfig(config: AppConfig): PublicConfig {
     },
     announcement: config.announcement,
     contact: config.contact,
+    telegramSupportBotUsername: config.telegramSupportBotUsername || 'V2RefillBot',
+    supportChannelMode: config.supportChannelMode || 'both',
+    telegramSupportUrl: `https://t.me/${(config.telegramSupportBotUsername || 'V2RefillBot').replace(/^@/, '')}`,
     // Proyectar cada campo evita filtrar campos privados heredados de config/app.
     chatbot: publicChatbotProfile(config.chatbot),
     supportBot: publicChatbotProfile(config.supportBot),

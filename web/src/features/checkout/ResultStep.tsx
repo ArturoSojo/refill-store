@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { LifeBuoy, Loader2, MessageCircle, Save, Sparkles } from 'lucide-react';
+import { LifeBuoy, Loader2, MessageCircle, Save, Send, Sparkles } from 'lucide-react';
 import { Button, ButtonLink } from '@/components/ui/Button';
 import { BrandMark } from '@/components/common/Brand';
 import { CopyField } from '@/components/common/CopyField';
@@ -11,6 +11,8 @@ import { ROUTES } from '@/lib/constants';
 import { statusMeta, formatBs } from '@/lib/format';
 import { describeOrder } from '@/lib/orderItem';
 import { openWhatsapp } from '@/lib/utils';
+import { useConfig } from '@/providers/ConfigProvider';
+import { buildTelegramOrderUrl, getActiveSupportChannels } from '@/lib/support';
 import type { Game, Order } from '@/types/models';
 
 interface ResultStepProps {
@@ -24,10 +26,12 @@ interface ResultStepProps {
  *
  * Tiene tres caras según cómo terminó la orden:
  *  - automática completada → celebración y enlace al detalle;
- *  - manual verificada     → botón grande de WhatsApp con el mensaje precargado;
- *  - en proceso o fallida  → estado en vivo y acceso directo al soporte.
+ *  - manual verificada     → botones dúo (WhatsApp / Telegram) con mensaje precargado;
+ *  - en proceso o fallida  → estado en vivo y acceso directo a canales de soporte.
  */
 export function ResultStep({ order, game, supportUrl }: ResultStepProps) {
+  const { config } = useConfig();
+  const { showWhatsapp, showTelegram } = getActiveSupportChannels(config);
   const meta = statusMeta(order.status);
   const savePlayerId = useSavePlayerId();
   const [label, setLabel] = useState('');
@@ -37,10 +41,10 @@ export function ResultStep({ order, game, supportUrl }: ResultStepProps) {
   const isDone = order.status === 'completed';
   const canRetryPayment = ['awaiting_payment', 'payment_rejected'].includes(order.status);
   const paymentConfirmed = ['paid', 'dispatching', 'awaiting_manual', 'in_review', 'completed', 'failed'].includes(order.status);
-  const needsWhatsapp = order.status === 'awaiting_manual' && Boolean(order.whatsappUrl);
-  // Manual sin chat: el equipo lo entrega y avisa. El cliente no tiene que
-  // hacer nada, y decírselo así evita que escriba preguntando.
-  const manualPending = order.status === 'awaiting_manual' && !order.whatsappUrl;
+  const isManualAwaiting = order.status === 'awaiting_manual';
+  const needsFulfillmentChat = isManualAwaiting && (Boolean(order.whatsappUrl) || showTelegram);
+  // Manual sin chat: el equipo lo entrega y avisa si ningún canal de chat está activo.
+  const manualPending = isManualAwaiting && !order.whatsappUrl && !showTelegram;
 
   return (
     <div className="space-y-5">
@@ -65,8 +69,8 @@ export function ResultStep({ order, game, supportUrl }: ResultStepProps) {
           <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-500/15">
             {isProcessing || manualPending ? (
               <Loader2 className="h-8 w-8 animate-spin text-neon-crimson" aria-hidden />
-            ) : needsWhatsapp ? (
-              <MessageCircle className="h-8 w-8 text-green-400" aria-hidden />
+            ) : needsFulfillmentChat ? (
+              <MessageCircle className="h-8 w-8 text-emerald-400" aria-hidden />
             ) : (
               <Sparkles className="h-8 w-8 text-amber-400" aria-hidden />
             )}
@@ -76,7 +80,7 @@ export function ResultStep({ order, game, supportUrl }: ResultStepProps) {
         <h2 className="text-xl font-bold text-white">
           {isDone
             ? '¡Recarga entregada!'
-            : needsWhatsapp
+            : needsFulfillmentChat
               ? 'Pago verificado'
               : isProcessing || manualPending
                 ? 'Procesando tu recarga…'
@@ -131,33 +135,47 @@ export function ResultStep({ order, game, supportUrl }: ResultStepProps) {
           </p>
           {order.contactPhone && (
             <p className="mt-2 text-xs text-amber-100/70">
-              También te escribiremos por WhatsApp al {order.contactPhone}.
+              También te escribiremos al {order.contactPhone}.
             </p>
           )}
         </div>
       )}
 
-      {needsWhatsapp && (
-        <div className="card border-green-500/30 bg-green-500/5">
-          <p className="text-sm text-green-100">
-            Este producto lo activa un asesor. Abre WhatsApp: el mensaje ya lleva tu juego,
-            producto, ID, monto y referencia.
+      {needsFulfillmentChat && (
+        <div className="card border-emerald-500/30 bg-emerald-500/5">
+          <p className="text-sm text-emerald-100">
+            Este producto lo activa un asesor. Elige por dónde prefieres continuar para completar la entrega:
           </p>
-          <Button
-            className="mt-4"
-            variant="whatsapp"
-            size="lg"
-            fullWidth
-            leftIcon={<MessageCircle className="h-5 w-5" aria-hidden />}
-            onClick={() => openWhatsapp(order.whatsappUrl!)}
-          >
-            Abrir WhatsApp
-          </Button>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {showWhatsapp && order.whatsappUrl && (
+              <Button
+                variant="whatsapp"
+                size="lg"
+                fullWidth
+                leftIcon={<MessageCircle className="h-5 w-5" aria-hidden />}
+                onClick={() => openWhatsapp(order.whatsappUrl!)}
+              >
+                Continuar por WhatsApp
+              </Button>
+            )}
+            {showTelegram && (
+              <ButtonLink
+                to={buildTelegramOrderUrl(order.code, true, config)}
+                external
+                variant="telegram"
+                size="lg"
+                fullWidth
+                leftIcon={<Send className="h-5 w-5" aria-hidden />}
+              >
+                Continuar por Telegram
+              </ButtonLink>
+            )}
+          </div>
         </div>
       )}
 
       {/* Guardar el ID sólo tiene sentido si el pago salió bien. */}
-      {(isDone || needsWhatsapp || manualPending) && !saved && (
+      {(isDone || needsFulfillmentChat || manualPending) && !saved && (
         <div className="card">
           <p className="text-sm font-medium text-white">¿Guardas este ID para la próxima?</p>
           <p className="mt-1 text-xs text-slate-400">
@@ -211,16 +229,31 @@ export function ResultStep({ order, game, supportUrl }: ResultStepProps) {
         </ButtonLink>
       </div>
 
-      {(order.status === 'in_review' || order.status === 'failed' || order.status === 'payment_rejected') && supportUrl && (
-        <ButtonLink
-          to={supportUrl}
-          external
-          variant="whatsapp"
-          fullWidth
-          leftIcon={<LifeBuoy className="h-4 w-4" aria-hidden />}
-        >
-          Hablar con soporte
-        </ButtonLink>
+      {(order.status === 'in_review' || order.status === 'failed' || order.status === 'payment_rejected') && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {showWhatsapp && supportUrl && (
+            <ButtonLink
+              to={supportUrl}
+              external
+              variant="whatsapp"
+              fullWidth
+              leftIcon={<LifeBuoy className="h-4 w-4" aria-hidden />}
+            >
+              Hablar por WhatsApp
+            </ButtonLink>
+          )}
+          {showTelegram && (
+            <ButtonLink
+              to={buildTelegramOrderUrl(order.code, false, config)}
+              external
+              variant="telegram"
+              fullWidth
+              leftIcon={<Send className="h-4 w-4" aria-hidden />}
+            >
+              Hablar por Telegram
+            </ButtonLink>
+          )}
+        </div>
       )}
     </div>
   );

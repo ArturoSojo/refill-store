@@ -213,14 +213,14 @@ export function PlayerIdStep({
         <div className="card border-amber-500/30 bg-amber-500/5">
           <Input
             id="contacto-telefono"
-            label="Tu número de WhatsApp"
+            label="Tu número de WhatsApp o Telegram"
             type="tel"
             inputMode="tel"
             placeholder="0412-0000000"
             value={contactPhone}
             onChange={(event) => onContactPhoneChange(event.target.value.slice(0, 20))}
             leftIcon={<MessageCircle className="h-4 w-4" aria-hidden />}
-            hint="Este producto lo activa nuestro equipo a mano. Te escribimos nosotros: no tienes que hacer nada más."
+            hint="Este producto lo activa nuestro equipo a mano. Te contactaremos o podrás abrir el chat directamente tras pagar."
           />
         </div>
       )}

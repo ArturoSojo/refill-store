@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
-import { ChevronDown, HelpCircle } from 'lucide-react';
+import { ChevronDown, HelpCircle, MessageCircle, Send } from 'lucide-react';
 import { useConfig } from '@/providers/ConfigProvider';
 import { useDocumentTitle } from '@/hooks/useMisc';
 import { ButtonLink } from '@/components/ui/Button';
 import { cn } from '@/lib/utils';
+import { buildTelegramSupportUrl, getActiveSupportChannels } from '@/lib/support';
 
 const FAQS = [
   {
@@ -85,6 +86,7 @@ function FaqItem({ id, question, answer }: { id?: string; question: string; answ
 export function FaqPage() {
   useDocumentTitle('Preguntas frecuentes');
   const { config } = useConfig();
+  const { showWhatsapp, showTelegram } = getActiveSupportChannels(config);
 
   return (
     <div className="mx-auto max-w-2xl space-y-4 px-4 py-6">
@@ -104,12 +106,21 @@ export function FaqPage() {
         ))}
       </div>
 
-      {config?.supportUrl && (
+      {(showWhatsapp || showTelegram) && (
         <div className="card text-center">
           <p className="text-sm text-slate-400">¿No encontraste tu respuesta?</p>
-          <ButtonLink className="mt-3" to={config.supportUrl} external variant="whatsapp" fullWidth>
-            Escríbenos por WhatsApp
-          </ButtonLink>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            {showWhatsapp && config?.supportUrl && (
+              <ButtonLink to={config.supportUrl} external variant="whatsapp" fullWidth leftIcon={<MessageCircle className="h-4 w-4" aria-hidden />}>
+                Escríbenos por WhatsApp
+              </ButtonLink>
+            )}
+            {showTelegram && (
+              <ButtonLink to={buildTelegramSupportUrl(config)} external variant="telegram" fullWidth leftIcon={<Send className="h-4 w-4" aria-hidden />}>
+                Bot de Soporte en Telegram 24/7
+              </ButtonLink>
+            )}
+          </div>
         </div>
       )}
     </div>

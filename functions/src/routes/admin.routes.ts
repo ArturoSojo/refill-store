@@ -1647,6 +1647,13 @@ const configPatchSchema = z.object({
     })
     .partial()
     .optional(),
+  telegramSupportBotUsername: z
+    .string()
+    .trim()
+    .max(80)
+    .transform((val) => val.replace(/^@/, ''))
+    .optional(),
+  supportChannelMode: z.enum(['both', 'whatsapp', 'telegram']).optional(),
   contact: z
     .object({
       email: z.string().trim().max(120),

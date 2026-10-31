@@ -13,6 +13,8 @@ import {
   X,
   Menu,
   LifeBuoy,
+  MessageCircle,
+  Send,
   Coins,
   Users,
   ChevronRight,
@@ -30,6 +32,7 @@ import { formatBs, formatRefillCoins } from '@/lib/format';
 import { Button, ButtonLink } from '@/components/ui/Button';
 import type { StoreNotice } from '@/types/models';
 import { resolveNavigationTarget, useSmartStoreNavigate } from '@/lib/scrollTargets';
+import { buildTelegramSupportUrl, getActiveSupportChannels } from '@/lib/support';
 
 function Logo() {
   return (
@@ -204,6 +207,7 @@ function CategoryNav() {
 function AccountDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { user, me, isStaff, signOut } = useAuth();
   const { config } = useConfig();
+  const { showWhatsapp, showTelegram } = getActiveSupportChannels(config);
 
   if (!open) return null;
 
@@ -317,16 +321,28 @@ function AccountDrawer({ open, onClose }: { open: boolean; onClose: () => void }
         </nav>
 
         <div className="safe-bottom space-y-2 border-t border-base-600 p-3">
-          {config?.supportUrl && (
+          {showWhatsapp && config?.supportUrl && (
             <ButtonLink
               to={config.supportUrl}
               external
               variant="whatsapp"
               size="sm"
               fullWidth
-              leftIcon={<LifeBuoy className="h-4 w-4" aria-hidden />}
+              leftIcon={<MessageCircle className="h-4 w-4" aria-hidden />}
             >
               Escríbenos por WhatsApp
+            </ButtonLink>
+          )}
+          {showTelegram && (
+            <ButtonLink
+              to={buildTelegramSupportUrl(config)}
+              external
+              variant="telegram"
+              size="sm"
+              fullWidth
+              leftIcon={<Send className="h-4 w-4" aria-hidden />}
+            >
+              Bot de Soporte en Telegram 24/7
             </ButtonLink>
           )}
           {user && (
@@ -391,6 +407,7 @@ function BottomNav() {
 
 function Footer() {
   const { config } = useConfig();
+  const { showWhatsapp, showTelegram } = getActiveSupportChannels(config);
 
   return (
     <footer className="mt-16 border-t border-base-600/70 bg-base-900/50">
@@ -439,7 +456,7 @@ function Footer() {
             <div>
               <p className="mb-2 font-semibold text-white">Contacto</p>
               <ul className="space-y-1.5 text-slate-400">
-                {config?.supportUrl && (
+                {showWhatsapp && config?.supportUrl && (
                   <li>
                     <a
                       href={config.supportUrl}
@@ -448,6 +465,18 @@ function Footer() {
                       className="hover:text-white"
                     >
                       WhatsApp
+                    </a>
+                  </li>
+                )}
+                {showTelegram && (
+                  <li>
+                    <a
+                      href={buildTelegramSupportUrl(config)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="hover:text-white"
+                    >
+                      Telegram (Bot 24/7)
                     </a>
                   </li>
                 )}

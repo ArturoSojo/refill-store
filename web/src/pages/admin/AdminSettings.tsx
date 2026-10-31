@@ -17,6 +17,8 @@ import {
   Zap,
   ChevronRight,
   UserCog,
+  LifeBuoy,
+
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
@@ -89,6 +91,12 @@ export function AdminSettings() {
 
   const sectionValue = <T,>(section: string, key: string, fallback: T): T => {
     const local = (form[section] as Record<string, unknown> | undefined)?.[key];
+    if (local !== undefined) return local as T;
+    return fallback;
+  };
+
+  const rootValue = <T,>(key: string, fallback: T): T => {
+    const local = form[key];
     if (local !== undefined) return local as T;
     return fallback;
   };
@@ -592,22 +600,56 @@ export function AdminSettings() {
         </div>
       </Card>
 
-      {/* --- WhatsApp --- */}
+      {/* --- Canales de Atención y Soporte --- */}
       <Card>
-        <CardHeader title="WhatsApp" description="Sin signos: código de país + número" />
+        <CardHeader
+          title="Canales de Atención y Soporte"
+          description="Configura la atención al cliente vía WhatsApp y Telegram"
+          icon={<LifeBuoy className="h-4 w-4" aria-hidden />}
+        />
         <div className="grid gap-4 sm:grid-cols-2">
-          <Input
-            label="Número para productos manuales"
-            defaultValue={config.whatsapp.adminNumber}
-            onChange={(event) => patch('whatsapp', { adminNumber: event.target.value })}
-            hint="Recibe las órdenes de Categoría B"
+          <Select
+            label="Canal de atención preferido"
+            value={rootValue('supportChannelMode', config.supportChannelMode ?? 'both')}
+            onChange={(event) =>
+              setForm((curr) => ({
+                ...curr,
+                supportChannelMode: event.target.value as 'both' | 'whatsapp' | 'telegram',
+              }))
+            }
+            options={[
+              { value: 'both', label: 'Ambos (El cliente elige WhatsApp o Telegram)' },
+              { value: 'whatsapp', label: 'Solo WhatsApp' },
+              { value: 'telegram', label: 'Solo Telegram (Bot de Soporte)' },
+            ]}
+            hint="Controla qué botones de soporte y entrega manual ve el cliente."
             disabled={!isAdmin}
           />
           <Input
-            label="Número de soporte"
+            label="Usuario del Bot de Telegram"
+            defaultValue={config.telegramSupportBotUsername ?? 'V2RefillBot'}
+            onChange={(event) =>
+              setForm((curr) => ({
+                ...curr,
+                telegramSupportBotUsername: event.target.value.replace(/^@/, '').trim(),
+              }))
+            }
+            placeholder="V2RefillBot"
+            hint="Sin @. Bot que atiende consultas de órdenes y FAQs."
+            disabled={!isAdmin}
+          />
+          <Input
+            label="Número de WhatsApp para productos manuales"
+            defaultValue={config.whatsapp.adminNumber}
+            onChange={(event) => patch('whatsapp', { adminNumber: event.target.value })}
+            hint="Recibe las órdenes manuales (Categoría B)"
+            disabled={!isAdmin}
+          />
+          <Input
+            label="Número de WhatsApp de soporte"
             defaultValue={config.whatsapp.supportNumber}
             onChange={(event) => patch('whatsapp', { supportNumber: event.target.value })}
-            hint="Enlace de ayuda en la tienda"
+            hint="Enlace directo al chat de soporte"
             disabled={!isAdmin}
           />
         </div>

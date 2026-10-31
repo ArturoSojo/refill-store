@@ -10,7 +10,8 @@ export type ButtonVariant =
   | 'outline'
   | 'danger'
   | 'success'
-  | 'whatsapp';
+  | 'whatsapp'
+  | 'telegram';
 
 export type ButtonSize = 'sm' | 'md' | 'lg' | 'icon';
 
@@ -25,6 +26,7 @@ const VARIANTS: Record<ButtonVariant, string> = {
   danger: 'bg-red-600 text-white hover:bg-red-500 border border-transparent',
   success: 'bg-emerald-600 text-white hover:bg-emerald-500 border border-transparent',
   whatsapp: 'bg-[#25D366] text-black font-semibold hover:bg-[#20bd5a] border border-transparent',
+  telegram: 'bg-[#229ED9] text-white font-semibold hover:bg-[#1d8bc0] border border-transparent shadow-sm',
 };
 
 const SIZES: Record<ButtonSize, string> = {

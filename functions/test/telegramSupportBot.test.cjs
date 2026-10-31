@@ -673,3 +673,98 @@ test('8. Escalamiento a Soporte Humano con alerta enriquecida al Admin', async (
   const sessionAfter = store.get('telegramSupportSessions/111222333');
   assert.equal(sessionAfter.state, null);
 });
+
+
+test('9. Deep Linking: /start RF-XXXXXX consulta directamente el estado de la orden (Caso B)', async () => {
+  store.set('orders/ord-dl-1', {
+    code: 'RF-DL001',
+    status: 'completed',
+    gameName: 'Free Fire',
+    productName: '310 Diamantes',
+    playerId: '99887766',
+    pricing: { totalBs: 1500, totalUsd: 1.8 },
+  });
+
+  sentMessages.length = 0;
+
+  // Cliente abre el bot con deep link directo de orden
+  await handleTelegramSupportWebhook({
+    update_id: 70,
+    message: {
+      message_id: 90,
+      from: { id: 111222333, first_name: 'Alejandro', username: 'alejandro_ff' },
+      chat: { id: 111222333, type: 'private' },
+      date: 1700000000,
+      text: '/start RF-DL001',
+    },
+  });
+
+  // Debe haber procesado la orden directamente
+  const procMsg = sentMessages.find((m) => m.text.includes('Procesando tu orden'));
+  assert.ok(procMsg, 'Debe enviar mensaje preliminar de búsqueda');
+  assert.match(procMsg.text, /RF-DL001/);
+
+  const orderCard = sentMessages.find((m) => m.text.includes('Detalle de tu Orden') && m.text.includes('RF-DL001'));
+  assert.ok(orderCard, 'Debe mostrar la ficha de la orden al cliente directamente');
+  assert.match(orderCard.text, /310 Diamantes/);
+  assert.match(orderCard.text, /99887766/);
+});
+
+test('10. Deep Linking: /start manual_RF-XXXXXX procesa orden manual y envía alerta inmediata al Admin con botones de acción (Caso A)', async () => {
+  store.set('orders/ord-man-1', {
+    code: 'RF-MAN01',
+    status: 'awaiting_manual',
+    gameName: 'Roblox',
+    productName: '1000 Robux',
+    playerId: 'RobloxPro99',
+    pricing: { totalBs: 4500, totalUsd: 5.0 },
+    payment: { reference: '987654', method: 'Pago Móvil' },
+  });
+
+  sentMessages.length = 0;
+
+  // Cliente abre Telegram tras comprar producto manual
+  await handleTelegramSupportWebhook({
+    update_id: 71,
+    message: {
+      message_id: 91,
+      from: {
+        id: 333444555,
+        first_name: 'Carlos',
+        last_name: 'Gamer',
+        username: 'carlos_gamer',
+      },
+      chat: { id: 333444555, type: 'private' },
+      date: 1700000000,
+      text: '/start manual_RF-MAN01',
+    },
+  });
+
+  // 1. Cliente debe recibir confirmación de recarga manual en proceso
+  const clientMsg = sentMessages.find((m) => String(m.chat_id) === '333444555' && m.text.includes('Recarga Manual en Proceso'));
+  assert.ok(clientMsg, 'Cliente debe recibir la confirmación de entrega manual');
+  assert.match(clientMsg.text, /RF-MAN01/);
+  assert.match(clientMsg.text, /Roblox/);
+  assert.match(clientMsg.text, /1000 Robux/);
+  assert.match(clientMsg.text, /RobloxPro99/);
+  assert.match(clientMsg.text, /Hemos notificado automáticamente a nuestros asesores/);
+
+  // 2. Admin (chat 999888777) debe recibir alerta inmediata con botón de completada manual
+  const adminAlert = sentMessages.find((m) => String(m.chat_id) === '999888777' && m.text.includes('NUEVA SOLICITUD DE ENTREGA MANUAL'));
+  assert.ok(adminAlert, 'Admin debe recibir alerta de orden manual');
+  assert.match(adminAlert.text, /Carlos Gamer/);
+  assert.match(adminAlert.text, /@carlos_gamer/);
+  assert.match(adminAlert.text, /RF-MAN01/);
+  assert.match(adminAlert.text, /RobloxPro99/);
+  assert.match(adminAlert.text, /987654/);
+
+  // Botones de acción del admin
+  const adminBtns = adminAlert.reply_markup.inline_keyboard.flat();
+  const compBtn = adminBtns.find((b) => b.text.includes('Marcar Completada Manual'));
+  assert.ok(compBtn, 'Admin debe tener botón de marcar completada');
+  assert.equal(compBtn.callback_data, 'adm_comp_ord-man-1');
+
+  const chatBtn = adminBtns.find((b) => b.text.includes('Abrir Chat'));
+  assert.ok(chatBtn, 'Admin debe tener botón para chatear con el cliente');
+  assert.equal(chatBtn.url, 'https://t.me/carlos_gamer');
+});

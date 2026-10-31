@@ -72,6 +72,7 @@ publicRouter.get(
     ok(res, {
       ...toPublicConfig(config),
       supportUrl: buildSupportUrl(config.whatsapp.supportNumber),
+      telegramSupportUrl: `https://t.me/${(config.telegramSupportBotUsername || 'V2RefillBot').replace(/^@/, '')}`,
       // La escalera se sirve entera para que la tienda la pinte tal cual y no
       // tenga que repetir umbrales que luego se desincronizan.
       tiers: normalizeLadder(config.tiers),

@@ -972,6 +972,10 @@ export interface AppConfig {
     instagram: string;
     telegram: string;
   };
+  /** Nombre de usuario del bot de soporte en Telegram (sin @). */
+  telegramSupportBotUsername?: string;
+  /** Modo de canales de soporte: ambos, solo WhatsApp o solo Telegram. */
+  supportChannelMode?: 'both' | 'whatsapp' | 'telegram';
   chatbot: ChatbotProfile;
   supportBot: ChatbotProfile;
   /** Escalera de fidelidad, editable desde el panel. Ver `lib/tiers.ts`. */
@@ -1045,6 +1049,9 @@ export interface PublicConfig {
   contact: AppConfig['contact'];
   chatbot: AppConfig['chatbot'];
   supportBot: AppConfig['supportBot'];
+  telegramSupportBotUsername?: string;
+  supportChannelMode?: 'both' | 'whatsapp' | 'telegram';
+  telegramSupportUrl?: string;
 }
 
 // ---------------------------------------------------------------------------

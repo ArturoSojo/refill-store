@@ -3,7 +3,7 @@
  * el estado de la orden. No usan React: sólo transforman datos que ya entregan
  * los hooks y la API existentes.
  */
-import { describeOrder } from '@/lib/orderItem';
+
 import { formatBs, formatUsd } from '@/lib/format';
 import { onlyDigits } from '@/lib/utils';
 import type { Order, PaymentInstructions, PublicConfig } from '@/types/models';
@@ -110,7 +110,15 @@ export function paymentInstructionMessages(payment: PaymentInstructions, orderCo
 }
 
 /** Mensajes según el estado en vivo de la orden. `null` = nada que anunciar. */
-export function liveOrderMessages(order: Order, supportUrl?: string): BotMessage[] | null {
+export function liveOrderMessages(
+  order: Order,
+  supportUrl?: string,
+  config?: PublicConfig | null
+): BotMessage[] | null {
+  const mode = config?.supportChannelMode ?? 'both';
+  const showWa = mode === 'both' || mode === 'whatsapp';
+  const showTg = mode === 'both' || mode === 'telegram';
+
   switch (order.status) {
     case 'verifying':
       return [{ text: 'Verificando pago…', progress: true }];
@@ -124,9 +132,8 @@ export function liveOrderMessages(order: Order, supportUrl?: string): BotMessage
       return [
         {
           text: [
-            '🎉 ¡Recarga entregada!',
-            `📦 ${describeOrder(order)}`,
-            ...(order.playerId ? [`👤 ID: ${order.playerId}`] : []),
+            '¡Recarga entregada! 🎉',
+            `🎮 ${order.gameName} · ${order.productName}`,
             `💵 Pagado: ${formatBs(order.pricing.totalBs)} Bs`,
             `🧾 Orden: ${order.code}`,
             ...(codes.length > 0 ? ['', 'Tus códigos digitales:'] : []),
@@ -144,11 +151,16 @@ export function liveOrderMessages(order: Order, supportUrl?: string): BotMessage
     case 'awaiting_manual':
       return [
         {
-          text: order.whatsappUrl
-            ? 'Pago verificado ✅. Este producto lo activa un asesor: abre WhatsApp, el mensaje ya lleva tus datos.'
-            : 'Pago verificado ✅. Este producto lo activa nuestro equipo a mano; te avisaremos por notificación y correo apenas esté listo.',
+          text: showWa && showTg
+            ? 'Pago verificado ✅. Este producto lo activa un asesor. Elige si prefieres continuar por WhatsApp o Telegram:'
+            : showTg
+              ? 'Pago verificado ✅. Este producto lo activa un asesor: abre Telegram para completar la entrega.'
+              : order.whatsappUrl
+                ? 'Pago verificado ✅. Este producto lo activa un asesor: abre WhatsApp, el mensaje ya lleva tus datos.'
+                : 'Pago verificado ✅. Este producto lo activa nuestro equipo a mano; te avisaremos por notificación y correo apenas esté listo.',
           actions: [
-            ...(order.whatsappUrl ? [{ id: 'wa', label: '💬 Abrir WhatsApp' }] : []),
+            ...(showWa && order.whatsappUrl ? [{ id: 'wa', label: '🟢 Abrir WhatsApp' }] : []),
+            ...(showTg ? [{ id: 'tg', label: '🔵 Abrir Telegram' }] : []),
             { id: 'menu', label: '🔁 Hacer otra recarga' },
           ],
         },
@@ -160,7 +172,8 @@ export function liveOrderMessages(order: Order, supportUrl?: string): BotMessage
         {
           text: 'Estamos procesando tu orden manualmente. Si no se completa en 1 hora, se te devuelve el saldo automáticamente.',
           actions: [
-            ...(supportUrl ? [{ id: 'support', label: '🛟 Hablar con soporte' }] : []),
+            ...(showWa && supportUrl ? [{ id: 'wa', label: '🟢 Hablar por WhatsApp' }] : []),
+            ...(showTg ? [{ id: 'tg', label: '🔵 Hablar por Telegram' }] : []),
             { id: 'menu', label: '🏠 Menú principal' },
           ],
         },

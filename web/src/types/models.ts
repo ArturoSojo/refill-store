@@ -616,6 +616,9 @@ export interface PublicConfig {
     telegram: string;
   };
   supportUrl: string;
+  telegramSupportBotUsername?: string;
+  supportChannelMode?: 'both' | 'whatsapp' | 'telegram';
+  telegramSupportUrl?: string;
   chatbot?: ChatbotProfile;
   supportBot?: ChatbotProfile;
   /** Escalera de niveles, servida por el backend (ver `functions/src/lib/tiers.ts`). */

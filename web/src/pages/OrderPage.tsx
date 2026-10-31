@@ -5,8 +5,9 @@ import {
   ChevronLeft,
   Circle,
   Clock,
-  LifeBuoy,
+
   MessageCircle,
+  Send,
   Coins,
   XCircle,
 } from 'lucide-react';
@@ -22,6 +23,7 @@ import { ROUTES } from '@/lib/constants';
 import { formatBs, formatDateTime, formatUsd, formatRefillCoins, statusMeta } from '@/lib/format';
 import { describeOrder } from '@/lib/orderItem';
 import { cn, errorMessage, openWhatsapp } from '@/lib/utils';
+import { buildTelegramOrderUrl, getActiveSupportChannels } from '@/lib/support';
 import type { OrderEvent } from '@/types/models';
 
 function Timeline({ events }: { events: OrderEvent[] }) {
@@ -95,8 +97,9 @@ export function OrderPage() {
   }
 
   const meta = statusMeta(order.status);
+  const { showWhatsapp, showTelegram } = getActiveSupportChannels(config);
   const canPay = ['awaiting_payment', 'payment_rejected'].includes(order.status);
-  const showWhatsapp = order.status === 'awaiting_manual' && order.whatsappUrl;
+
   const labels = data?.playerFieldLabels ?? [];
   const walletApplied = order.pricing.walletAppliedUsd ?? 0;
 
@@ -148,17 +151,32 @@ export function OrderPage() {
           </div>
         )}
 
-        {showWhatsapp && (
-          <Button
-            className="mt-4"
-            variant="whatsapp"
-            size="lg"
-            fullWidth
-            leftIcon={<MessageCircle className="h-5 w-5" aria-hidden />}
-            onClick={() => openWhatsapp(order.whatsappUrl!)}
-          >
-            Continuar por WhatsApp
-          </Button>
+        {order.status === 'awaiting_manual' && (
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {showWhatsapp && order.whatsappUrl && (
+              <Button
+                variant="whatsapp"
+                size="lg"
+                fullWidth
+                leftIcon={<MessageCircle className="h-5 w-5" aria-hidden />}
+                onClick={() => openWhatsapp(order.whatsappUrl!)}
+              >
+                Continuar por WhatsApp
+              </Button>
+            )}
+            {showTelegram && (
+              <ButtonLink
+                to={buildTelegramOrderUrl(order.code, true, config)}
+                external
+                variant="telegram"
+                size="lg"
+                fullWidth
+                leftIcon={<Send className="h-5 w-5" aria-hidden />}
+              >
+                Continuar por Telegram
+              </ButtonLink>
+            )}
+          </div>
         )}
 
         {canPay && (
@@ -362,17 +380,31 @@ export function OrderPage() {
         </div>
       )}
 
-      {config?.supportUrl && (
-        <ButtonLink
-          className="mt-4"
-          to={`${config.supportUrl}%0AOrden%3A%20${order.code}`}
-          external
-          variant="secondary"
-          fullWidth
-          leftIcon={<LifeBuoy className="h-4 w-4" aria-hidden />}
-        >
-          Necesito ayuda con esta orden
-        </ButtonLink>
+      {(showWhatsapp || showTelegram) && (
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          {showWhatsapp && config?.supportUrl && (
+            <ButtonLink
+              to={`${config.supportUrl}%0AOrden%3A%20${order.code}`}
+              external
+              variant="whatsapp"
+              fullWidth
+              leftIcon={<MessageCircle className="h-4 w-4" aria-hidden />}
+            >
+              Ayuda por WhatsApp
+            </ButtonLink>
+          )}
+          {showTelegram && (
+            <ButtonLink
+              to={buildTelegramOrderUrl(order.code, false, config)}
+              external
+              variant="telegram"
+              fullWidth
+              leftIcon={<Send className="h-4 w-4" aria-hidden />}
+            >
+              Ayuda por Telegram
+            </ButtonLink>
+          )}
+        </div>
       )}
 
       <ConfirmDialog

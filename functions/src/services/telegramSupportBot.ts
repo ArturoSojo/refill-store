@@ -516,20 +516,161 @@ async function handleMessage(message: NonNullable<TelegramUpdate['message']>): P
   const isAdmin = await isTelegramAdmin(chatId);
 
   // Comando /start o reinicio
-  if (rawText === '/start' || rawText === '/menu' || rawText.toLowerCase() === 'menu') {
-    await updateSession(chatId, { state: null });
-    const config = await getConfig();
-    const welcome = [
-      `👋 <b>¡Bienvenido al Asistente de ${escapeHtml(config.storeName)}!</b>`,
-      ``,
-      `Aquí puedes consultar el estado de tus compras en tiempo real, ver guías de pago y contactar a nuestro equipo de soporte humano.`,
-      isAdmin ? `\n🛡️ <i>Modo Administrador Activo: Tienes acceso a controles rápidos de despacho.</i>` : '',
-      `\nSelecciona una opción para continuar:`,
-    ].filter(Boolean).join('\n');
+  // Comando /start (con o sin deep linking) o reinicio
+  if (rawText.startsWith('/start') || rawText === '/menu' || rawText.toLowerCase() === 'menu') {
+    const startPayload = rawText.startsWith('/start') ? rawText.slice(6).trim() : '';
 
-    await sendTelegramMessage(chatId, welcome, {
-      reply_markup: buildMainMenuKeyboard(),
+    // Si no hay payload (ej. /start solo) o es 'soporte' / 'menu', mostrar el menú principal
+    if (
+      !startPayload ||
+      startPayload.toLowerCase() === 'soporte' ||
+      startPayload.toLowerCase() === 'support' ||
+      startPayload.toLowerCase() === 'menu'
+    ) {
+      await updateSession(chatId, { state: null });
+      const config = await getConfig();
+      const welcome = [
+        `👋 <b>¡Bienvenido al Asistente de ${escapeHtml(config.storeName)}!</b>`,
+        ``,
+        `Aquí puedes consultar el estado de tus compras en tiempo real, ver guías de pago y contactar a nuestro equipo de soporte humano.`,
+        isAdmin ? `\n🛡️ <i>Modo Administrador Activo: Tienes acceso a controles rápidos de despacho.</i>` : '',
+        `\nSelecciona una opción para continuar:`,
+      ].filter(Boolean).join('\n');
+
+      await sendTelegramMessage(chatId, welcome, {
+        reply_markup: buildMainMenuKeyboard(),
+      });
+      return;
+    }
+
+    // DEEP LINKING: /start manual_RF-XXXXXX o /start RF-XXXXXX o /start orden_RF-XXXXXX
+    const isManualIntent = startPayload.toLowerCase().startsWith('manual_');
+    const orderQuery = startPayload.replace(/^(manual_|orden_)/i, '').trim();
+
+    await sendTelegramMessage(chatId, `🔍 Procesando tu orden <code>${escapeHtml(orderQuery)}</code>...`);
+
+    let order = await findOrder(orderQuery);
+    if (!order) {
+      await updateSession(chatId, { state: null });
+      await sendTelegramMessage(
+        chatId,
+        `❌ No encontramos ninguna orden asociada a <code>${escapeHtml(orderQuery)}</code>.\n\nVerifica que el código sea correcto o comunícate con un asesor.`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '📦 Consultar otra orden', callback_data: 'menu_order_status' }],
+              [{ text: '👨‍💻 Hablar con Soporte Humano', callback_data: 'menu_support' }],
+              [{ text: '⬅️ Menú Principal', callback_data: 'main_menu' }],
+            ],
+          },
+        }
+      );
+      return;
+    }
+
+    const orderCode = order.code || (order as { displayId?: string }).displayId || order.id;
+    await updateSession(chatId, {
+      state: null,
+      lastOrderId: order.id,
+      lastOrderCode: orderCode,
     });
+
+    const isManualOrder = isManualIntent || order.status === 'awaiting_manual';
+
+    if (isManualOrder) {
+      // CASO A: Orden Manual (Roblox / operador)
+      const totalBs = order.pricing?.totalBs ?? (order as { totalBs?: number }).totalBs;
+      const totalUsd = order.pricing?.totalUsd ?? (order as { totalUsd?: number }).totalUsd ?? 0;
+      const formattedBs = totalBs ? `${totalBs.toLocaleString('es-VE')} Bs` : '';
+
+      // 1. Mensaje de confirmación al cliente
+      const clientText = [
+        `🎮 <b>Recarga Manual en Proceso</b>`,
+        ``,
+        `<b>Código de Orden:</b> <code>${escapeHtml(orderCode)}</code>`,
+        `<b>Juego:</b> ${escapeHtml(order.gameName || 'Recarga Manual')}`,
+        `<b>Producto:</b> ${escapeHtml(order.productName || 'Paquete')}`,
+        `<b>Datos de Cuenta / Jugador:</b> <code>${escapeHtml(order.playerId || 'N/A')}</code>${order.playerId2 ? ` (Zona: <code>${escapeHtml(order.playerId2)}</code>)` : ''}`,
+        `<b>Monto Pagado:</b> ${formattedBs} (${totalUsd.toFixed(2)})`,
+        `<b>Estado:</b> 🕒 <b>Pago Verificado · En Espera de Entrega</b>`,
+        ``,
+        `✅ <i>¡Tu pago ya está confirmado! Hemos notificado automáticamente a nuestros asesores con los datos de tu orden para realizar la recarga manual. Te notificaremos por aquí apenas esté lista.</i>`,
+      ].join('\n');
+
+      await sendTelegramMessage(chatId, clientText, {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '👨‍💻 Hablar con un Asesor Humano', callback_data: 'menu_support' }],
+            [{ text: '⬅️ Menú Principal', callback_data: 'main_menu' }],
+          ],
+        },
+      });
+
+      // 2. Notificación INMEDIATA al Telegram del Administrador
+      const config = await getConfig();
+      const adminChatId = config.alerts?.telegramChatId?.trim() || process.env.ADMIN_TELEGRAM_CHAT_ID?.trim();
+
+      if (adminChatId) {
+        const from = message.from;
+        const fromName = [from?.first_name, from?.last_name].filter(Boolean).join(' ') || 'Cliente Telegram';
+        const username = from?.username ? `@${from.username}` : 'Sin @username';
+        const chatUrl = from?.username
+          ? `https://t.me/${from.username}`
+          : `tg://user?id=${from?.id || chatId}`;
+
+        const reference = order.payment?.reference || (order as { paymentDetails?: { reference?: string } }).paymentDetails?.reference || 'N/A';
+        const paymentMethod = order.payment?.method || (order as { paymentDetails?: { method?: string } }).paymentDetails?.method || 'Pago Móvil';
+
+        const adminAlertText = [
+          `🚨 <b>NUEVA SOLICITUD DE ENTREGA MANUAL (Telegram)</b>`,
+          ``,
+          `👤 <b>Cliente:</b> ${escapeHtml(fromName)} (${escapeHtml(username)})`,
+          `🆔 <b>Telegram ID:</b> <code>${escapeHtml(String(from?.id || chatId))}</code>`,
+          `🔗 <b>Chat Directo:</b> <a href="${chatUrl}">${escapeHtml(chatUrl)}</a>`,
+          `📦 <b>Orden:</b> <code>${escapeHtml(orderCode)}</code> (Doc: <code>${escapeHtml(order.id)}</code>)`,
+          `🎮 <b>Juego:</b> ${escapeHtml(order.gameName || 'N/A')} · <b>Producto:</b> ${escapeHtml(order.productName || 'N/A')}`,
+          `👤 <b>Datos Cuenta:</b> <code>${escapeHtml(order.playerId || 'N/A')}</code>${order.playerId2 ? ` (Zona: <code>${escapeHtml(order.playerId2)}</code>)` : ''}`,
+          `💵 <b>Monto:</b> ${formattedBs} (${totalUsd.toFixed(2)})`,
+          `🧾 <b>Referencia:</b> <code>${escapeHtml(reference)}</code> (${escapeHtml(paymentMethod)})`,
+          `📌 <b>Estado:</b> ${escapeHtml(order.status)}`,
+        ].join('\n');
+
+        const adminButtons: TelegramInlineButton[][] = [
+          [{ text: '💬 Abrir Chat con Cliente', url: chatUrl }],
+          [{ text: '✅ Marcar Completada Manual', callback_data: `adm_comp_${order.id}` }],
+          [{ text: '🔍 Sincronizar Proveedor', callback_data: `adm_sync_${order.id}` }],
+        ];
+
+        await sendTelegramMessage(adminChatId, adminAlertText, {
+          reply_markup: { inline_keyboard: adminButtons },
+        });
+      }
+      return;
+    }
+
+    // CASO B: Consulta directa con deep link de orden automática o en proceso
+    if (['dispatching', 'in_review'].includes(order.status)) {
+      try {
+        await checkOrderProviderStatus(order.id, isAdmin ? 'telegram_admin' : 'telegram_user');
+        const refreshed = await orders().doc(order.id).get();
+        if (refreshed.exists) {
+          order = { id: refreshed.id, ...refreshed.data() } as Order;
+        }
+      } catch (err) {
+        log.warn('Error al sincronizar con proveedor en deep link de Telegram', {
+          orderId: order.id,
+          error: String(err),
+        });
+      }
+    }
+
+    if (isAdmin) {
+      const view = renderAdminOrderView(order);
+      await sendTelegramMessage(chatId, view.text, { reply_markup: view.keyboard });
+    } else {
+      const view = renderCustomerOrderView(order);
+      await sendTelegramMessage(chatId, view.text, { reply_markup: view.keyboard });
+    }
     return;
   }
 

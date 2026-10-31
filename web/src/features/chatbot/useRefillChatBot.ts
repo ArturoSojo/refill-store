@@ -29,6 +29,7 @@ import { api, ApiError, isGatewayTimeout } from '@/lib/api';
 import { readCreatorCode, clearCreatorCode } from '@/lib/creatorCode';
 import { formatBs, formatUsd, formatRefillCoins } from '@/lib/format';
 import { errorMessage, openWhatsapp } from '@/lib/utils';
+import { buildTelegramOrderUrl, buildTelegramSupportUrl } from '@/lib/support';
 import { matchCategory, searchGames, isWalletQuery } from './fuzzy';
 import { useDualBotConfig } from './useChatbotConfig';
 import {
@@ -605,7 +606,7 @@ export function useRefillChatBot() {
     setStep('phone');
     botSay([
       {
-        text: `${prefix}Este producto lo activa nuestro equipo a mano. Escribe tu número de WhatsApp para entregártelo (ej: 0412-0000000).`,
+        text: `${prefix}Este producto lo activa nuestro equipo a mano. Escribe tu número de WhatsApp o Telegram para contactarte si hace falta (ej: 0412-0000000).`,
         actions: [MENU_ACTION],
       },
     ]);
@@ -871,7 +872,7 @@ export function useRefillChatBot() {
     const current = liveOrder ?? finalOrder;
     if (!current || lastAnnounced.current === current.status) return;
 
-    const items = liveOrderMessages(current, config?.supportUrl);
+    const items = liveOrderMessages(current, config?.supportUrl, config);
     if (!items) return;
 
     lastAnnounced.current = current.status;
@@ -1226,8 +1227,40 @@ export function useRefillChatBot() {
     }
 
     if (kind === 'wa') {
+      push({ from: 'user', text: 'Abrir WhatsApp' });
+      const current = liveOrder ?? finalOrder;
+      const targetUrl = (current?.status === 'awaiting_manual' && current.whatsappUrl)
+        ? current.whatsappUrl
+        : config?.supportUrl;
+      if (targetUrl) {
+        openWhatsapp(targetUrl);
+      }
+      return;
+    }
+
+    if (kind === 'tg') {
+      push({ from: 'user', text: 'Abrir Telegram' });
+      const current = liveOrder ?? finalOrder;
+      if (current?.code) {
+        const isManual = current.status === 'awaiting_manual';
+        window.open(buildTelegramOrderUrl(current.code, isManual, config), '_blank', 'noopener,noreferrer');
+      } else {
+        window.open(buildTelegramSupportUrl(config), '_blank', 'noopener,noreferrer');
+      }
+      return;
+    }
+
+    if (kind === 'support') {
       push({ from: 'user', text: 'Hablar con soporte' });
-      if (config?.supportUrl) {
+      const mode = config?.supportChannelMode ?? 'both';
+      if (mode === 'telegram') {
+        const current = liveOrder ?? finalOrder;
+        if (current?.code) {
+          window.open(buildTelegramOrderUrl(current.code, false, config), '_blank', 'noopener,noreferrer');
+        } else {
+          window.open(buildTelegramSupportUrl(config), '_blank', 'noopener,noreferrer');
+        }
+      } else if (config?.supportUrl) {
         openWhatsapp(config.supportUrl);
       }
       return;

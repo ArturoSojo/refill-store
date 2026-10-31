@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useConfig } from '@/providers/ConfigProvider';
 import { useDualBotConfig } from './useChatbotConfig';
 import { openWhatsapp } from '@/lib/utils';
+import { buildTelegramSupportUrl, getActiveSupportChannels } from '@/lib/support';
 import { ChatMessage, ChatOption } from './types';
 import { api } from '@/lib/api';
 
@@ -75,6 +76,12 @@ export function useSupportChatBot() {
       if (config?.supportUrl) {
         openWhatsapp(config.supportUrl);
       }
+      return;
+    }
+    if (actionId === 'tg') {
+      push({ from: 'user', text: 'Contactar por Telegram' });
+      window.open(buildTelegramSupportUrl(config), '_blank', 'noopener,noreferrer');
+      return;
     }
   };
 
@@ -110,7 +117,13 @@ export function useSupportChatBot() {
             : answer.action === 'view_orders'
               ? [{ id: 'view_orders', label: '📋 Ver mis órdenes' }]
               : answer.needsSupport
-                ? [{ id: 'wa', label: '💬 Hablar con Soporte Humano' }]
+                ? (() => {
+                    const { showWhatsapp, showTelegram } = getActiveSupportChannels(config);
+                    const list: ChatOption[] = [];
+                    if (showWhatsapp) list.push({ id: 'wa', label: '🟢 Hablar por WhatsApp' });
+                    if (showTelegram) list.push({ id: 'tg', label: '🔵 Hablar por Telegram' });
+                    return list.length > 0 ? list : undefined;
+                  })()
                 : undefined,
         });
       })
@@ -118,8 +131,14 @@ export function useSupportChatBot() {
         if (generation !== requestGeneration.current) return;
         push({
           from: 'bot',
-          text: 'Ahora mismo no puedo responder. Puedes escribirnos por WhatsApp y te ayudamos.',
-          actions: [{ id: 'wa', label: '💬 Hablar con Soporte Humano' }],
+          text: 'Ahora mismo no puedo responder. Puedes escribirnos a soporte y te ayudamos con gusto.',
+          actions: (() => {
+            const { showWhatsapp, showTelegram } = getActiveSupportChannels(config);
+            const list: ChatOption[] = [];
+            if (showWhatsapp) list.push({ id: 'wa', label: '🟢 Hablar por WhatsApp' });
+            if (showTelegram) list.push({ id: 'tg', label: '🔵 Hablar por Telegram' });
+            return list.length > 0 ? list : undefined;
+          })(),
         });
       })
       .finally(() => {

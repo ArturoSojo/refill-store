@@ -21,6 +21,7 @@ import { ROUTES } from '@/lib/constants';
 import { formatDateTime, formatRelative } from '@/lib/format';
 import { shortOrderItem } from '@/lib/orderItem';
 import { cn, errorMessage } from '@/lib/utils';
+import { buildTelegramSupportUrl, getActiveSupportChannels } from '@/lib/support';
 
 const STATUS_LABEL = {
   open: { label: 'Abierto', variant: 'info' as const },
@@ -32,6 +33,7 @@ export function SupportPage() {
   useDocumentTitle('Soporte');
   const { user } = useAuth();
   const { config } = useConfig();
+  const { showWhatsapp, showTelegram } = getActiveSupportChannels(config);
   const tickets = useTickets();
   const orders = useMyOrders();
   const createTicket = useCreateTicket();
@@ -71,29 +73,60 @@ export function SupportPage() {
         </div>
       </div>
 
-      {config?.supportUrl && (
-        <Card className="border-green-500/25 bg-green-500/5">
-          <div className="flex items-start gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-green-500/15 text-green-400">
-              <MessageCircle className="h-5 w-5" aria-hidden />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-white">Respuesta más rápida por WhatsApp</p>
-              <p className="mt-0.5 text-xs text-slate-400">
-                Ideal si tu recarga es urgente o tienes un pago pendiente.
-              </p>
-              <ButtonLink
-                className="mt-3"
-                to={config.supportUrl}
-                external
-                variant="whatsapp"
-                size="sm"
-              >
-                Abrir WhatsApp
-              </ButtonLink>
-            </div>
-          </div>
-        </Card>
+      {(showWhatsapp || showTelegram) && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {showWhatsapp && config?.supportUrl && (
+            <Card className="border-green-500/25 bg-green-500/5">
+              <div className="flex items-start gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-green-500/15 text-green-400">
+                  <MessageCircle className="h-5 w-5" aria-hidden />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-white">Atención directa por WhatsApp</p>
+                  <p className="mt-0.5 text-xs text-slate-400">
+                    Ideal si tu recarga es urgente o tienes un pago pendiente.
+                  </p>
+                  <ButtonLink
+                    className="mt-3"
+                    to={config.supportUrl}
+                    external
+                    variant="whatsapp"
+                    size="sm"
+                    leftIcon={<MessageCircle className="h-4 w-4" aria-hidden />}
+                  >
+                    Abrir WhatsApp
+                  </ButtonLink>
+                </div>
+              </div>
+            </Card>
+          )}
+
+          {showTelegram && (
+            <Card className="border-sky-500/25 bg-sky-500/5">
+              <div className="flex items-start gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-500/15 text-[#229ED9]">
+                  <Send className="h-5 w-5" aria-hidden />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-white">Bot de Soporte en Telegram 24/7</p>
+                  <p className="mt-0.5 text-xs text-slate-400">
+                    Búsqueda de órdenes en vivo, FAQs interactivas y asesor humano.
+                  </p>
+                  <ButtonLink
+                    className="mt-3"
+                    to={buildTelegramSupportUrl(config)}
+                    external
+                    variant="telegram"
+                    size="sm"
+                    leftIcon={<Send className="h-4 w-4" aria-hidden />}
+                  >
+                    Abrir Telegram
+                  </ButtonLink>
+                </div>
+              </div>
+            </Card>
+          )}
+        </div>
       )}
 
       {user ? (

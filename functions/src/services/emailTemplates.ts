@@ -143,9 +143,11 @@ export function renderOrderEmail(
 
   const totalBs = pricing.totalBs > 0 ? `${formatBs(pricing.totalBs)} Bs` : 'Pagado con saldo';
 
-  const soporte = config.whatsapp?.supportNumber
-    ? `https://wa.me/${config.whatsapp.supportNumber.replace(/\D/g, '')}`
-    : null;
+  const mode = config.supportChannelMode || 'both';
+  const showWa = (mode === 'both' || mode === 'whatsapp') && Boolean(config.whatsapp?.supportNumber);
+  const showTg = mode === 'both' || mode === 'telegram';
+  const soporteWa = showWa ? `https://wa.me/${config.whatsapp.supportNumber.replace(/\D/g, '')}` : null;
+  const soporteTg = showTg ? `https://t.me/${(config.telegramSupportBotUsername || 'V2RefillBot').replace(/^@/, '')}?start=orden_${encodeURIComponent(order.code)}` : null;
 
   const html = `<!doctype html>
 <html lang="es">
@@ -200,7 +202,13 @@ export function renderOrderEmail(
         <tr><td style="padding:32px 28px;">
           <p style="margin:0 0 6px;font-size:14px;line-height:1.6;color:${SUAVE};">
             ¿Alguna duda con esta orden? Responde a este correo${
-              soporte ? ` o escríbenos por <a href="${soporte}" style="color:${MARCA};">WhatsApp</a>` : ''
+              soporteWa && soporteTg
+                ? ` o escríbenos por <a href="${soporteWa}" style="color:${MARCA};">WhatsApp</a> o <a href="${soporteTg}" style="color:${MARCA};">Telegram</a>`
+                : soporteWa
+                  ? ` o escríbenos por <a href="${soporteWa}" style="color:${MARCA};">WhatsApp</a>`
+                  : soporteTg
+                    ? ` o escríbenos por <a href="${soporteTg}" style="color:${MARCA};">Telegram</a>`
+                    : ''
             }.
           </p>
           <p style="margin:0;font-size:13px;color:#6b7280;">
