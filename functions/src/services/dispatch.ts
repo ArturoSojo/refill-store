@@ -370,6 +370,34 @@ export async function dispatchOrder(
   }
 
   const calls = order.dispatch.calls.map((call) => ({ ...call }));
+
+  // Auto-reparación para combos incompletos: si la orden define más `productIds` que llamadas registradas
+  // (por ejemplo, si un fallo anterior truncó el array o el combo provino de un bot externo),
+  // reconstruimos las llamadas pendientes faltantes antes de iterar para no dejar el combo a medias.
+  const expectedProductIds = Array.isArray(order.productIds) ? order.productIds : [];
+  if (expectedProductIds.length > calls.length) {
+    for (let idx = calls.length; idx < expectedProductIds.length; idx++) {
+      const rawPkgId = expectedProductIds[idx];
+      const pkgId = typeof rawPkgId === 'number' ? rawPkgId : Number(rawPkgId);
+      calls.push({
+        packageId: pkgId,
+        providerGameId,
+        index: idx,
+        provider,
+        status: 'pending',
+        providerOrderId: null,
+        providerStatus: null,
+        playerName: null,
+        providerReference: null,
+        error: null,
+        httpStatus: null,
+        providerResponse: null,
+        attempts: 0,
+        completedAt: null,
+      });
+    }
+  }
+
   let failure: string | null = null;
 
   await addEvent({

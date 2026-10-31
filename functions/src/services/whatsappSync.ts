@@ -52,6 +52,8 @@ const subOrdenSchema = z.object({
   status: z.string(),
   error: z.string().nullable().optional(),
   httpStatus: z.number().nullable().optional(),
+  pendiente: z.boolean().optional(),
+  intentos: z.number().optional(),
   timestamp: z.string(),
 });
 
@@ -340,7 +342,6 @@ export async function syncWhatsappOrder(rawInput: unknown): Promise<SyncWhatsapp
   const tasaBcv = round(input.tasaBcv, 4);
   const montoUsd = round(input.montoUsd ?? montoBs / tasaBcv, 2);
   const costoProveedorUsd = round(input.costoProveedorUsd ?? 0, 4);
-  const gananciaNetaUsd = round(input.gananciaNetaUsd ?? montoUsd - costoProveedorUsd, 4);
 
   const nextStatus = input.status ?? mapEstadoToWebStatus(input.estado, input.tipoDespacho);
   const gameId = inferGameId(input.juego, input.gameId);
@@ -360,6 +361,8 @@ export async function syncWhatsappOrder(rawInput: unknown): Promise<SyncWhatsapp
     status: s.status,
     error: s.error ?? null,
     httpStatus: s.httpStatus ?? null,
+    pendiente: s.pendiente,
+    intentos: s.intentos,
     timestamp: s.timestamp,
   }));
 
@@ -386,44 +389,116 @@ export async function syncWhatsappOrder(rawInput: unknown): Promise<SyncWhatsapp
     const alreadyAccounted = existing?.metricsAccounted === true;
     const shouldAccountNow = nextStatus === 'completed' && !alreadyAccounted;
 
-    const dispatchCalls: DispatchCallResult[] =
-      subOrdenes.length > 0
-        ? subOrdenes.map((sub, idx) => ({
-            packageId: Number(sub.package_id ?? sub.product_id),
-            providerGameId: sub.provider_game_id != null ? sub.provider_game_id : providerGameId,
-            index: idx,
-            provider: isBloodStrike ? 'fazercards' : 'inefable',
-            status: sub.exito ? 'success' : 'error',
-            providerOrderId: sub.order_id != null ? String(sub.order_id) : null,
-            providerStatus: sub.status,
-            playerName: null,
-            providerReference: null,
-            error: sub.error ?? null,
-            httpStatus: sub.httpStatus ?? null,
-            providerResponse: null,
-            attempts: 1,
-            completedAt: sub.exito ? timestamp : null,
-          }))
-        : (existing?.dispatch?.calls && existing.dispatch.calls.length > 0)
-        ? existing.dispatch.calls
-        : input.tipoDespacho === 'MANUAL'
-        ? []
-        : input.productIds.map((pkgId, idx) => ({
-            packageId: pkgId,
-            providerGameId,
-            index: idx,
-            provider: isBloodStrike ? 'fazercards' : 'inefable',
-            status: 'pending',
-            providerOrderId: null,
-            providerStatus: null,
-            playerName: null,
-            providerReference: null,
-            error: null,
-            httpStatus: null,
-            providerResponse: null,
-            attempts: 0,
-            completedAt: null,
-          }));
+    const existingCalls = existing?.dispatch?.calls ?? [];
+    const providerName: 'fazercards' | 'inefable' = isBloodStrike ? 'fazercards' : 'inefable';
+    const targetProductIds =
+      input.productIds && input.productIds.length > 0
+        ? input.productIds
+        : existing?.productIds && existing.productIds.length > 0
+        ? existing.productIds
+        : subOrdenes.map((s) => Number(s.package_id ?? s.product_id)).filter((n) => !Number.isNaN(n));
+
+    let dispatchCalls: DispatchCallResult[];
+    if (input.tipoDespacho === 'MANUAL') {
+      dispatchCalls = [];
+    } else {
+      const totalCount = Math.max(targetProductIds.length, subOrdenes.length, existingCalls.length);
+      if (totalCount === 0) {
+        dispatchCalls = [];
+      } else {
+        dispatchCalls = [];
+        for (let idx = 0; idx < totalCount; idx++) {
+          const sub = subOrdenes[idx];
+          const existingCall = existingCalls[idx];
+          const rawPkgId =
+            targetProductIds[idx] ??
+            sub?.package_id ??
+            sub?.product_id ??
+            existingCall?.packageId;
+          const packageId = typeof rawPkgId === 'number' ? rawPkgId : Number(rawPkgId);
+
+          if (sub) {
+            const isSuccess = sub.exito === true;
+            const isPending = sub.pendiente === true;
+            const subStatus: DispatchCallResult['status'] = isSuccess
+              ? 'success'
+              : isPending
+              ? 'pending'
+              : 'error';
+
+            dispatchCalls.push({
+              packageId,
+              providerGameId:
+                sub.provider_game_id != null
+                  ? (typeof sub.provider_game_id === 'number'
+                      ? sub.provider_game_id
+                      : Number(sub.provider_game_id))
+                  : (existingCall?.providerGameId ?? providerGameId),
+              index: idx,
+              provider: (existingCall?.provider as 'fazercards' | 'inefable' | undefined) ?? providerName,
+              status: subStatus,
+              providerOrderId:
+                sub.order_id != null
+                  ? String(sub.order_id)
+                  : (existingCall?.providerOrderId ?? null),
+              providerStatus:
+                sub.status ?? (isSuccess ? 'exitosa' : isPending ? null : 'fallida'),
+              playerName: existingCall?.playerName ?? null,
+              providerReference: existingCall?.providerReference ?? null,
+              error: isSuccess || isPending ? null : (sub.error ?? existingCall?.error ?? null),
+              httpStatus: isPending
+                ? null
+                : (sub.httpStatus ?? existingCall?.httpStatus ?? (isSuccess ? 200 : null)),
+              providerResponse: existingCall?.providerResponse ?? null,
+              attempts: isPending ? 0 : Math.max(1, existingCall?.attempts ?? 1),
+              completedAt: isSuccess ? (existingCall?.completedAt ?? timestamp) : null,
+            });
+          } else if (existingCall) {
+            dispatchCalls.push({
+              ...existingCall,
+              index: idx,
+              packageId: Number.isNaN(packageId) ? existingCall.packageId : packageId,
+            });
+          } else {
+            dispatchCalls.push({
+              packageId,
+              providerGameId,
+              index: idx,
+              provider: providerName,
+              status: 'pending',
+              providerOrderId: null,
+              providerStatus: null,
+              playerName: null,
+              providerReference: null,
+              error: null,
+              httpStatus: null,
+              providerResponse: null,
+              attempts: 0,
+              completedAt: null,
+            });
+          }
+        }
+      }
+    }
+
+    const existingSubOrdenes = existing?.subOrdenes ?? [];
+    const mergedSubOrdenes: OrderSubOrden[] = [];
+    const maxSubCount = Math.max(subOrdenes.length, existingSubOrdenes.length);
+    for (let sIdx = 0; sIdx < maxSubCount; sIdx++) {
+      if (subOrdenes[sIdx]) {
+        mergedSubOrdenes.push(subOrdenes[sIdx]);
+      } else if (existingSubOrdenes[sIdx]) {
+        mergedSubOrdenes.push(existingSubOrdenes[sIdx]);
+      }
+    }
+
+    const finalCostoProveedorUsd = round(
+      costoProveedorUsd > 0
+        ? costoProveedorUsd
+        : (existing?.costoProveedorUsd ?? costoProveedorUsd),
+      4
+    );
+    const finalGananciaNetaUsd = round(montoUsd - finalCostoProveedorUsd, 4);
 
     const providerError =
       nextStatus === 'completed'
@@ -457,15 +532,15 @@ export async function syncWhatsappOrder(rawInput: unknown): Promise<SyncWhatsapp
       clienteContacto,
       juego: input.juego,
       paqueteNombre: input.paqueteNombre,
-      productIds: input.productIds,
+      productIds: targetProductIds,
       montoBs,
       tasaBcv,
       montoUsd,
-      costoProveedorUsd,
-      gananciaNetaUsd,
+      costoProveedorUsd: finalCostoProveedorUsd,
+      gananciaNetaUsd: finalGananciaNetaUsd,
       tipoDespacho: input.tipoDespacho,
       estado: input.estado,
-      subOrdenes,
+      subOrdenes: mergedSubOrdenes,
       metricsAccounted: alreadyAccounted || shouldAccountNow,
       user: userSnapshot,
       gameId,
@@ -494,8 +569,8 @@ export async function syncWhatsappOrder(rawInput: unknown): Promise<SyncWhatsapp
         totalBs: montoBs,
         couponCode: null,
         creatorCode: null,
-        costUsd: costoProveedorUsd,
-        profitUsd: gananciaNetaUsd,
+        costUsd: finalCostoProveedorUsd,
+        profitUsd: finalGananciaNetaUsd,
       },
       creator: existing?.creator ?? null,
       contactPhone: clienteContacto || null,

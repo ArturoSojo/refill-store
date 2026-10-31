@@ -48,3 +48,4 @@ export function getActiveSupportChannels(config?: PublicConfig | null) {
     isBoth: mode === 'both',
   };
 }
+

@@ -326,6 +326,8 @@ export interface OrderSubOrden {
   is_fallback?: boolean;
   costo?: number | null;
   exito: boolean;
+  pendiente?: boolean;
+  intentos?: number;
   order_id: string | null;
   status: string | null;
   error: string | null;

@@ -536,3 +536,91 @@ test('5) No fabrica despacho exitoso falso si una orden fallida se completa manu
   assert.equal(updatedOrder.dispatch.calls[0].error, 'Paquete 6 no encontrado o inactivo');
   assert.equal(updatedOrder.dispatch.completedAt, null);
 });
+
+test('6) Combos: si el paquete #1 falla y el bot solo envía 1 suborden, el paquete #2 se preserva como pending', async () => {
+  store.clear();
+  store.set('config/app', {
+    tiers: [
+      { tier: 'hierro', minSpentUsd: 0 },
+      { tier: 'bronce', minSpentUsd: 50 },
+    ],
+  });
+
+  const comboPayload = {
+    referencia: '99881122',
+    canal: 'WHATSAPP',
+    clienteContacto: '584149991122@s.whatsapp.net',
+    juego: 'Free Fire',
+    paqueteNombre: '830+83💎',
+    productIds: [5, 3],
+    playerId: '3072202832',
+    montoBs: 7030,
+    tasaBcv: 969.64,
+    montoUsd: 7.25,
+    tipoDespacho: 'AUTOMATICO',
+    estado: 'ENTREGA_PARCIAL_COMBO',
+    subOrdenes: [
+      {
+        product_id: 5,
+        package_id: 5,
+        exito: false,
+        order_id: null,
+        status: 'fallida',
+        error: 'Error HTTP 422 en Inefable',
+        httpStatus: 422,
+        timestamp: new Date().toISOString(),
+      },
+    ],
+  };
+
+  await syncWhatsappOrder(comboPayload);
+
+  const orderDoc = (await mockDb.collection('orders').doc('wa_99881122').get()).data();
+  assert.equal(orderDoc.status, 'in_review');
+  assert.equal(orderDoc.dispatch.calls.length, 2, 'Debe preservar las 2 llamadas del combo');
+  assert.equal(orderDoc.dispatch.calls[0].packageId, 5);
+  assert.equal(orderDoc.dispatch.calls[0].status, 'error');
+  assert.equal(orderDoc.dispatch.calls[0].attempts, 1);
+  assert.equal(orderDoc.dispatch.calls[1].packageId, 3);
+  assert.equal(orderDoc.dispatch.calls[1].status, 'pending', 'El paquete 2 debe quedar como pending');
+  assert.equal(orderDoc.dispatch.calls[1].attempts, 0);
+
+  // Ahora si se sincroniza con el paquete 1 completado y subOrdenes con pendiente: true para el 2
+  const reattemptPayload = {
+    ...comboPayload,
+    estado: 'ENTREGA_PARCIAL_COMBO',
+    subOrdenes: [
+      {
+        product_id: 5,
+        package_id: 5,
+        exito: true,
+        order_id: '74621',
+        status: 'completada',
+        error: null,
+        httpStatus: 200,
+        timestamp: new Date().toISOString(),
+      },
+      {
+        product_id: 3,
+        package_id: 3,
+        exito: false,
+        pendiente: true,
+        intentos: 0,
+        order_id: null,
+        status: 'pendiente',
+        error: 'Pendiente tras error en paquete anterior',
+        httpStatus: null,
+        timestamp: new Date().toISOString(),
+      },
+    ],
+  };
+
+  await syncWhatsappOrder(reattemptPayload);
+
+  const updatedOrder = (await mockDb.collection('orders').doc('wa_99881122').get()).data();
+  assert.equal(updatedOrder.dispatch.calls.length, 2);
+  assert.equal(updatedOrder.dispatch.calls[0].status, 'success');
+  assert.equal(updatedOrder.dispatch.calls[0].providerOrderId, '74621');
+  assert.equal(updatedOrder.dispatch.calls[1].status, 'pending');
+  assert.equal(updatedOrder.dispatch.calls[1].attempts, 0);
+});
