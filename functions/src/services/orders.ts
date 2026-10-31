@@ -1930,7 +1930,7 @@ export async function markCompleted(
     if (current.status === 'completed') {
       return { order: current, changed: false, alreadyAccounted: true };
     }
-    if (!['in_review', 'awaiting_manual', 'failed'].includes(current.status)) {
+    if (!['in_review', 'awaiting_manual', 'failed', 'dispatching'].includes(current.status)) {
       throw failedPrecondition(
         'Sólo se pueden completar manualmente órdenes en revisión o pendientes de entrega manual.'
       );
@@ -2143,6 +2143,63 @@ export async function refundStaleReviewOrders(limit = 50): Promise<number> {
   let processed = 0;
   for (const doc of snap.docs) {
     try {
+      const order = { id: doc.id, ...doc.data() } as Order;
+
+      // Si es una orden automática con llamadas al proveedor, consultamos en vivo con el proveedor
+      // antes de tomar cualquier decisión de reembolso.
+      if (order.fulfillment === 'auto' && (order.dispatch?.calls?.length ?? 0) > 0) {
+        const checkResult = await dispatchService.checkOrderProviderStatus(doc.id, 'system');
+
+        // a) Si el proveedor reporta que ya se completó:
+        if (checkResult.orderStatus === 'completed' || checkResult.calls.every((c) => c.status === 'completed')) {
+          log.info('Orden en revisión vencida completada por proveedor en vivo (no reembolsada)', {
+            orderId: doc.id,
+            code: order.code,
+          });
+          continue;
+        }
+
+        // b) Si el proveedor reporta que SIGUE procesando (en cola activa):
+        const isStillProcessing = checkResult.calls.some((c) => c.status === 'processing');
+        if (isStillProcessing) {
+          log.warn('Orden en revisión vencida SIGUE en proceso en proveedor: NO se auto-reembolsa', {
+            orderId: doc.id,
+            code: order.code,
+          });
+          await orders().doc(doc.id).update({
+            status: 'dispatching',
+            estado: 'DESPACHANDO_INEFABLE',
+            reviewDeadline: minutesFromNow(60),
+            updatedAt: now(),
+          });
+          await addEvent({
+            orderId: doc.id,
+            type: 'in_review',
+            message: 'Tiempo de 1h alcanzado pero la recarga sigue en cola en el proveedor. Permanece en seguimiento.',
+            status: 'dispatching',
+            actor: 'system',
+          });
+          continue;
+        }
+
+        // c) SOLO si todas las llamadas están confirmadas como fallida o not_found:
+        const allFailedOrNotFound = checkResult.calls.every(
+          (c) => c.status === 'failed' || c.status === 'not_found'
+        );
+
+        if (!allFailedOrNotFound) {
+          log.warn('Orden en revisión con estado ambiguo en proveedor; manteniendo en revisión manual sin reembolsar', {
+            orderId: doc.id,
+            code: order.code,
+          });
+          await orders().doc(doc.id).update({
+            reviewDeadline: minutesFromNow(30),
+            updatedAt: now(),
+          });
+          continue;
+        }
+      }
+
       await refundOrder(doc.id, 'Tiempo de revisión manual agotado (1 hora)');
       processed += 1;
     } catch (error) {
@@ -2153,7 +2210,7 @@ export async function refundStaleReviewOrders(limit = 50): Promise<number> {
     }
   }
 
-  log.info('Órdenes en revisión vencidas reembolsadas', { count: processed });
+  log.info('Órdenes en revisión vencidas procesadas', { count: processed });
   return processed;
 }
 

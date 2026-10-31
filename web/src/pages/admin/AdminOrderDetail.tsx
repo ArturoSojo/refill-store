@@ -85,7 +85,7 @@ export function AdminOrderDetail() {
   const canRetry =
     order.fulfillment === 'auto' &&
     ['in_review', 'failed', 'paid', 'dispatching'].includes(order.status);
-  const canComplete = ['in_review', 'awaiting_manual', 'failed'].includes(order.status);
+  const canComplete = ['in_review', 'awaiting_manual', 'failed', 'dispatching'].includes(order.status);
   const alreadyRefunded = Boolean(
     order.refundedAt ||
       order.pricing.walletRefunded ||

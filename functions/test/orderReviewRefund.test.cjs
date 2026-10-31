@@ -285,10 +285,10 @@ let inefableCreateHandler = async () => ({
 });
 
 let inefableStatusHandler = async () => ({
-  found: true,
-  status: 'completed',
-  providerOrderId: 'prov-999',
-  providerReference: 'ref-999',
+  found: false,
+  status: null,
+  providerOrderId: null,
+  providerReference: null,
   error: null,
 });
 
@@ -635,6 +635,7 @@ test('f) Orden failed histórica con pricing.walletRefunded === true: reembolsar
 
 test('g) Respuesta tardía del proveedor: sobre in_review completa sin reembolso; sobre cancelled ignora y registra log.error', async () => {
   store.clear();
+  inefableStatusHandler = async () => ({ found: true, status: 'completed', providerOrderId: 'prov-1', error: null });
 
   // Caso 1: Éxito tardío sobre orden en `in_review` -> pasa a `completed`, sin reembolso
   await seedUserAndOrder({
@@ -878,3 +879,115 @@ test('j) checkOrderProviderStatus (Combos a medias): llamada #1 completada y lla
     inefableCreateHandler = origCreateHandler;
   }
 });
+
+test('k) refundStaleReviewOrders: si proveedor sigue procesando, NO reembolsa y mantiene en seguimiento', async () => {
+  store.clear();
+  await seedUserAndOrder({
+    orderId: 'ord-stale-proc',
+    code: 'RF-PROC01',
+    uid: 'user-proc',
+    initialWalletUsd: 0,
+    totalUsd: 5,
+    status: 'in_review',
+    reviewDeadline: Timestamp.fromMillis(Date.now() - 61 * 60_000),
+  });
+
+  const origStatusHandler = inefableStatusHandler;
+  inefableStatusHandler = async () => ({
+    found: true,
+    status: 'procesando',
+    providerOrderId: 'prov-proc-1',
+    error: null,
+  });
+
+  try {
+    const processed = await ordersService.refundStaleReviewOrders(50);
+    assert.equal(processed, 0);
+
+    const order = await ordersService.getOrder('ord-stale-proc');
+    assert.equal(order.status, 'dispatching');
+    assert.equal(order.estado, 'DESPACHANDO_INEFABLE');
+    assert.equal(await getUserBalance('user-proc'), 0);
+  } finally {
+    inefableStatusHandler = origStatusHandler;
+  }
+});
+
+test('l) refundStaleReviewOrders: si proveedor ya completó, pasa a completed y NO reembolsa', async () => {
+  store.clear();
+  await seedUserAndOrder({
+    orderId: 'ord-stale-compl',
+    code: 'RF-COMPL01',
+    uid: 'user-compl',
+    initialWalletUsd: 0,
+    totalUsd: 5,
+    status: 'in_review',
+    reviewDeadline: Timestamp.fromMillis(Date.now() - 61 * 60_000),
+  });
+
+  const origStatusHandler = inefableStatusHandler;
+  inefableStatusHandler = async () => ({
+    found: true,
+    status: 'completada',
+    providerOrderId: 'prov-compl-1',
+    error: null,
+  });
+
+  try {
+    const processed = await ordersService.refundStaleReviewOrders(50);
+    assert.equal(processed, 0);
+
+    const order = await ordersService.getOrder('ord-stale-compl');
+    assert.equal(order.status, 'completed');
+    assert.equal(await getUserBalance('user-compl'), 0);
+  } finally {
+    inefableStatusHandler = origStatusHandler;
+  }
+});
+
+test('m) Entrega tardía con walletRefunded: revierte automáticamente el saldo de la billetera con reversal_refund', async () => {
+  store.clear();
+  await seedUserAndOrder({
+    orderId: 'ord-late-rev',
+    code: 'RF-REV01',
+    uid: 'user-rev',
+    initialWalletUsd: 5,
+    totalUsd: 5,
+    status: 'dispatching',
+    walletRefunded: true,
+  });
+
+  const calls = [
+    {
+      packageId: 10,
+      providerGameId: 1,
+      index: 0,
+      status: 'success',
+      providerOrderId: 'prov-late-1',
+      providerStatus: 'completada',
+      playerName: null,
+      providerReference: null,
+      error: null,
+      httpStatus: 200,
+      providerResponse: null,
+      attempts: 1,
+      completedAt: Timestamp.now(),
+    },
+  ];
+
+  const order = await ordersService.getOrder('ord-late-rev');
+  await dispatchService.finalizeDispatch(order, calls, true, { actorUid: 'admin-1' });
+
+  const updatedOrder = await ordersService.getOrder('ord-late-rev');
+  assert.equal(updatedOrder.status, 'completed');
+  assert.equal(updatedOrder.pricing.walletRefunded, false);
+
+  assert.equal(await getUserBalance('user-rev'), 0);
+
+  const movements = await getWalletMovements('user-rev');
+  assert.equal(movements.length, 1);
+  assert.equal(movements[0].id, 'reversal_refund_ord-late-rev');
+  assert.equal(movements[0].type, 'debit');
+  assert.equal(movements[0].amountUsd, 5);
+});
+

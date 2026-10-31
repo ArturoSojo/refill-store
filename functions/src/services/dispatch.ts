@@ -818,7 +818,7 @@ export async function finalizeDispatch(
   order: Order,
   calls: DispatchCallResult[],
   allSucceeded: boolean,
-  options: { failure?: string | null; actorUid?: string | null; anyProcessing?: boolean } = {}
+  options: { failure?: string | null; actorUid?: string | null; anyProcessing?: boolean; allowRefundedOverride?: boolean } = {}
 ): Promise<OrderStatus> {
   const orderId = order.id;
   const orderRef = orders().doc(orderId);
@@ -855,13 +855,20 @@ export async function finalizeDispatch(
     if (!snap.exists) return { kind: 'missing' as const };
     const current = { id: snap.id, ...snap.data() } as Order;
 
-    if (
+    const isCancelledOrRefunded =
       current.status === 'cancelled' ||
       current.status === 'refunded' ||
       Boolean(current.refundedAt) ||
-      current.pricing?.walletRefunded === true
-    ) {
-      return { kind: 'already_cancelled' as const, current };
+      current.pricing?.walletRefunded === true;
+
+    if (isCancelledOrRefunded) {
+      const canCompleteRefunded =
+        allSucceeded &&
+        (options.allowRefundedOverride || Boolean(options.actorUid) || current.status === 'dispatching');
+
+      if (!canCompleteRefunded) {
+        return { kind: 'already_cancelled' as const, current };
+      }
     }
 
     if (current.status === 'completed') {
@@ -899,6 +906,15 @@ export async function finalizeDispatch(
       updateData.reviewDeadline = null;
       updateData.providerError = null;
       updateData.metricsAccounted = true;
+      const hadRefund = Boolean(current.pricing?.walletRefunded || current.refundedAt);
+      if (hadRefund) {
+        updateData.refundedAt = null;
+        updateData.refundReason = null;
+        updateData.pricing = {
+          ...(current.pricing ?? order.pricing),
+          walletRefunded: false,
+        };
+      }
     }
 
     tx.set(orderRef, updateData, { merge: true });
@@ -995,6 +1011,62 @@ export async function finalizeDispatch(
         data: { calls: calls.length },
       }),
     ]);
+
+    const hadWalletRefund = Boolean(
+      txOutcome.current.pricing?.walletRefunded === true || txOutcome.current.refundedAt
+    );
+
+    if (hadWalletRefund && !isWhatsappGuest) {
+      const amountToReverse = round(order.pricing?.totalUsd ?? 0, 2);
+      if (amountToReverse > 0) {
+        try {
+          await usersService.moveWallet({
+            uid: order.uid,
+            deltaUsd: -amountToReverse,
+            movementId: `reversal_refund_${orderId}`,
+            reason: `Reversión por entrega tardía de la orden ${order.code}`,
+            orderId,
+            orderCode: order.code,
+            actorUid: options.actorUid ?? null,
+          });
+          log.info('Reversión de saldo por entrega tardía completada exitosamente', {
+            orderId,
+            code: order.code,
+            amountUsd: amountToReverse,
+          });
+          await addEvent({
+            orderId,
+            type: 'in_review',
+            message: `Reversión automática de saldo (${amountToReverse.toFixed(2)}) aplicada por entrega tardía del proveedor.`,
+            actor: 'system',
+            status: 'completed',
+          });
+        } catch (err) {
+          log.error('ALERTA CRÍTICA: Entrega tardía completada pero saldo insuficiente en billetera para revertir reembolso', {
+            orderId,
+            code: order.code,
+            uid: order.uid,
+            amountUsd: amountToReverse,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          await audit.record({
+            action: audit.ACTIONS.ORDER_DISPATCHED,
+            actorUid: options.actorUid ?? null,
+            targetType: 'order',
+            targetId: orderId,
+            summary: `CRÍTICO: Orden tardía ${order.code} entregada pero el cliente no tenía saldo suficiente (${amountToReverse.toFixed(2)}) para revertir el reembolso.`,
+            data: { amountUsd: amountToReverse, error: err instanceof Error ? err.message : String(err) },
+          });
+          await addEvent({
+            orderId,
+            type: 'in_review',
+            message: `⚠️ ALERTA CRÍTICA: La recarga fue entregada por el proveedor pero el cliente ya consumió el reembolso previo de ${amountToReverse.toFixed(2)}. Saldo insuficiente para debitar.`,
+            actor: 'system',
+            status: 'completed',
+          });
+        }
+      }
+    }
   } else {
     void sendOrderEmail('dispatch_failed', orderId);
 
@@ -1577,7 +1649,7 @@ export async function checkOrderProviderStatus(
   );
 
   if (allSucceeded) {
-    await finalizeDispatch(order, calls, true, { actorUid });
+    await finalizeDispatch(order, calls, true, { actorUid, allowRefundedOverride: true });
     summary = 'Todas las llamadas fueron confirmadas como completadas en el proveedor. La orden se completó exitosamente.';
 
     await addEvent({
