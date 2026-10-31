@@ -1305,3 +1305,343 @@ export async function resolveProcessingOrders(): Promise<{
 
   return { revisadas, resueltas };
 }
+
+
+export interface CallProviderCheck {
+  index: number;
+  packageId: number | string;
+  provider: 'inefable' | 'fazercards';
+  providerOrderId: string | null;
+  found: boolean;
+  status: 'completed' | 'processing' | 'failed' | 'not_found' | 'unknown';
+  rawStatus: string | null;
+  message: string;
+}
+
+export interface CheckProviderStatusResult {
+  ok: boolean;
+  orderId: string;
+  orderCode: string;
+  orderStatus: OrderStatus;
+  orderEstado: string | null;
+  calls: CallProviderCheck[];
+  summary: string;
+  continuedDispatch: boolean;
+}
+
+/**
+ * Consulta manual en tiempo real del estado de cada llamada en la API del proveedor.
+ *
+ * Se apoya en el circuito existente de reconciliación (`finalizeDispatch` / `dispatchOrder`)
+ * para ejecutar exactamente los mismos efectos secundarios si la orden se completa o continúa.
+ */
+export async function checkOrderProviderStatus(
+  orderId: string,
+  actorUid?: string
+): Promise<CheckProviderStatusResult> {
+  const orderRef = orders().doc(orderId);
+  const snap = await orderRef.get();
+  if (!snap.exists) {
+    throw notFound('Orden no encontrada.');
+  }
+
+  let order = { id: snap.id, ...snap.data() } as Order;
+  const calls = (order.dispatch?.calls ?? []).map((c) => ({ ...c }));
+
+  if (calls.length === 0) {
+    return {
+      ok: false,
+      orderId: order.id,
+      orderCode: order.code,
+      orderStatus: order.status,
+      orderEstado: order.estado ?? null,
+      calls: [],
+      summary: 'Esta orden no tiene llamadas automáticas configuradas.',
+      continuedDispatch: false,
+    };
+  }
+
+  const checks: CallProviderCheck[] = [];
+  let callChanged = false;
+
+  for (const call of calls) {
+    const provider = call.provider ?? order.provider ?? 'inefable';
+    const externalOrderId = `${order.code}-${call.index + 1}`;
+
+    if (call.status === 'success') {
+      checks.push({
+        index: call.index,
+        packageId: call.packageId,
+        provider,
+        providerOrderId: call.providerOrderId,
+        found: true,
+        status: 'completed',
+        rawStatus: call.providerStatus ?? 'completada',
+        message: `Completada y confirmada en el sistema (Orden #${call.providerOrderId ?? 'N/A'}).`,
+      });
+      continue;
+    }
+
+    if (provider === 'inefable') {
+      const inefableResult = await inefable.getOrderStatus(externalOrderId).catch(() => null);
+
+      if (!inefableResult || !inefableResult.found) {
+        if (call.status === 'processing') {
+          call.status = 'error';
+          call.error = 'No registrada en el proveedor (la llamada nunca llegó a procesarse).';
+          callChanged = true;
+        }
+        checks.push({
+          index: call.index,
+          packageId: call.packageId,
+          provider: 'inefable',
+          providerOrderId: null,
+          found: false,
+          status: 'not_found',
+          rawStatus: null,
+          message: '⚪ No registrada en el proveedor: La llamada nunca llegó a procesarse en Inefable. Es 100% seguro usar el botón de Reintentar.',
+        });
+      } else {
+        const raw = (inefableResult.status ?? '').toLowerCase();
+        const pOrderId = inefableResult.providerOrderId ?? call.providerOrderId;
+        const pRef = inefableResult.providerReference ?? call.providerReference;
+
+        if (inefable.isSuccessStatus(raw)) {
+          call.status = 'success';
+          call.error = null;
+          call.completedAt = now();
+          call.providerOrderId = pOrderId;
+          call.providerReference = pRef;
+          call.providerStatus = inefableResult.status;
+          call.httpStatus = 200;
+          callChanged = true;
+
+          checks.push({
+            index: call.index,
+            packageId: call.packageId,
+            provider: 'inefable',
+            providerOrderId: pOrderId,
+            found: true,
+            status: 'completed',
+            rawStatus: inefableResult.status,
+            message: `Completada en Inefable (Orden #${pOrderId ?? 'N/A'}).`,
+          });
+        } else if (inefable.isPendingStatus(raw)) {
+          if (call.status !== 'processing') {
+            call.status = 'processing';
+            call.providerOrderId = pOrderId;
+            call.providerReference = pRef;
+            call.providerStatus = inefableResult.status;
+            callChanged = true;
+          }
+          checks.push({
+            index: call.index,
+            packageId: call.packageId,
+            provider: 'inefable',
+            providerOrderId: pOrderId,
+            found: true,
+            status: 'processing',
+            rawStatus: inefableResult.status,
+            message: `En proceso en Inefable (Orden #${pOrderId ?? 'N/A'}). Sigue en cola del proveedor.`,
+          });
+        } else if (inefable.isFailureStatus(raw)) {
+          if (call.status === 'processing') {
+            call.status = 'error';
+            call.error = sanitizeProviderError(
+              inefableResult.error || `El proveedor marcó la recarga como ${inefableResult.status}.`
+            );
+            call.providerOrderId = pOrderId;
+            call.providerStatus = inefableResult.status;
+            callChanged = true;
+          }
+          checks.push({
+            index: call.index,
+            packageId: call.packageId,
+            provider: 'inefable',
+            providerOrderId: pOrderId,
+            found: true,
+            status: 'failed',
+            rawStatus: inefableResult.status,
+            message: sanitizeProviderError(inefableResult.error || `Marcada como ${inefableResult.status} por Inefable.`),
+          });
+        } else {
+          checks.push({
+            index: call.index,
+            packageId: call.packageId,
+            provider: 'inefable',
+            providerOrderId: pOrderId,
+            found: true,
+            status: 'unknown',
+            rawStatus: inefableResult.status,
+            message: `Estado no reconocido en Inefable: ${inefableResult.status}`,
+          });
+        }
+      }
+    } else if (provider === 'fazercards') {
+      const fazerResult = call.providerOrderId
+        ? await fazercards.getOrder(call.providerOrderId).catch(() => null)
+        : null;
+
+      if (!fazerResult || fazerResult.httpStatus === 404) {
+        if (call.status === 'processing') {
+          call.status = 'error';
+          call.error = 'No registrada en el proveedor (la llamada nunca llegó a procesarse).';
+          callChanged = true;
+        }
+        checks.push({
+          index: call.index,
+          packageId: call.packageId,
+          provider: 'fazercards',
+          providerOrderId: call.providerOrderId,
+          found: false,
+          status: 'not_found',
+          rawStatus: null,
+          message: '⚪ No registrada en el proveedor: La llamada nunca llegó a procesarse en FazerCards. Es 100% seguro usar el botón de Reintentar.',
+        });
+      } else {
+        const requiresCode = order.providerFamily === 'gift_card' || order.providerFamily === 'game_key';
+        const success = Boolean(fazerResult.success && (!requiresCode || Boolean(fazerResult.codes?.length)));
+
+        if (success) {
+          if (fazerResult.codes?.length) call.deliveredCodes = fazerResult.codes;
+          call.status = 'success';
+          call.error = null;
+          call.completedAt = now();
+          call.providerOrderId = fazerResult.providerOrderId ?? call.providerOrderId;
+          call.providerReference = fazerResult.providerReference ?? call.providerReference;
+          call.providerStatus = fazerResult.providerStatus;
+          callChanged = true;
+
+          checks.push({
+            index: call.index,
+            packageId: call.packageId,
+            provider: 'fazercards',
+            providerOrderId: call.providerOrderId,
+            found: true,
+            status: 'completed',
+            rawStatus: fazerResult.providerStatus,
+            message: `Completada en FazerCards (Orden #${call.providerOrderId ?? 'N/A'}).`,
+          });
+        } else if (fazerResult.processing) {
+          if (call.status !== 'processing') {
+            call.status = 'processing';
+            callChanged = true;
+          }
+          checks.push({
+            index: call.index,
+            packageId: call.packageId,
+            provider: 'fazercards',
+            providerOrderId: call.providerOrderId,
+            found: true,
+            status: 'processing',
+            rawStatus: fazerResult.providerStatus,
+            message: `En proceso en FazerCards (Orden #${call.providerOrderId ?? 'N/A'}).`,
+          });
+        } else {
+          if (call.status === 'processing') {
+            call.status = 'error';
+            call.error = sanitizeProviderError(fazerResult.message || `Marcada como ${fazerResult.providerStatus}.`);
+            callChanged = true;
+          }
+          checks.push({
+            index: call.index,
+            packageId: call.packageId,
+            provider: 'fazercards',
+            providerOrderId: call.providerOrderId,
+            found: true,
+            status: 'failed',
+            rawStatus: fazerResult.providerStatus,
+            message: sanitizeProviderError(fazerResult.message || `Marcada como ${fazerResult.providerStatus}.`),
+          });
+        }
+      }
+    }
+  }
+
+  if (callChanged) {
+    await orderRef.update({
+      'dispatch.calls': calls,
+      updatedAt: now(),
+    });
+    order.dispatch.calls = calls;
+  }
+
+  let summary = '';
+  let continuedDispatch = false;
+
+  const allSucceeded = calls.every((c) => c.status === 'success');
+  const anyProcessing = calls.some((c) => c.status === 'processing');
+  const anySucceeded = calls.some((c) => c.status === 'success');
+  const pendingCalls = calls.some(
+    (c) => c.status !== 'success' && c.status !== 'processing' && (c.attempts === 0 || c.status === 'pending')
+  );
+
+  if (allSucceeded) {
+    await finalizeDispatch(order, calls, true, { actorUid });
+    summary = 'Todas las llamadas fueron confirmadas como completadas en el proveedor. La orden se completó exitosamente.';
+
+    await addEvent({
+      orderId,
+      type: 'dispatch_call_ok',
+      message: 'Consulta de estado en proveedor: todas las llamadas confirmadas completadas.',
+      actor: actorUid ? 'admin' : 'system',
+      actorUid: actorUid ?? null,
+    });
+  } else if (!anyProcessing && anySucceeded && pendingCalls) {
+    log.info('Continuando despacho de combo tras verificar llamada exitosa', { orderId, code: order.code });
+    await addEvent({
+      orderId,
+      type: 'dispatch_retry',
+      message: 'Llamada previa confirmada exitosa en proveedor. Continuando despacho automático del combo.',
+      status: 'dispatching',
+      actor: actorUid ? 'admin' : 'system',
+      actorUid: actorUid ?? null,
+    });
+
+    const dispatchRes = await dispatchOrder(orderId, { isRetry: true, actorUid });
+    continuedDispatch = true;
+    summary = `Llamada previa confirmada exitosa. Se continuó con el despacho de las recargas pendientes del combo: ${dispatchRes.message}`;
+  } else if (anyProcessing) {
+    if (order.status !== 'dispatching') {
+      await orderRef.update({
+        status: 'dispatching',
+        estado: 'DESPACHANDO_INEFABLE',
+        updatedAt: now(),
+      });
+    }
+    summary = 'Una o más llamadas continúan en proceso en el proveedor. La orden permanece en despacho.';
+  } else {
+    if (callChanged) {
+      await finalizeDispatch(order, calls, false, { actorUid });
+    }
+    const hasNotFound = checks.some((c) => c.status === 'not_found');
+    if (hasNotFound && !anySucceeded) {
+      summary = '⚪ No registrada en el proveedor: La llamada nunca llegó a procesarse en el proveedor. Es 100% seguro usar el botón de Reintentar.';
+    } else {
+      summary = 'Una o más llamadas reportan fallo en el proveedor. La orden permanece en revisión manual.';
+    }
+  }
+
+  await audit.record({
+    action: 'order.provider_status_checked',
+    actorUid: actorUid ?? null,
+    targetType: 'order',
+    targetId: orderId,
+    summary: `Consulta de estado en proveedor para ${order.code}: ${summary}`,
+    data: { checks, summary, continuedDispatch },
+  });
+
+  const freshSnap = await orderRef.get();
+  const freshOrder = freshSnap.data() as Order;
+
+  return {
+    ok: true,
+    orderId: freshOrder.id,
+    orderCode: freshOrder.code,
+    orderStatus: freshOrder.status,
+    orderEstado: freshOrder.estado ?? null,
+    calls: checks,
+    summary,
+    continuedDispatch,
+  };
+}

@@ -14,10 +14,15 @@ import {
   Save,
   Undo2,
   User,
-  XCircle, Loader2 } from 'lucide-react';
+  XCircle,
+  Loader2,
+  Search,
+} from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
   useAdminOrder,
+  useCheckOrderProviderStatus,
+  type CheckProviderStatusResponse,
   useCompleteOrder,
   useRefundOrder,
   useRetryDispatch,
@@ -46,6 +51,8 @@ export function AdminOrderDetail() {
   const complete = useCompleteOrder();
   const refund = useRefundOrder();
   const setNote = useSetOrderNote();
+  const checkProvider = useCheckOrderProviderStatus();
+  const [lastCheckResult, setLastCheckResult] = useState<CheckProviderStatusResponse | null>(null);
 
   const [note, setNoteValue] = useState('');
   const [refundOpen, setRefundOpen] = useState(false);
@@ -88,6 +95,51 @@ export function AdminOrderDetail() {
   const canRefund =
     ['in_review', 'paid', 'dispatching', 'awaiting_manual', 'failed'].includes(order.status) ||
     alreadyRefunded;
+
+  const handleCheckProviderStatus = () => {
+    checkProvider.mutate(order.id, {
+      onSuccess: (res) => {
+        setLastCheckResult(res);
+        void refetch();
+
+        if (res.calls.length === 1) {
+          const c = res.calls[0];
+          if (c.status === 'completed') {
+            toast.success(
+              `✔ Proveedor: Completada (${c.providerOrderId ? '#' + c.providerOrderId : 'OK'}). ${res.summary}`,
+              { duration: 6000 }
+            );
+          } else if (c.status === 'processing') {
+            toast(
+              `🟡 Proveedor: Procesando (${c.providerOrderId ? '#' + c.providerOrderId : 'en cola'}). ${c.message}`,
+              { duration: 6000, icon: '⏳' }
+            );
+          } else if (c.status === 'not_found') {
+            toast(
+              `⚪ No registrada en el proveedor: La llamada nunca llegó a procesarse en ${c.provider === 'fazercards' ? 'FazerCards' : 'Inefable'}. Es 100% seguro usar el botón de Reintentar.`,
+              { duration: 8000, icon: '⚪' }
+            );
+          } else {
+            toast.error(`❌ Proveedor: ${c.message}`, { duration: 6000 });
+          }
+        } else {
+          const hasNotFound = res.calls.some((c) => c.status === 'not_found');
+          const allOk = res.calls.every((c) => c.status === 'completed');
+
+          if (allOk || res.orderStatus === 'completed') {
+            toast.success(`✔ Combo completado: Todas las llamadas fueron confirmadas.`, { duration: 6000 });
+          } else if (hasNotFound) {
+            toast(`⚪ ${res.summary}`, { duration: 8000, icon: '⚪' });
+          } else {
+            toast(res.summary, { duration: 6000, icon: '🔍' });
+          }
+        }
+      },
+      onError: (mutationError) => {
+        toast.error(errorMessage(mutationError));
+      },
+    });
+  };
 
   return (
     <div className="space-y-4">
@@ -362,12 +414,65 @@ export function AdminOrderDetail() {
         <Card>
           <CardHeader
             title="Llamadas al proveedor"
+            action={
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={handleCheckProviderStatus}
+                loading={checkProvider.isPending}
+                leftIcon={<Search className="h-3.5 w-3.5" aria-hidden />}
+                className="text-xs"
+              >
+                Consultar estado al proveedor
+              </Button>
+            }
             description={
               order.dispatch.calls.length > 1
                 ? 'Combo: las llamadas se ejecutan en secuencia. El reintento sólo repite las que fallaron.'
                 : undefined
             }
           />
+
+          {lastCheckResult && (
+            <div className="mb-4 rounded-xl border border-sky-500/30 bg-sky-500/10 p-3.5 text-xs text-sky-200">
+              <div className="flex items-center justify-between font-semibold">
+                <span className="flex items-center gap-1.5 text-white">
+                  <Search className="h-3.5 w-3.5 text-sky-400" aria-hidden />
+                  Resultado de la consulta en vivo con el proveedor:
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setLastCheckResult(null)}
+                  className="rounded p-1 text-slate-400 hover:text-white"
+                  aria-label="Cerrar resultado"
+                >
+                  ✕
+                </button>
+              </div>
+              <p className="mt-1.5 font-medium text-sky-100">{lastCheckResult.summary}</p>
+              <div className="mt-2.5 space-y-1.5 divide-y divide-sky-500/15">
+                {lastCheckResult.calls.map((c) => (
+                  <div key={c.index} className="flex flex-wrap items-center justify-between gap-2 pt-1.5 text-slate-300">
+                    <span className="font-mono text-slate-400">
+                      Llamada #{c.index + 1} (paquete {c.packageId}):
+                    </span>
+                    <span
+                      className={cn(
+                        'font-medium',
+                        c.status === 'completed' && 'text-emerald-400',
+                        c.status === 'processing' && 'text-amber-300',
+                        c.status === 'not_found' && 'text-slate-300',
+                        c.status === 'failed' && 'text-red-400'
+                      )}
+                    >
+                      {c.message}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {order.dispatch.calls.length === 0 ? (
             <p className="text-sm text-slate-400">Sin llamadas configuradas.</p>

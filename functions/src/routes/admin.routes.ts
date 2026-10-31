@@ -41,6 +41,7 @@ import * as pabilo from '../services/pabilo';
 import * as inefable from '../services/inefable';
 import * as fazercards from '../services/fazercards';
 import * as fazerCatalogSync from '../services/fazerCatalogSync';
+import { checkOrderProviderStatus } from '../services/dispatch';
 import { listEvents } from '../services/orderEvents';
 import { getConfig, updateConfig } from '../services/settings';
 import * as settings from '../services/settings';
@@ -351,6 +352,15 @@ adminRouter.get(
           }))
         : [],
     });
+  })
+);
+
+adminRouter.post(
+  '/orders/:id/check-provider-status',
+  asyncHandler(async (req, res) => {
+    const { id } = parseParams(req, idParam);
+    const result = await checkOrderProviderStatus(id, currentUser(req).uid);
+    ok(res, result);
   })
 );
 

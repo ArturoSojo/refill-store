@@ -207,6 +207,38 @@ function useOrderInvalidator() {
   };
 }
 
+export interface CallProviderCheck {
+  index: number;
+  packageId: number | string;
+  provider: 'inefable' | 'fazercards';
+  providerOrderId: string | null;
+  found: boolean;
+  status: 'completed' | 'processing' | 'failed' | 'not_found' | 'unknown';
+  rawStatus: string | null;
+  message: string;
+}
+
+export interface CheckProviderStatusResponse {
+  ok: boolean;
+  orderId: string;
+  orderCode: string;
+  orderStatus: Order['status'];
+  orderEstado: string | null;
+  calls: CallProviderCheck[];
+  summary: string;
+  continuedDispatch: boolean;
+}
+
+export function useCheckOrderProviderStatus() {
+  const invalidate = useOrderInvalidator();
+
+  return useMutation({
+    mutationFn: (orderId: string) =>
+      api.post<CheckProviderStatusResponse>(`/admin/orders/${orderId}/check-provider-status`),
+    onSuccess: (_data, orderId) => invalidate(orderId),
+  });
+}
+
 export function useRetryDispatch() {
   const invalidate = useOrderInvalidator();
 

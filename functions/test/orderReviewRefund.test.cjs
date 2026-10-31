@@ -295,7 +295,8 @@ let inefableStatusHandler = async () => ({
 stubModule('../lib/services/inefable.js', {
   createOrder: (...args) => inefableCreateHandler(...args),
   getOrderStatus: (...args) => inefableStatusHandler(...args),
-  isSuccessStatus: (s) => s === 'completed' || s === 'success',
+  isSuccessStatus: (s) => ['completed', 'success', 'completada', 'completado', 'exitosa', 'exitoso'].includes(String(s).toLowerCase()),
+  isPendingStatus: (s) => s === 'processing' || s === 'procesando',
   isFailureStatus: (s) => s === 'failed' || s === 'error',
 });
 
@@ -723,4 +724,157 @@ test('g) Respuesta tardía del proveedor: sobre in_review completa sin reembolso
     errorLogs.some((e) => e.msg.includes('entrega tardía en orden reembolsada: revisar manualmente')),
     `Se esperaba log.error de entrega tardía, se obtuvo: ${JSON.stringify(errorLogs)}`
   );
+});
+
+
+test('h) checkOrderProviderStatus: reporta "not_found" explícitamente cuando found: false', async () => {
+  store.clear();
+  await seedUserAndOrder({
+    orderId: 'ord-chk-1',
+    code: 'RF-NOTFOUND',
+    uid: 'user-1',
+    totalUsd: 5,
+    status: 'dispatching',
+  });
+
+  const origStatusHandler = inefableStatusHandler;
+  inefableStatusHandler = async () => ({
+    found: false,
+    status: null,
+    providerOrderId: null,
+    providerReference: null,
+    error: null,
+  });
+
+  try {
+    const res = await dispatchService.checkOrderProviderStatus('ord-chk-1', 'admin-1');
+    assert.equal(res.ok, true);
+    assert.equal(res.calls.length, 1);
+    assert.equal(res.calls[0].found, false);
+    assert.equal(res.calls[0].status, 'not_found');
+    assert.ok(res.calls[0].message.includes('No registrada en el proveedor'));
+    assert.ok(res.summary.includes('100% seguro usar el botón de Reintentar'));
+  } finally {
+    inefableStatusHandler = origStatusHandler;
+  }
+});
+
+test('i) checkOrderProviderStatus: cuando proveedor confirma "completada", completa la orden via circuito existente', async () => {
+  store.clear();
+  await seedUserAndOrder({
+    orderId: 'ord-chk-2',
+    code: 'RF-COMPL',
+    uid: 'user-1',
+    totalUsd: 5,
+    status: 'dispatching',
+  });
+
+  const origStatusHandler = inefableStatusHandler;
+  inefableStatusHandler = async () => ({
+    found: true,
+    status: 'completada',
+    providerOrderId: '71040',
+    providerReference: 'WL-REF-123',
+    error: null,
+  });
+
+  try {
+    const res = await dispatchService.checkOrderProviderStatus('ord-chk-2', 'admin-1');
+    assert.equal(res.ok, true);
+    assert.equal(res.calls[0].status, 'completed');
+    assert.equal(res.orderStatus, 'completed');
+
+    const updatedOrder = await ordersService.getOrder('ord-chk-2');
+    assert.equal(updatedOrder.status, 'completed');
+    assert.equal(updatedOrder.estado, 'COMPLETADO');
+    assert.equal(updatedOrder.dispatch.calls[0].status, 'success');
+    assert.equal(updatedOrder.dispatch.calls[0].providerReference, 'WL-REF-123');
+  } finally {
+    inefableStatusHandler = origStatusHandler;
+  }
+});
+
+test('j) checkOrderProviderStatus (Combos a medias): llamada #1 completada y llamada #2 pendiente -> continúa despacho del combo', async () => {
+  store.clear();
+  await seedUserAndOrder({
+    orderId: 'ord-chk-3',
+    code: 'RF-COMBO',
+    uid: 'user-1',
+    totalUsd: 10,
+    status: 'in_review',
+  });
+
+  // Configurar la orden como un combo con 2 llamadas
+  await mockDb.collection('orders').doc('ord-chk-3').update({
+    dispatch: {
+      calls: [
+        {
+          index: 0,
+          packageId: 3,
+          status: 'error',
+          attempts: 1,
+          providerOrderId: null,
+          providerStatus: null,
+          error: 'HTTP 0',
+        },
+        {
+          index: 1,
+          packageId: 2,
+          status: 'pending',
+          attempts: 0,
+          providerOrderId: null,
+          providerStatus: null,
+        },
+      ],
+      startedAt: Timestamp.now(),
+      completedAt: null,
+      lastError: 'HTTP 0',
+    },
+  });
+
+  const origStatusHandler = inefableStatusHandler;
+  const origCreateHandler = inefableCreateHandler;
+
+  // Inefable confirma que la llamada #1 sí se completó
+  inefableStatusHandler = async (extId) => {
+    if (extId === 'RF-COMBO-1') {
+      return {
+        found: true,
+        status: 'completada',
+        providerOrderId: '71040',
+        providerReference: 'WL-REF-COMBO',
+        error: null,
+      };
+    }
+    return { found: false, status: null, providerOrderId: null, providerReference: null, error: null };
+  };
+
+  // Para la llamada #2 createOrder tiene éxito
+  inefableCreateHandler = async () => ({
+    success: true,
+    processing: false,
+    httpStatus: 200,
+    providerOrderId: '71041',
+    providerStatus: 'completada',
+    playerName: 'PlayerTest',
+    providerReference: 'WL-REF-CALL2',
+    remainingBalance: 90,
+    message: 'Recarga enviada.',
+    raw: {},
+  });
+
+  try {
+    const res = await dispatchService.checkOrderProviderStatus('ord-chk-3', 'admin-1');
+    assert.equal(res.ok, true);
+    assert.equal(res.continuedDispatch, true);
+    assert.equal(res.orderStatus, 'completed');
+
+    const updatedOrder = await ordersService.getOrder('ord-chk-3');
+    assert.equal(updatedOrder.status, 'completed');
+    assert.equal(updatedOrder.dispatch.calls[0].status, 'success');
+    assert.equal(updatedOrder.dispatch.calls[1].status, 'success');
+  } finally {
+    inefableStatusHandler = origStatusHandler;
+    inefableCreateHandler = origCreateHandler;
+  }
 });
