@@ -125,6 +125,7 @@ export function useCreateOrder() {
       productId: string;
       /** Datos del jugador por clave de campo: `{ playerId, zoneId }`. */
       playerFields: Record<string, string>;
+      playerNickname?: string | null;
       quantity?: number;
       couponCode?: string | null;
       creatorCode?: string | null;

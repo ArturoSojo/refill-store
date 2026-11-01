@@ -1,8 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, HelpCircle, Loader2, Tag, Trash2, MessageCircle } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  HelpCircle,
+  Loader2,
+  MessageCircle,
+  Tag,
+  Trash2,
+  XCircle,
+} from 'lucide-react';
 import { ROUTES } from '@/lib/constants';
 import { readCreatorCode } from '@/lib/creatorCode';
+import { api } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Field';
 import { Modal } from '@/components/ui/Modal';
@@ -19,6 +29,21 @@ import { formatBs, formatUsd, formatRefillCoins } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { Game, PricePreview, PublicProduct } from '@/types/models';
 
+const SUPPORTED_VERIFICATION_SLUGS = [
+  'free-fire',
+  'blood-strike',
+  'mobile-legends',
+  'pubg-mobile',
+  'arena-breakout',
+];
+
+function isSupportedVerificationGame(gameId: string): boolean {
+  const g = (gameId || '').toLowerCase();
+  return SUPPORTED_VERIFICATION_SLUGS.some(
+    (slug) => g === slug || g.includes(slug) || (slug === 'mobile-legends' && g === 'mlbb')
+  );
+}
+
 interface PlayerIdStepProps {
   game: Game;
   product: PublicProduct;
@@ -32,7 +57,7 @@ interface PlayerIdStepProps {
   needsPhone: boolean;
   contactPhone: string;
   onContactPhoneChange: (value: string) => void;
-  onContinue: () => void;
+  onContinue: (playerNickname?: string | null) => void;
   submitting: boolean;
   /** El usuario debe iniciar sesión antes de poder pagar. */
   requiresLogin: boolean;
@@ -60,12 +85,25 @@ export function PlayerIdStep({
   const [helpOpen, setHelpOpen] = useState(false);
   const [preview, setPreview] = useState<PricePreview | null>(null);
 
+  const [validation, setValidation] = useState<{
+    status: 'idle' | 'checking' | 'valid' | 'invalid' | 'unverified';
+    playerName: string | null;
+    message: string | null;
+    validatedKey: string | null;
+  }>({
+    status: 'idle',
+    playerName: null,
+    message: null,
+    validatedKey: null,
+  });
+
   const savedIds = useSavedPlayerIds();
   const deletePlayerId = useDeletePlayerId();
   const pricePreview = usePricePreview();
 
   const fields = useMemo(() => gameFields(game), [game]);
   const primaryField = fields[0];
+  const secondaryField = fields[1];
   const requiresPlayerData = game.requiresPlayerData !== false;
 
   const gameSavedIds = (savedIds.data?.playerIds ?? []).filter(
@@ -73,6 +111,129 @@ export function PlayerIdStep({
   );
 
   const isValid = !requiresPlayerData || fieldsAreValid(fields, values);
+
+  const playerId = primaryField ? (values[primaryField.key] ?? '').trim() : '';
+  const serverId = secondaryField ? (values[secondaryField.key] ?? '').trim() : '';
+  const currentKey = `${playerId}|${serverId}`;
+  const isVerifiedForCurrentInput = validation.validatedKey === currentKey;
+  const currentStatus = isVerifiedForCurrentInput ? validation.status : 'idle';
+
+  const verifyAccount = async (): Promise<{ ok: boolean; playerName: string | null }> => {
+    if (!isSupportedVerificationGame(game.id) || !requiresPlayerData) {
+      return { ok: true, playerName: null };
+    }
+
+    if (!playerId) {
+      setTouched(true);
+      return { ok: false, playerName: null };
+    }
+
+    // Si ya está verificado como válido para estos datos exactos
+    if (isVerifiedForCurrentInput && validation.status === 'valid') {
+      return { ok: true, playerName: validation.playerName };
+    }
+
+    setValidation((prev) => ({
+      ...prev,
+      status: 'checking',
+      validatedKey: currentKey,
+    }));
+
+    try {
+      const res = await api.post<{
+        status: 'valid' | 'invalid' | 'unverified';
+        playerName: string | null;
+        message?: string;
+        supported: boolean;
+      }>('/public/validate-player', {
+        gameSlug: game.id,
+        playerId,
+        serverId: serverId || undefined,
+      });
+
+      if (res.status === 'valid') {
+        setValidation({
+          status: 'valid',
+          playerName: res.playerName,
+          message: null,
+          validatedKey: currentKey,
+        });
+        return { ok: true, playerName: res.playerName };
+      }
+
+      if (res.status === 'invalid') {
+        setValidation({
+          status: 'invalid',
+          playerName: null,
+          message:
+            res.message || 'La cuenta no existe para este juego. Revisa tu ID antes de pagar.',
+          validatedKey: currentKey,
+        });
+        return { ok: false, playerName: null };
+      }
+
+      // 'unverified'
+      setValidation({
+        status: 'unverified',
+        playerName: null,
+        message: res.message || 'No fue posible verificar el nombre en este momento.',
+        validatedKey: currentKey,
+      });
+      return { ok: true, playerName: null };
+    } catch {
+      // Degradar con elegancia para no bloquear ventas si falla la red
+      setValidation({
+        status: 'unverified',
+        playerName: null,
+        message: 'No fue posible verificar el nombre en este momento.',
+        validatedKey: currentKey,
+      });
+      return { ok: true, playerName: null };
+    }
+  };
+
+  const handleFieldsBlur = () => {
+    setTouched(true);
+    if (
+      isSupportedVerificationGame(game.id) &&
+      isValid &&
+      playerId &&
+      (!isVerifiedForCurrentInput || validation.status === 'idle') &&
+      validation.status !== 'checking'
+    ) {
+      void verifyAccount();
+    }
+  };
+
+  const handleManualVerify = () => {
+    setTouched(true);
+    if (isValid && playerId && validation.status !== 'checking') {
+      void verifyAccount();
+    }
+  };
+
+  const handleContinueClick = async () => {
+    setTouched(true);
+    if (!isValid) return;
+
+    if (isSupportedVerificationGame(game.id) && requiresPlayerData) {
+      if (currentStatus === 'invalid') {
+        // Bloquea el avance al paso de Pago
+        return;
+      }
+      if (currentStatus !== 'valid' && currentStatus !== 'unverified') {
+        const outcome = await verifyAccount();
+        if (!outcome.ok) {
+          // Bloquea el avance si no existe la cuenta
+          return;
+        }
+        onContinue(outcome.playerName);
+        return;
+      }
+    }
+
+    onContinue(currentStatus === 'valid' ? validation.playerName : null);
+  };
 
   // El precio final depende del nivel del usuario, del cupón y del saldo: se
   // recalcula en el servidor para que lo que se muestra sea lo que se cobrará.
@@ -88,8 +249,6 @@ export function PlayerIdStep({
           productId: product.id,
           couponCode: couponCode.trim() || null,
           creatorCode: readCreatorCode() || null,
-          // Sólo con los datos completos: valida el cupón contra esa cuenta del
-          // juego antes de crear la orden.
           playerId: isValid && primaryField ? (values[primaryField.key] ?? null) : null,
         },
         { onSuccess: setPreview }
@@ -97,8 +256,6 @@ export function PlayerIdStep({
     }, 400);
 
     return () => clearTimeout(timeout);
-    // `pricePreview` es una mutación estable de React Query; incluirla dispararía
-    // el efecto en bucle.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, product.id, couponCode, isValid, values]);
 
@@ -139,33 +296,131 @@ export function PlayerIdStep({
           </div>
         )}
 
-        {requiresPlayerData ? <PlayerFields
-          fields={fields}
-          values={values}
-          onChange={onValuesChange}
-          showErrors={touched}
-          onBlur={() => setTouched(true)}
-          idPrefix="checkout"
-        /> : <p className="text-sm text-slate-400">Este producto se entrega como código digital. No necesitamos datos de una cuenta.</p>}
-
-        {requiresPlayerData && <button
-          type="button"
-          onClick={() => setHelpOpen(true)}
-          className="mt-3 inline-flex items-center gap-1 text-xs text-neon-crimson hover:underline"
-        >
-          <HelpCircle className="h-3 w-3" aria-hidden />
-          ¿Dónde encuentro mis datos?
-        </button>}
-
-        {requiresPlayerData && game.validatesPlayerId === false && (
-          <p className="mt-3 flex items-start gap-1.5 rounded-xl bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
-            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-            <span>
-              La recarga entra en la cuenta que indiques sin comprobación previa. Revisa bien
-              los datos antes de pagar.
-            </span>
+        {requiresPlayerData ? (
+          <PlayerFields
+            fields={fields}
+            values={values}
+            onChange={(newValues) => {
+              onValuesChange(newValues);
+            }}
+            showErrors={touched}
+            onBlur={handleFieldsBlur}
+            idPrefix="checkout"
+          />
+        ) : (
+          <p className="text-sm text-slate-400">
+            Este producto se entrega como código digital. No necesitamos datos de una cuenta.
           </p>
         )}
+
+        {requiresPlayerData && isSupportedVerificationGame(game.id) && (
+          <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => setHelpOpen(true)}
+              className="inline-flex items-center gap-1 text-xs text-neon-crimson hover:underline"
+            >
+              <HelpCircle className="h-3 w-3" aria-hidden />
+              ¿Dónde encuentro mis datos?
+            </button>
+            <button
+              type="button"
+              disabled={!isValid || !playerId || validation.status === 'checking'}
+              onClick={handleManualVerify}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-base-600 bg-base-800 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-base-500 hover:bg-base-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {validation.status === 'checking' ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-neon-crimson" />
+              ) : (
+                <CheckCircle2 className="h-3.5 w-3.5 text-neon-crimson" />
+              )}
+              Verificar ID
+            </button>
+          </div>
+        )}
+
+        {requiresPlayerData && !isSupportedVerificationGame(game.id) && (
+          <button
+            type="button"
+            onClick={() => setHelpOpen(true)}
+            className="mt-3 inline-flex items-center gap-1 text-xs text-neon-crimson hover:underline"
+          >
+            <HelpCircle className="h-3 w-3" aria-hidden />
+            ¿Dónde encuentro mis datos?
+          </button>
+        )}
+
+        {/* Banners visuales de validación en tiempo real */}
+        {requiresPlayerData && isSupportedVerificationGame(game.id) && (
+          <>
+            {validation.status === 'checking' && (
+              <div className="mt-3 flex items-center gap-2.5 rounded-xl border border-sky-500/30 bg-sky-500/10 p-3 text-xs text-sky-200">
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-sky-400" aria-hidden />
+                <span className="font-medium">Verificando cuenta del jugador...</span>
+              </div>
+            )}
+
+            {currentStatus === 'valid' && (
+              <div className="mt-3 flex items-center justify-between rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-3 text-xs text-emerald-200">
+                <div className="flex items-center gap-2.5">
+                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" aria-hidden />
+                  <div>
+                    <p className="font-bold text-emerald-100">
+                      ✅ Jugador verificado: {validation.playerName || 'Cuenta válida'}
+                    </p>
+                    <p className="text-[11px] text-emerald-300/80">
+                      La recarga llegará directamente a este perfil.
+                    </p>
+                  </div>
+                </div>
+                <span className="rounded-full bg-emerald-500/20 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-300">
+                  Verificado
+                </span>
+              </div>
+            )}
+
+            {currentStatus === 'invalid' && (
+              <div className="mt-3 flex items-start gap-2.5 rounded-xl border border-rose-500/40 bg-rose-500/10 p-3 text-xs text-rose-200">
+                <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-400" aria-hidden />
+                <div>
+                  <p className="font-bold text-rose-100">
+                    ❌ La cuenta no existe para este juego. Revisa tu ID antes de pagar.
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-rose-300/80">
+                    {validation.message ||
+                      'Verifica que no falten números o que el servidor/zona sea el correcto.'}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {currentStatus === 'unverified' && (
+              <div className="mt-3 flex items-start gap-2.5 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-200">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" aria-hidden />
+                <div>
+                  <p className="font-bold text-amber-100">
+                    ⚠️ No fue posible verificar el nombre en este momento.
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-amber-300/80">
+                    Asegúrate de que el ID sea correcto antes de continuar al pago.
+                  </p>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {requiresPlayerData &&
+          game.validatesPlayerId === false &&
+          !isSupportedVerificationGame(game.id) && (
+            <p className="mt-3 flex items-start gap-1.5 rounded-xl bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+              <span>
+                La recarga entra en la cuenta que indiques sin comprobación previa. Revisa bien los
+                datos antes de pagar.
+              </span>
+            </p>
+          )}
 
         {requiresPlayerData && primaryField && gameSavedIds.length > 0 && (
           <div className="mt-4">
@@ -318,12 +573,9 @@ export function PlayerIdStep({
         <Button
           size="lg"
           fullWidth
-          disabled={!isValid}
-          loading={submitting}
-          onClick={() => {
-            setTouched(true);
-            if (isValid) onContinue();
-          }}
+          disabled={!isValid || currentStatus === 'invalid' || validation.status === 'checking'}
+          loading={submitting || validation.status === 'checking'}
+          onClick={handleContinueClick}
         >
           {preview?.amountDueUsd === 0 ? 'Pagar con RefillCoins' : 'Continuar al pago'}
         </Button>

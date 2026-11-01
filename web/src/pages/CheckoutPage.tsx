@@ -77,6 +77,7 @@ export function CheckoutPage() {
   // Sólo lo piden los productos manuales configurados así. Se precarga del
   // perfil para que quien ya lo dejó una vez no lo escriba otra.
   const [contactPhone, setContactPhone] = useState('');
+  const [playerNickname, setPlayerNickname] = useState<string | null>(null);
 
   const createOrder = useCreateOrder();
   const verifyPayment = useVerifyPayment(orderData?.order.id);
@@ -134,7 +135,7 @@ export function CheckoutPage() {
     setStep('payment');
   }, [resumeOrderId, resumed.data, navigate]);
 
-  const handleCreateOrder = () => {
+  const handleCreateOrder = (verifiedNickname?: string | null) => {
     if (!game || !product) return;
 
     if (needsPhone && !PHONE_PATTERN.test(contactPhone.trim())) {
@@ -146,11 +147,14 @@ export function CheckoutPage() {
       return;
     }
 
+    const nicknameToUse = verifiedNickname ?? playerNickname ?? null;
+
     createOrder.mutate(
       {
         gameId: game.id,
         productId: product.id,
         playerFields: playerValues,
+        playerNickname: nicknameToUse,
         quantity,
         couponCode: couponCode.trim() || null,
         // El código del creador viaja desde el enlace, no lo escribe el cliente.
@@ -379,7 +383,10 @@ export function CheckoutPage() {
             needsPhone={needsPhone}
             contactPhone={contactPhone}
             onContactPhoneChange={setContactPhone}
-            onContinue={handleCreateOrder}
+            onContinue={(nickname) => {
+              if (nickname) setPlayerNickname(nickname);
+              handleCreateOrder(nickname);
+            }}
             submitting={createOrder.isPending}
             requiresLogin={!user}
             onLogin={() => {

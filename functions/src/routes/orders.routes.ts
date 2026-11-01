@@ -46,6 +46,7 @@ const createOrderSchema = z.object({
   playerFields: z.record(z.string().min(1).max(40), z.string().trim().max(120)).optional(),
   /** Formato anterior: un único ID suelto. Se mantiene por compatibilidad. */
   playerId: z.string().trim().max(120).optional(),
+  playerNickname: z.string().trim().max(100).optional().nullable(),
   quantity: z.coerce.number().int().min(1).max(10).default(1),
   couponCode: z.string().trim().max(32).optional().nullable(),
   clientPlatform: z.enum(['web', 'app']).default('web'),
@@ -86,6 +87,7 @@ ordersRouter.post(
       gameId: body.gameId,
       productId: body.productId,
       playerFields: body.playerFields ?? body.playerId ?? {},
+      playerNickname: body.playerNickname ?? null,
       quantity: body.quantity,
       couponCode: body.couponCode ?? null,
       clientPlatform: body.clientPlatform,

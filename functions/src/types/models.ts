@@ -496,6 +496,8 @@ export interface Order {
   playerId: string;
   /** Segundo identificador (Zone ID). `null` si el juego no lo pide. */
   playerId2: string | null;
+  /** Apodo o nombre de cuenta verificado del jugador. */
+  playerNickname?: string | null;
   /**
    * Todos los datos que se le pidieron al comprador, por clave de campo.
    *

@@ -19,7 +19,7 @@
  */
 import { FieldValue } from 'firebase-admin/firestore';
 import type { Query } from 'firebase-admin/firestore';
-import { db, orders, paymentRefs, now, minutesFromNow } from '../config/firebase';
+import { db, orders, paymentRefs, playerIdCache, now, minutesFromNow } from '../config/firebase';
 import {
   failedPrecondition,
   forbidden,
@@ -33,6 +33,7 @@ import { paginate, type Page } from '../lib/pagination';
 import { describeOrder } from '../lib/orderItem';
 import { checkAmount, round, usdToBs } from '../lib/money';
 import { log } from '../lib/logger';
+import * as centralOne from './centralOne';
 import * as catalog from './catalog';
 import * as couponsService from './coupons';
 import * as creatorsService from './creators';
@@ -243,6 +244,8 @@ export interface CreateOrderInput {
    * Se acepta también una cadena suelta por compatibilidad con clientes viejos.
    */
   playerFields: Record<string, string> | string;
+  /** Nombre o apodo verificado del jugador. */
+  playerNickname?: string | null;
   quantity: number;
   couponCode?: string | null;
   clientPlatform?: 'web' | 'app';
@@ -473,6 +476,19 @@ export async function createOrder(
     Array.from({ length: Math.max(1, c.quantity * quantity) }, () => c.packageId)
   );
 
+  let playerNickname = input.playerNickname?.trim() || null;
+  if (!playerNickname && playerData.playerId) {
+    const cacheKey = centralOne.buildCacheKey(game.id, playerData.playerId, playerData.playerId2);
+    try {
+      const cachedDoc = await playerIdCache().doc(cacheKey).get();
+      if (cachedDoc.exists) {
+        playerNickname = cachedDoc.data()?.playerName || null;
+      }
+    } catch {
+      // Ignorar fallo de lectura en caché
+    }
+  }
+
   const order: Omit<Order, 'id'> = {
     code: generateOrderCode(),
     uid: user.uid,
@@ -512,6 +528,7 @@ export async function createOrder(
     fulfillment: product.fulfillment,
     playerId: playerData.playerId,
     playerId2: playerData.playerId2,
+    playerNickname,
     playerFields: playerData.values,
     pricing: {
       unitUsd,
@@ -680,6 +697,7 @@ export async function createWalletTopupOrder(
   const orderRef = orders().doc();
   const timestamp = now();
   const code = generateOrderCode();
+
 
   const order: Omit<Order, 'id'> = {
     code,

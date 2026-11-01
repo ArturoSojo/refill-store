@@ -330,6 +330,7 @@ export interface Order {
   fulfillment: FulfillmentType;
   playerId: string;
   playerId2: string | null;
+  playerNickname?: string | null;
   /** Todos los datos que pidió el juego, por clave de campo. */
   playerFields: Record<string, string>;
   pricing: OrderPricing;

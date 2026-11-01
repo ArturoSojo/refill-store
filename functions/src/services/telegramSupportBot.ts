@@ -393,7 +393,7 @@ function renderCustomerOrderView(order: Order): {
     `<b>Código:</b> <code>${escapeHtml(orderCode)}</code>`,
     `<b>Juego:</b> ${escapeHtml(order.gameName || 'Recarga de Juego')}`,
     `<b>Producto:</b> ${escapeHtml(order.productName || 'Diamantes / Paquete')}`,
-    `<b>ID de Jugador:</b> <code>${escapeHtml(order.playerId || 'N/A')}</code>${order.playerId2 ? ` (Zona: <code>${escapeHtml(order.playerId2)}</code>)` : ''}`,
+    `<b>ID de Jugador:</b> <code>${escapeHtml(order.playerId || 'N/A')}</code>${order.playerId2 ? ` (Zona: <code>${escapeHtml(order.playerId2)}</code>)` : ''}${order.playerNickname ? `\n<b>Nombre / Nickname:</b> <code>${escapeHtml(order.playerNickname)}</code>` : ''}`,
     `<b>Monto:</b> ${totalBs ? `${totalBs.toLocaleString('es-VE')} Bs` : ''} ($${totalUsd.toFixed(2)})`,
     `<b>Estado:</b> ${statusInfo.emoji} <b>${escapeHtml(statusInfo.label)}</b>`,
   ].join('\n');
@@ -444,7 +444,7 @@ function renderAdminOrderView(order: Order): {
     `<b>Cliente:</b> ${escapeHtml(customerName)}`,
     `<b>Contacto:</b> ${escapeHtml(customerContact)}`,
     `<b>Juego:</b> ${escapeHtml(order.gameName || 'N/A')} · <b>Producto:</b> ${escapeHtml(order.productName || 'N/A')}`,
-    `<b>ID Jugador:</b> <code>${escapeHtml(order.playerId || 'N/A')}</code>${order.playerId2 ? ` (Zona: <code>${escapeHtml(order.playerId2)}</code>)` : ''}`,
+    `<b>ID Jugador:</b> <code>${escapeHtml(order.playerId || 'N/A')}</code>${order.playerId2 ? ` (Zona: <code>${escapeHtml(order.playerId2)}</code>)` : ''}${order.playerNickname ? `\n<b>Nickname:</b> <code>${escapeHtml(order.playerNickname)}</code>` : ''}`,
     `<b>Monto:</b> ${totalBs ? `${totalBs.toLocaleString('es-VE')} Bs` : ''} ($${totalUsd.toFixed(2)})`,
     `<b>Pago:</b> Ref <code>${escapeHtml(reference)}</code> (${escapeHtml(paymentMethod)})`,
     `<b>Estado:</b> <b>${escapeHtml(order.status)}</b> (${escapeHtml((order as { estado?: string }).estado || 'N/A')})`,

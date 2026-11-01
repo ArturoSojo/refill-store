@@ -34,6 +34,9 @@ export const FAZERCARDS_WEBHOOK_SECRET = defineSecret('FAZERCARDS_WEBHOOK_SECRET
 /** Fragmento aleatorio de la URL pública del webhook de FazerCards. */
 export const FAZERCARDS_WEBHOOK_TOKEN = defineSecret('FAZERCARDS_WEBHOOK_TOKEN');
 
+/** API key de Central One (`co_live_…`). Nunca llega al navegador. */
+export const CENTRAL_ONE_API_KEY = defineSecret('CENTRAL_ONE_API_KEY');
+
 /**
  * Token de un solo uso para los endpoints de arranque (`/api/setup/*`), que
  * crean el primer administrador y siembran el catálogo. Sin él, esas rutas
@@ -101,6 +104,7 @@ export const API_SECRETS = [
   FAZERCARDS_API_KEY,
   FAZERCARDS_WEBHOOK_SECRET,
   FAZERCARDS_WEBHOOK_TOKEN,
+  CENTRAL_ONE_API_KEY,
   SETUP_TOKEN,
   TELEGRAM_BOT_TOKEN,
   GMAIL_APP_PASSWORD,
@@ -160,6 +164,21 @@ export const syncSecretKey = (): string => {
 
 /** Base v2 de FazerCards. */
 export const fazerBaseUrl = () => fromEnv('FAZERCARDS_BASE_URL', 'https://api.fzr.cards/api/v2');
+
+/** Base v1 de Central One. */
+export const centralOneBaseUrl = () =>
+  fromEnv('CENTRAL_ONE_BASE_URL', 'https://portal.centraloneglobal.com/api/v1');
+
+/** Clave de autenticación para Central One API v1. */
+export const centralOneApiKey = (): string => {
+  try {
+    const fromSecret = CENTRAL_ONE_API_KEY.value().trim();
+    if (fromSecret) return fromSecret;
+  } catch {
+    // Fuera de Cloud Functions el secreto no está enlazado.
+  }
+  return fromEnv('CENTRAL_ONE_API_KEY', '');
+};
 
 /** Fuente pública para refrescar la tasa BCV cuando `rate.source = auto`. */
 export const rateSourceUrl = () =>

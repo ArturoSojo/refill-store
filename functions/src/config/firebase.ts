@@ -45,6 +45,7 @@ export const COLLECTIONS = {
   providerOrders: 'providerOrders',
   /** Sesiones activas y pausas de 30 min sincronizadas desde RefillBot (WhatsApp). */
   sessions: 'sessions',
+  playerIdCache: 'playerIdCache',
 } as const;
 
 export const CONFIG_DOC_ID = 'app';
@@ -65,6 +66,7 @@ export const creatorCodes = () => db.collection(COLLECTIONS.creatorCodes);
 export const modals = () => db.collection(COLLECTIONS.modals);
 export const providerOrders = () => db.collection(COLLECTIONS.providerOrders);
 export const sessions = () => db.collection(COLLECTIONS.sessions);
+export const playerIdCache = () => db.collection(COLLECTIONS.playerIdCache);
 export const configDoc = () => db.collection(COLLECTIONS.config).doc(CONFIG_DOC_ID);
 /** Configuración privada que no se expone por las reglas públicas de Firestore. */
 export const privateChatbotConfigDoc = () => db.collection('privateConfig').doc('chatbot');

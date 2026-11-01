@@ -15,6 +15,7 @@ import { PAGE_LIMIT } from '../lib/pagination';
 import { rateLimit } from '../middleware/rateLimit';
 import * as fazerCards from '../services/fazercards';
 import * as chatbotService from '../services/chatbot';
+import * as centralOne from '../services/centralOne';
 import { invalidArgument, providerError } from '../lib/errors';
 import { resolveFazerValidationCategory } from '../lib/validation';
 
@@ -222,7 +223,45 @@ publicRouter.get(
   })
 );
 
-/** Valida Player ID / User ID en FazerCards antes de ordenar. Esta consulta no crea una orden. */
+/**
+ * Valida un Player ID en tiempo real usando Central One v1 con caché inteligente.
+ * Endpoint público protegido con rate-limiting por IP.
+ */
+publicRouter.post(
+  ['/public/validate-player', '/validate-player'],
+  rateLimit({
+    name: 'validate_player_public',
+    max: 30,
+    windowSeconds: 60,
+    message: 'Has realizado varias consultas seguidas. Espera un momento antes de intentar de nuevo.',
+  }),
+  asyncHandler(async (req, res) => {
+    const body = parseBody(
+      req,
+      z.object({
+        gameSlug: z.string().trim().min(1),
+        playerId: z.string().trim().min(1),
+        serverId: z.string().trim().optional().nullable(),
+      })
+    );
+
+    const result = await centralOne.validatePlayerId({
+      gameSlug: body.gameSlug,
+      playerId: body.playerId,
+      serverId: body.serverId ?? undefined,
+    });
+
+    ok(res, {
+      status: result.status,
+      playerName: result.playerName,
+      message: result.message,
+      supported: result.supported,
+      cached: result.cached,
+    });
+  })
+);
+
+/** Valida Player ID / User ID antes de ordenar. Esta consulta no crea una orden. */
 publicRouter.post(
   '/games/:gameId/validate-player',
   rateLimit({
@@ -241,13 +280,6 @@ publicRouter.post(
         fields: z.record(z.string()).optional(),
       })
     );
-
-    const game = await catalog.getGame(gameId).catch(() => null);
-    const categoryInfo = resolveFazerValidationCategory(game ?? { id: gameId });
-
-    if (!categoryInfo || !fazerCards.isFazerCardsConfigured()) {
-      throw invalidArgument('Esta categoría no soporta validación de ID.');
-    }
 
     const rawFields = body.fields ?? {};
     const playerId = (
@@ -272,6 +304,50 @@ publicRouter.post(
       throw invalidArgument('Debes ingresar tu Player ID / User ID para verificar.');
     }
 
+    if (centralOne.isSupportedGame(gameId)) {
+      const cOneResult = await centralOne.validatePlayerId({
+        gameSlug: gameId,
+        playerId,
+        serverId: zoneId || undefined,
+      });
+
+      if (cOneResult.status === 'valid') {
+        return ok(res, {
+          valid: true,
+          playerName: cOneResult.playerName,
+          region: null,
+          status: 'valid',
+        });
+      }
+
+      if (cOneResult.status === 'invalid') {
+        return ok(res, {
+          valid: false,
+          playerName: null,
+          region: null,
+          status: 'invalid',
+          message: cOneResult.message,
+        });
+      }
+
+      if (!fazerCards.isFazerCardsConfigured()) {
+        return ok(res, {
+          valid: true,
+          playerName: null,
+          region: null,
+          status: 'unverified',
+          message: cOneResult.message,
+        });
+      }
+    }
+
+    const game = await catalog.getGame(gameId).catch(() => null);
+    const categoryInfo = resolveFazerValidationCategory(game ?? { id: gameId });
+
+    if (!categoryInfo || !fazerCards.isFazerCardsConfigured()) {
+      throw invalidArgument('Esta categoría no soporta validación de ID.');
+    }
+
     const needsZone = categoryInfo.requiredFields.includes('zone_id');
     if (needsZone && !zoneId) {
       throw invalidArgument('Debes ingresar tu Zone ID para verificar.');
@@ -293,7 +369,7 @@ publicRouter.post(
       throw providerError(message);
     }
 
-    ok(res, result);
+    return ok(res, result);
   })
 );
 
