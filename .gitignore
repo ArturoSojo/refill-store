@@ -82,3 +82,7 @@ assets-src/logo-refillstore.png
 
 # Local Netlify folder
 .netlify
+
+# Manuales y documentación externa privada
+Manual_Completo_API_Central_One.pdf
+*.pdf

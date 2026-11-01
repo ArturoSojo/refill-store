@@ -56,7 +56,7 @@ export interface Game {
   shortName: string;
   apiGameId: number | string;
   apiGameType: string;
-  provider?: 'inefable' | 'fazercards';
+  provider?: 'inefable' | 'fazercards' | 'centralone';
   providerFamily?: 'topup' | 'gift_card' | 'game_key';
   requiresPlayerData?: boolean;
   /** Creado a mano desde el panel; la sincronización no lo toca. */
@@ -108,7 +108,7 @@ export type FulfillmentType = 'auto' | 'manual';
  */
 export type ManualFlow = 'notify' | 'whatsapp' | 'phone';
 
-export type ProductKind = 'package' | 'combo' | 'special';
+export type ProductKind = 'package' | 'combo' | 'special' | 'level_up';
 
 export interface DispatchCall {
   /** ID de oferta del proveedor. Inefable usa números; FazerCards, strings. */
@@ -123,6 +123,7 @@ export interface DispatchCall {
    * elegir una sola para todo el juego y pagar de más en algún paquete.
    */
   providerGameId?: number | string | null;
+  provider?: 'inefable' | 'fazercards' | 'centralone';
 }
 
 export interface Product {
@@ -147,6 +148,7 @@ export interface Product {
   sortOrder: number;
   stock: number | null;
   deliveryEtaMinutes: number;
+  provider?: 'inefable' | 'fazercards' | 'centralone';
   providerOfferId?: string | null;
   region?: string;
   regionNotice?: string;
@@ -235,7 +237,7 @@ export interface DispatchCallResult {
   packageId: number | string;
   /** Juego del proveedor con el que se envió. `null` = el del juego. */
   providerGameId?: number | string | null;
-  provider?: 'inefable' | 'fazercards';
+  provider?: 'inefable' | 'fazercards' | 'centralone';
   deliveredCodes?: string[];
   index: number;
   status: DispatchCallStatus;
@@ -322,7 +324,7 @@ export interface Order {
   gameId: string;
   gameName: string;
   providerGameId?: number | string | null;
-  provider?: 'inefable' | 'fazercards';
+  provider?: 'inefable' | 'fazercards' | 'centralone';
   providerFamily?: 'topup' | 'gift_card' | 'game_key';
   productId: string;
   productName: string;

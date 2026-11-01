@@ -29,7 +29,7 @@ interface ProductFormState {
   description: string;
   fulfillment: 'auto' | 'manual';
   manualFlow: ManualFlow;
-  kind: 'package' | 'combo' | 'special';
+  kind: 'package' | 'combo' | 'special' | 'level_up';
   amount: string;
   bonus: string;
   costUsd: string;
@@ -515,6 +515,7 @@ export function AdminProducts() {
                 { value: 'package', label: 'Paquete individual' },
                 { value: 'combo', label: 'Combo (varias llamadas)' },
                 { value: 'special', label: 'Especial / manual' },
+                { value: 'level_up', label: 'Subida de nivel' },
               ]}
             />
           </div>

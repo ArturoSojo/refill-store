@@ -69,6 +69,10 @@ interface SeedProduct {
   amount: number;
   bonus: number;
   costUsd: number;
+  priceUsd?: number;
+  compareAtUsd?: number | null;
+  provider?: 'inefable' | 'fazercards' | 'centralone';
+  active?: boolean;
   calls: DispatchCall[];
   /**
    * Icono propio del producto. Los pases y tarjetas lo necesitan: sin él la
@@ -692,7 +696,7 @@ const MANUAL_PRODUCTS: SeedProduct[] = [
     gameId: 'free-fire',
     sku: 'FF-M-NIVEL',
     name: 'Paquete Aumento de Nivel',
-    description: 'Paquete de aumento de nivel. Se gestiona con un asesor por WhatsApp.',
+    description: 'Paquete de aumento de nivel manual antiguo. Reemplazado por automatización Central One.',
     fulfillment: 'manual',
     kind: 'special',
     amount: 1,
@@ -701,6 +705,7 @@ const MANUAL_PRODUCTS: SeedProduct[] = [
     calls: [],
     imageUrl: '/products/aumento-nivel.svg',
     sortOrder: 140,
+    active: false,
   },
   // Blood Strike
   {
@@ -795,9 +800,191 @@ const MANUAL_PRODUCTS: SeedProduct[] = [
   },
 ];
 
+export const FREE_FIRE_LEVEL_UP_PACKAGES: SeedProduct[] = [
+  {
+    id: 'ff-co-nivel-6',
+    gameId: 'free-fire',
+    sku: 'FF-CO-NIVEL-6',
+    name: 'Paquete Subida de Nivel 6',
+    description: 'Paquete de mejora de nivel 6 para Free Fire. Se carga directamente a tu cuenta con tu ID.',
+    fulfillment: 'auto',
+    kind: 'level_up',
+    provider: 'centralone',
+    amount: 6,
+    bonus: 0,
+    costUsd: 0.2018,
+    priceUsd: 0.40,
+    compareAtUsd: 0.60,
+    calls: [
+      {
+        packageId: '00147efa-cc79-4767-8306-9b5dc45e2757',
+        quantity: 1,
+        provider: 'centralone',
+      },
+    ],
+    imageUrl: '/products/aumento-nivel.svg',
+    sortOrder: 201,
+    active: true,
+  },
+  {
+    id: 'ff-co-nivel-10',
+    gameId: 'free-fire',
+    sku: 'FF-CO-NIVEL-10',
+    name: 'Paquete Subida de Nivel 10',
+    description: 'Paquete de subida de nivel 10 para Free Fire. Se carga directamente a tu cuenta con tu ID.',
+    fulfillment: 'auto',
+    kind: 'level_up',
+    provider: 'centralone',
+    amount: 10,
+    bonus: 0,
+    costUsd: 0.3323,
+    priceUsd: 0.60,
+    compareAtUsd: 0.90,
+    calls: [
+      {
+        packageId: '0d351e69-6360-42bc-9b83-94de2c26b4be',
+        quantity: 1,
+        provider: 'centralone',
+      },
+    ],
+    imageUrl: '/products/aumento-nivel.svg',
+    sortOrder: 202,
+    active: true,
+  },
+  {
+    id: 'ff-co-nivel-15',
+    gameId: 'free-fire',
+    sku: 'FF-CO-NIVEL-15',
+    name: 'Paquete Subida de Nivel 15',
+    description: 'Paquete de subida de nivel 15 para Free Fire. Se carga directamente a tu cuenta con tu ID.',
+    fulfillment: 'auto',
+    kind: 'level_up',
+    provider: 'centralone',
+    amount: 15,
+    bonus: 0,
+    costUsd: 0.3323,
+    priceUsd: 0.60,
+    compareAtUsd: 0.90,
+    calls: [
+      {
+        packageId: '3e2b9bd8-2293-4bd4-8978-316603eec328',
+        quantity: 1,
+        provider: 'centralone',
+      },
+    ],
+    imageUrl: '/products/aumento-nivel.svg',
+    sortOrder: 203,
+    active: true,
+  },
+  {
+    id: 'ff-co-nivel-20',
+    gameId: 'free-fire',
+    sku: 'FF-CO-NIVEL-20',
+    name: 'Paquete Subida de Nivel 20',
+    description: 'Paquete de subida de nivel 20 para Free Fire. Se carga directamente a tu cuenta con tu ID.',
+    fulfillment: 'auto',
+    kind: 'level_up',
+    provider: 'centralone',
+    amount: 20,
+    bonus: 0,
+    costUsd: 0.3323,
+    priceUsd: 0.60,
+    compareAtUsd: 0.90,
+    calls: [
+      {
+        packageId: '549739d0-f988-4d5d-9b18-5357bd8de9fa',
+        quantity: 1,
+        provider: 'centralone',
+      },
+    ],
+    imageUrl: '/products/aumento-nivel.svg',
+    sortOrder: 204,
+    active: true,
+  },
+  {
+    id: 'ff-co-nivel-25',
+    gameId: 'free-fire',
+    sku: 'FF-CO-NIVEL-25',
+    name: 'Paquete Subida de Nivel 25',
+    description: 'Paquete de subida de nivel 25 para Free Fire. Se carga directamente a tu cuenta con tu ID.',
+    fulfillment: 'auto',
+    kind: 'level_up',
+    provider: 'centralone',
+    amount: 25,
+    bonus: 0,
+    costUsd: 0.3323,
+    priceUsd: 0.60,
+    compareAtUsd: 0.90,
+    calls: [
+      {
+        packageId: 'a9093b52-a726-4e9d-be8d-994df6ccd870',
+        quantity: 1,
+        provider: 'centralone',
+      },
+    ],
+    imageUrl: '/products/aumento-nivel.svg',
+    sortOrder: 205,
+    active: true,
+  },
+  {
+    id: 'ff-co-nivel-30',
+    gameId: 'free-fire',
+    sku: 'FF-CO-NIVEL-30',
+    name: 'Paquete Subida de Nivel 30',
+    description: 'Paquete de subida de nivel 30 para Free Fire. Se carga directamente a tu cuenta con tu ID.',
+    fulfillment: 'auto',
+    kind: 'level_up',
+    provider: 'centralone',
+    amount: 30,
+    bonus: 0,
+    costUsd: 0.5136,
+    priceUsd: 0.90,
+    compareAtUsd: 1.30,
+    calls: [
+      {
+        packageId: '5d18dc6d-98be-45c4-a472-68266f6a3c9d',
+        quantity: 1,
+        provider: 'centralone',
+      },
+    ],
+    imageUrl: '/products/aumento-nivel.svg',
+    sortOrder: 206,
+    active: true,
+  },
+  {
+    id: 'ff-co-nivel-completo',
+    gameId: 'free-fire',
+    sku: 'FF-CO-NIVEL-ALL',
+    name: 'Paquete Aumento de Nivel Completo (Nivel 6 al 30)',
+    description: 'Aumento de nivel completo del nivel 6 al 30 para Free Fire. Se cargan los 6 paquetes de forma automática directamente con tu ID.',
+    fulfillment: 'auto',
+    kind: 'level_up',
+    provider: 'centralone',
+    amount: 1000,
+    bonus: 0,
+    costUsd: 2.0446,
+    priceUsd: 3.40,
+    compareAtUsd: 4.80,
+    calls: [
+      { packageId: '00147efa-cc79-4767-8306-9b5dc45e2757', quantity: 1, provider: 'centralone' },
+      { packageId: '0d351e69-6360-42bc-9b83-94de2c26b4be', quantity: 1, provider: 'centralone' },
+      { packageId: '3e2b9bd8-2293-4bd4-8978-316603eec328', quantity: 1, provider: 'centralone' },
+      { packageId: '549739d0-f988-4d5d-9b18-5357bd8de9fa', quantity: 1, provider: 'centralone' },
+      { packageId: 'a9093b52-a726-4e9d-be8d-994df6ccd870', quantity: 1, provider: 'centralone' },
+      { packageId: '5d18dc6d-98be-45c4-a472-68266f6a3c9d', quantity: 1, provider: 'centralone' },
+    ],
+    imageUrl: '/products/aumento-nivel.svg',
+    badge: 'COMBO COMPLETO',
+    featured: true,
+    sortOrder: 200,
+    active: true,
+  },
+];
+
 export const SEED_PRODUCTS: SeedProduct[] = [
   ...FREE_FIRE_PACKAGES,
   ...FREE_FIRE_COMBOS,
+  ...FREE_FIRE_LEVEL_UP_PACKAGES,
   ...BLOOD_STRIKE_PACKAGES,
   ...MOBILE_LEGENDS_PACKAGES,
   ...HONOR_OF_KINGS_PACKAGES,
@@ -895,8 +1082,14 @@ export async function seedCatalog(
         costUsd: round(product.costUsd, 4),
         calls: product.calls,
         updatedAt: timestamp,
+        ...(product.provider ? { provider: product.provider } : {}),
+        ...(product.active !== undefined ? { active: product.active } : {}),
+        ...(product.priceUsd !== undefined ? { priceUsd: product.priceUsd } : {}),
+        ...(product.compareAtUsd !== undefined ? { compareAtUsd: product.compareAtUsd } : {}),
+        ...(product.badge !== undefined ? { badge: product.badge } : {}),
+        ...(product.featured !== undefined ? { featured: product.featured } : {}),
       };
-      if (options.overwritePrices) patch.priceUsd = priceUsd;
+      if (options.overwritePrices && product.priceUsd === undefined) patch.priceUsd = priceUsd;
 
       // El icono sólo se rellena si el producto no tiene uno: el administrador
       // puede haber subido el suyo desde el panel y sembrar no debe pisarlo.
@@ -915,12 +1108,13 @@ export async function seedCatalog(
         amount: product.amount,
         bonus: product.bonus,
         costUsd: round(product.costUsd, 4),
-        priceUsd,
-        compareAtUsd: null,
+        priceUsd: product.priceUsd ?? priceUsd,
+        compareAtUsd: product.compareAtUsd ?? null,
+        ...(product.provider ? { provider: product.provider } : {}),
         calls: product.calls,
         imageUrl: product.imageUrl ?? '',
         badge: product.badge ?? null,
-        active: true,
+        active: product.active ?? true,
         featured: product.featured ?? false,
         sortOrder: product.sortOrder,
         stock: null,

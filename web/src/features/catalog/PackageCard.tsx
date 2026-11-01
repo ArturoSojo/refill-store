@@ -31,7 +31,7 @@ export function PackageCard({ product, game, selected, onSelect, index = 0 }: Pa
   const hasDiscount = product.compareAtUsd !== null && product.compareAtUsd > product.priceUsd;
   const hasCustomImage = Boolean(product.imageUrl && product.imageUrl !== game.coverUrl && product.imageUrl !== game.logoUrl);
   const showProductImage = Boolean(product.imageUrl && (game.providerFamily !== 'topup' || hasCustomImage));
-  const showOfferName = product.kind === 'special' || (game.provider === 'fazercards' && !/^\s*[\d.,]+(?:\s|$)/.test(product.name));
+  const showOfferName = product.kind === 'special' || product.kind === 'level_up' || (game.provider === 'fazercards' && !/^\s*[\d.,]+(?:\s|$)/.test(product.name));
 
   return (
     <motion.button

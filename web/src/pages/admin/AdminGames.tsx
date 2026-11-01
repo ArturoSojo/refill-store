@@ -20,7 +20,7 @@ interface GameFormState {
   shortName: string;
   apiGameId: string;
   apiGameType: string;
-  provider: 'inefable' | 'fazercards';
+  provider: 'inefable' | 'fazercards' | 'centralone';
   providerFamily: Family;
   requiresPlayerData: boolean;
   currencyLabel: string;

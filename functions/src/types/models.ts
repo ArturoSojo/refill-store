@@ -77,7 +77,7 @@ export interface Game {
   /** `game_type` del proveedor: `freefire_id`, `dynamic`. */
   apiGameType: string;
   /** Proveedor que entrega este juego. Se congela al crear cada orden. */
-  provider?: 'inefable' | 'fazercards';
+  provider?: 'inefable' | 'fazercards' | 'centralone';
   /** Familia de FazerCards que define cómo se entrega el producto. */
   providerFamily?: 'topup' | 'gift_card' | 'game_key';
   /** Las gift cards y keys se compran sin ID de jugador. */
@@ -186,7 +186,7 @@ export type ManualFlow = 'notify' | 'whatsapp' | 'phone';
 
 
 /** Naturaleza comercial del producto (afecta cómo se pinta la tarjeta). */
-export type ProductKind = 'package' | 'combo' | 'special';
+export type ProductKind = 'package' | 'combo' | 'special' | 'level_up';
 
 /**
  * Una llamada al API de despacho. Los combos se expresan como varias llamadas
@@ -205,6 +205,7 @@ export interface DispatchCall {
    * elegir una sola para todo el juego y pagar de más en algún paquete.
    */
   providerGameId?: number | string | null;
+  provider?: 'inefable' | 'fazercards' | 'centralone';
 }
 
 export interface Product {
@@ -239,6 +240,7 @@ export interface Product {
   stock: number | null;
   deliveryEtaMinutes: number;
   /** Identificador del catálogo de FazerCards, útil para conciliación. */
+  provider?: 'inefable' | 'fazercards' | 'centralone';
   providerOfferId?: string | null;
   region?: string;
   regionNotice?: string;
@@ -339,7 +341,7 @@ export interface DispatchCallResult {
   packageId: number | string;
   /** Juego del proveedor con el que se envió. `null` = el del juego. */
   providerGameId?: number | string | null;
-  provider?: 'inefable' | 'fazercards';
+  provider?: 'inefable' | 'fazercards' | 'centralone';
   /** Códigos digitales devueltos para ESTA llamada; se preservan al cliente al finalizar. */
   deliveredCodes?: string[];
   index: number;
@@ -476,7 +478,7 @@ export interface Order {
    */
   providerGameId: number | string | null;
   /** Proveedor congelado al comprar; las órdenes anteriores usan Inefable. */
-  provider?: 'inefable' | 'fazercards';
+  provider?: 'inefable' | 'fazercards' | 'centralone';
   providerFamily?: 'topup' | 'gift_card' | 'game_key';
   productId: string;
   productName: string;

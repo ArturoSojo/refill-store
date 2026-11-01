@@ -362,3 +362,353 @@ export async function validatePlayerId(
   }
 }
 
+
+export function isCentralOneConfigured(): boolean {
+  return Boolean(centralOneApiKey());
+}
+
+export interface CentralOneFailureInfo {
+  code?: string | null;
+  message?: string | null;
+  message_es?: string | null;
+  action?: string | null;
+}
+
+export function formatCentralOneFailure(failure?: CentralOneFailureInfo | null): string {
+  if (!failure) return 'Error desconocido en Central One.';
+  const code = (failure.code || '').toLowerCase();
+  const action = (failure.action || '').toLowerCase();
+
+  if (code === 'not_eligible' || action === 'do_not_retry') {
+    return 'La cuenta del jugador no es elegible para este nivel (ya fue reclamado anteriormente o no cumple el requisito).';
+  }
+  if (code === 'invalid_player') {
+    return 'El ID de jugador es inválido para este juego o región.';
+  }
+  if (code === 'out_of_stock') {
+    return 'Producto agotado temporalmente en el proveedor.';
+  }
+  if (code === 'provider_unavailable') {
+    return 'Proveedor en mantenimiento o temporalmente no disponible.';
+  }
+  if (code === 'price_changed') {
+    return 'El precio del producto cambió antes de completarse la orden.';
+  }
+  if (code === 'insufficient_balance') {
+    return 'Saldo insuficiente en la cuenta mayorista del proveedor.';
+  }
+  return (
+    failure.message_es ||
+    failure.message ||
+    `Error reportado por Central One: ${code || 'fallo'}`
+  );
+}
+
+export interface CentralOneCreateOrderInput {
+  catalogItemId: string;
+  quantity: number;
+  targetPayload: Record<string, string>;
+  idempotencyKey: string;
+  note?: string;
+}
+
+export interface CentralOneCreateOrderResult {
+  success: boolean;
+  httpStatus: number;
+  orderId: string | null;
+  referenceCode: string | null;
+  status: string | null;
+  totalSaleAmount: number | null;
+  currency: string | null;
+  errorMessage: string | null;
+  failureCode: string | null;
+  failureAction: string | null;
+  raw: Record<string, unknown>;
+}
+
+export async function createOrder(
+  input: CentralOneCreateOrderInput
+): Promise<CentralOneCreateOrderResult> {
+  const apiKey = centralOneApiKey();
+  if (!apiKey) {
+    return {
+      success: false,
+      httpStatus: 500,
+      orderId: null,
+      referenceCode: null,
+      status: null,
+      totalSaleAmount: null,
+      currency: null,
+      errorMessage: 'CENTRAL_ONE_API_KEY no está configurada.',
+      failureCode: 'missing_config',
+      failureAction: 'fix_and_retry',
+      raw: {},
+    };
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12_000);
+
+  try {
+    const url = `${centralOneBaseUrl()}/orders`;
+    const body = {
+      items: [
+        {
+          catalog_item_id: input.catalogItemId,
+          quantity: input.quantity || 1,
+          target_payload: input.targetPayload,
+        },
+      ],
+      note: input.note?.slice(0, 500) || undefined,
+    };
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+        'Idempotency-Key': input.idempotencyKey,
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    const data = (await response.json().catch(() => ({}))) as Record<string, any>;
+    const httpStatus = response.status;
+
+    if (!response.ok) {
+      const errObj = data.error || data;
+      const code = errObj.code || `http_${httpStatus}`;
+      const message = errObj.message || 'Error en POST /orders';
+
+      let formattedError = message;
+      if (httpStatus === 409 && code === 'insufficient_balance') {
+        formattedError = 'Saldo insuficiente en la cuenta mayorista de Central One.';
+      } else if (httpStatus === 409 && code === 'insufficient_stock') {
+        formattedError = 'No hay stock disponible en el proveedor Central One.';
+      } else if (httpStatus === 429) {
+        formattedError = 'Límite de solicitudes alcanzado en Central One (rate limited).';
+      }
+
+      return {
+        success: false,
+        httpStatus,
+        orderId: null,
+        referenceCode: null,
+        status: 'failed',
+        totalSaleAmount: null,
+        currency: null,
+        errorMessage: formattedError,
+        failureCode: code,
+        failureAction: errObj.action || null,
+        raw: data,
+      };
+    }
+
+    const orderData = data.order || {};
+    const orderId = orderData.id || null;
+    const referenceCode = orderData.reference_code || null;
+    const status = (orderData.status || 'confirmed').toLowerCase();
+    const totalSaleAmount = orderData.total_sale_amount
+      ? parseFloat(orderData.total_sale_amount)
+      : null;
+
+    return {
+      success: true,
+      httpStatus,
+      orderId,
+      referenceCode,
+      status,
+      totalSaleAmount,
+      currency: orderData.currency || 'USD',
+      errorMessage: null,
+      failureCode: null,
+      failureAction: null,
+      raw: data,
+    };
+  } catch (err) {
+    clearTimeout(timer);
+    const isAbort = (err as Error)?.name === 'AbortError';
+    const msg = isAbort
+      ? 'Timeout de red contactando Central One POST /orders'
+      : (err as Error)?.message || String(err);
+
+    return {
+      success: false,
+      httpStatus: isAbort ? 504 : 500,
+      orderId: null,
+      referenceCode: null,
+      status: 'network_error',
+      totalSaleAmount: null,
+      currency: null,
+      errorMessage: msg,
+      failureCode: isAbort ? 'timeout' : 'network_error',
+      failureAction: 'retry_later',
+      raw: { error: String(err) },
+    };
+  }
+}
+
+export interface CentralOneOrderDetailResult {
+  found: boolean;
+  httpStatus: number;
+  orderId: string;
+  referenceCode: string | null;
+  orderStatus: string | null;
+  lineStatus: string | null;
+  totalSalePrice: number | null;
+  isSuccess: boolean;
+  isPending: boolean;
+  isFailed: boolean;
+  failureCode: string | null;
+  failureAction: string | null;
+  failureMessage: string | null;
+  raw: Record<string, unknown>;
+}
+
+export async function getOrder(
+  orderId: string
+): Promise<CentralOneOrderDetailResult> {
+  const apiKey = centralOneApiKey();
+  if (!apiKey) {
+    return {
+      found: false,
+      httpStatus: 500,
+      orderId,
+      referenceCode: null,
+      orderStatus: null,
+      lineStatus: null,
+      totalSalePrice: null,
+      isSuccess: false,
+      isPending: false,
+      isFailed: false,
+      failureCode: 'missing_config',
+      failureAction: null,
+      failureMessage: 'CENTRAL_ONE_API_KEY no está configurada.',
+      raw: {},
+    };
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10_000);
+
+  try {
+    const url = `${centralOneBaseUrl()}/orders/${encodeURIComponent(orderId)}`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    const data = (await response.json().catch(() => ({}))) as Record<string, any>;
+    const httpStatus = response.status;
+
+    if (httpStatus === 404) {
+      return {
+        found: false,
+        httpStatus: 404,
+        orderId,
+        referenceCode: null,
+        orderStatus: null,
+        lineStatus: null,
+        totalSalePrice: null,
+        isSuccess: false,
+        isPending: false,
+        isFailed: false,
+        failureCode: 'not_found',
+        failureAction: null,
+        failureMessage: 'Orden no encontrada en Central One.',
+        raw: data,
+      };
+    }
+
+    if (!response.ok) {
+      return {
+        found: false,
+        httpStatus,
+        orderId,
+        referenceCode: null,
+        orderStatus: null,
+        lineStatus: null,
+        totalSalePrice: null,
+        isSuccess: false,
+        isPending: false,
+        isFailed: false,
+        failureCode: data.error?.code || `http_${httpStatus}`,
+        failureAction: null,
+        failureMessage: data.error?.message || 'Error en GET /orders/{id}',
+        raw: data,
+      };
+    }
+
+    const order = data.order || {};
+    const orderStatus = (order.status || '').toLowerCase();
+    const referenceCode = order.reference_code || null;
+    const firstItem = Array.isArray(order.items) && order.items.length > 0 ? order.items[0] : null;
+    const lineStatus = (firstItem?.status || orderStatus).toLowerCase();
+
+    const failure = firstItem?.failure || order.failure || null;
+    const failureCode = failure?.code || null;
+    const failureAction = failure?.action || null;
+    const failureMessage = failure ? formatCentralOneFailure(failure) : null;
+
+    const totalSalePrice = firstItem?.total_sale_price
+      ? parseFloat(firstItem.total_sale_price)
+      : order.total_sale_amount
+        ? parseFloat(order.total_sale_amount)
+        : null;
+
+    const isSuccess = lineStatus === 'completed' || orderStatus === 'completed';
+    const isFailed =
+      lineStatus === 'failed' ||
+      lineStatus === 'cancelled' ||
+      lineStatus === 'refunded' ||
+      orderStatus === 'failed' ||
+      orderStatus === 'cancelled';
+    const isPending =
+      !isSuccess &&
+      !isFailed &&
+      ['created', 'confirmed', 'processing', 'reserved', 'pending'].includes(
+        lineStatus || orderStatus
+      );
+
+    return {
+      found: true,
+      httpStatus: 200,
+      orderId,
+      referenceCode,
+      orderStatus,
+      lineStatus,
+      totalSalePrice,
+      isSuccess,
+      isPending,
+      isFailed,
+      failureCode,
+      failureAction,
+      failureMessage,
+      raw: data,
+    };
+  } catch (err) {
+    clearTimeout(timer);
+    return {
+      found: false,
+      httpStatus: (err as Error)?.name === 'AbortError' ? 504 : 500,
+      orderId,
+      referenceCode: null,
+      orderStatus: null,
+      lineStatus: null,
+      totalSalePrice: null,
+      isSuccess: false,
+      isPending: false,
+      isFailed: false,
+      failureCode: 'network_error',
+      failureAction: null,
+      failureMessage: (err as Error)?.message || String(err),
+      raw: { error: String(err) },
+    };
+  }
+}

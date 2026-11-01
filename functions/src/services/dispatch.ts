@@ -20,6 +20,7 @@ import { notFound } from '../lib/errors';
 import { round } from '../lib/money';
 import * as inefable from './inefable';
 import * as fazercards from './fazercards';
+import * as centralOne from './centralOne';
 import * as audit from './audit';
 import * as notifications from './notifications';
 import * as adminAlerts from './adminAlerts';
@@ -122,7 +123,12 @@ function providerOrderIndexId(provider: string, providerOrderId: string): string
 
 /** Construye el plan de llamadas a partir de la configuración del producto. */
 export function buildCallPlan(
-  calls: Array<{ packageId: number | string; quantity: number; providerGameId?: number | string | null }>
+  calls: Array<{
+    packageId: number | string;
+    quantity: number;
+    providerGameId?: number | string | null;
+    provider?: 'inefable' | 'fazercards' | 'centralone';
+  }>
 ): DispatchCallResult[] {
   const plan: DispatchCallResult[] = [];
   let index = 0;
@@ -136,6 +142,7 @@ export function buildCallPlan(
         // Se congela en el plan: cambiar el catálogo después no puede alterar
         // a dónde se envía una orden que ya se cotizó.
         providerGameId: call.providerGameId ?? null,
+        provider: call.provider,
         index,
         status: 'pending',
         providerOrderId: null,
@@ -311,11 +318,17 @@ export async function dispatchOrder(
       return { order, claimed: false as const };
     }
 
+    const initialProvider = order.provider ?? 'inefable';
     tx.set(
       orderRef,
       {
         status: 'dispatching',
-        estado: 'DESPACHANDO_INEFABLE',
+        estado:
+          initialProvider === 'centralone'
+            ? 'DESPACHANDO_CENTRAL_ONE'
+            : initialProvider === 'fazercards'
+              ? 'DESPACHANDO_FAZERCARDS'
+              : 'DESPACHANDO_INEFABLE',
         dispatch: { ...order.dispatch, startedAt: order.dispatch.startedAt ?? now() },
         updatedAt: now(),
       },
@@ -358,8 +371,12 @@ export async function dispatchOrder(
   let providerGameId = order.providerGameId ?? null;
   const provider = order.provider ?? 'inefable';
   if (providerGameId === null || providerGameId === undefined) {
-    const gameSnap = await games().doc(order.gameId).get();
-    providerGameId = (gameSnap.data()?.apiGameId as number | string | undefined) ?? null;
+    if (provider === 'centralone') {
+      providerGameId = order.gameId ?? 'free-fire';
+    } else {
+      const gameSnap = await games().doc(order.gameId).get();
+      providerGameId = (gameSnap.data()?.apiGameId as number | string | undefined) ?? null;
+    }
   }
 
   if (providerGameId === null) {
@@ -497,13 +514,88 @@ export async function dispatchOrder(
       }
     }
 
+    
+    // Candado anti-doble cobro en reintentos (Central One):
+    if (callProvider === 'centralone' && (options.isRetry || call.attempts > 0 || call.status === 'error')) {
+      if (call.providerOrderId) {
+        try {
+          const existing = await centralOne.getOrder(call.providerOrderId);
+          if (existing.found) {
+            if (existing.isSuccess) {
+              log.info('Candado anti-doble cobro: la recarga ya figuraba completada en Central One', {
+                orderId,
+                externalOrderId,
+                providerOrderId: existing.orderId,
+                providerReference: existing.referenceCode,
+              });
+
+              call.status = 'success';
+              call.error = null;
+              call.completedAt = now();
+              call.providerOrderId = existing.orderId ?? call.providerOrderId;
+              call.providerReference = existing.referenceCode ?? call.providerReference;
+              call.providerStatus = existing.lineStatus || existing.orderStatus;
+              call.httpStatus = 200;
+
+              await addEvent({
+                orderId,
+                type: 'dispatch_call_ok',
+                message: `Recarga ${call.index + 1}/${calls.length} ya estaba completada en Central One (paquete ${call.packageId}).`,
+                data: {
+                  providerOrderId: call.providerOrderId,
+                },
+              });
+
+              continue;
+            }
+
+            if (existing.isPending) {
+              log.info('Candado anti-doble cobro: la recarga sigue en proceso en Central One', {
+                orderId,
+                externalOrderId,
+                providerOrderId: existing.orderId,
+              });
+
+              call.status = 'processing';
+              call.error = null;
+              call.providerOrderId = existing.orderId ?? call.providerOrderId;
+              call.providerReference = existing.referenceCode ?? call.providerReference;
+              call.providerStatus = existing.lineStatus || existing.orderStatus;
+              call.httpStatus = 202;
+
+              await addEvent({
+                orderId,
+                type: 'dispatch_call_processing',
+                message: `Central One sigue procesando la recarga ${call.index + 1}/${calls.length}.`,
+                data: {
+                  packageId: call.packageId,
+                  providerOrderId: call.providerOrderId,
+                  providerStatus: call.providerStatus,
+                },
+              });
+
+              continue;
+            }
+          }
+        } catch (err) {
+          log.warn('No se pudo verificar getOrder previo al reintento en Central One', {
+            orderId,
+            externalOrderId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    }
+
     call.attempts += 1;
 
     try {
       const result =
-        provider === 'fazercards'
-          ? await dispatchFazerCall(order, call, providerGameId)
-          : await inefable.createOrder({
+        callProvider === 'centralone'
+          ? await dispatchCentralOneCall(order, call, options)
+          : callProvider === 'fazercards'
+            ? await dispatchFazerCall(order, call, providerGameId)
+            : await inefable.createOrder({
               // Inefable sólo admite IDs enteros. La validación explícita evita
               // que una oferta de FazerCards se envíe por accidente al API viejo.
               gameId: requireInefableId(call.providerGameId ?? providerGameId, 'game_id'),
@@ -528,13 +620,13 @@ export async function dispatchOrder(
 
       // El saldo del proveedor viaja en cada respuesta: es el momento más
       // barato para detectar que se está agotando.
-      void adminAlerts.checkProviderBalance(result.remainingBalance);
+      void adminAlerts.checkProviderBalance(result.remainingBalance ?? null);
 
       // Se registra la respuesta del proveedor pase lo que pase: es la única
       // pista para diagnosticar después por qué una entrega no salió.
       call.providerOrderId = result.providerOrderId;
       call.providerStatus = result.providerStatus;
-      call.provider = provider;
+      call.provider = callProvider;
       call.playerName = result.playerName;
       call.providerReference = result.providerReference;
       call.httpStatus = result.httpStatus;
@@ -546,11 +638,11 @@ export async function dispatchOrder(
       // FazerCards avisa por su propio `order_id`, no por nuestro código. Se
       // indexa apenas responde para que el webhook resuelva en O(1), incluso
       // cuando haya muchas órdenes simultáneas.
-      if (provider === 'fazercards' && result.providerOrderId) {
+      if ((callProvider === 'fazercards' || callProvider === 'centralone') && result.providerOrderId) {
         await providerOrders()
-          .doc(providerOrderIndexId(provider, result.providerOrderId))
+          .doc(providerOrderIndexId(callProvider, result.providerOrderId))
           .set({
-            provider,
+            provider: callProvider,
             providerOrderId: result.providerOrderId,
             orderId,
             callIndex: call.index,
@@ -664,6 +756,177 @@ export async function dispatchOrder(
 }
 
 /** Rutea la llamada FazerCards según la familia congelada en el juego. */
+
+async function dispatchCentralOneCall(
+  order: Order,
+  call: DispatchCallResult,
+  options: { isRetry?: boolean }
+): Promise<{
+  success: boolean;
+  processing?: boolean;
+  providerOrderId: string | null;
+  providerStatus: string | null;
+  providerReference: string | null;
+  playerName: string | null;
+  remainingBalance?: number | null;
+  raw: Record<string, unknown>;
+  httpStatus: number | null;
+  message?: string;
+}> {
+  const isPreviouslyFailed =
+    call.providerStatus === 'failed' || call.providerStatus === 'cancelled';
+  const idempotencyKey = isPreviouslyFailed
+    ? `${order.code}-${call.index + 1}-r${call.attempts || 1}`
+    : `${order.code}-${call.index + 1}`;
+
+  const orderFields = order.playerFields ?? {};
+  const targetPayload: Record<string, string> = {};
+  const gid = (order.gameId || '').toLowerCase();
+
+  // Mapear campos de jugador según el juego
+  if (gid.includes('blood-strike') || gid.includes('arena-breakout') || gid.includes('pubg')) {
+    targetPayload.game_user_id = (
+      orderFields.game_user_id ||
+      orderFields.player_id ||
+      order.playerId ||
+      ''
+    ).trim();
+  } else if (gid.includes('mobile-legends')) {
+    targetPayload.player_id = (
+      orderFields.player_id ||
+      order.playerId ||
+      ''
+    ).trim();
+    targetPayload.server_id = (
+      orderFields.server_id ||
+      orderFields.zone_id ||
+      order.playerId2 ||
+      ''
+    ).trim();
+  } else {
+    // Free Fire por defecto
+    targetPayload.player_id = (
+      orderFields.player_id ||
+      order.playerId ||
+      ''
+    ).trim();
+  }
+
+  const createResult = await centralOne.createOrder({
+    catalogItemId: String(call.packageId),
+    quantity: 1,
+    targetPayload,
+    idempotencyKey,
+    note: `Orden ${order.code} - ${order.gameName}`,
+  });
+
+  if (!createResult.success) {
+    const isNotEligible =
+      createResult.failureCode === 'not_eligible' ||
+      createResult.failureAction === 'do_not_retry';
+
+    const failureMsg = isNotEligible
+      ? 'La cuenta del jugador no es elegible para este nivel (ya fue reclamado anteriormente o no cumple el requisito).'
+      : centralOne.formatCentralOneFailure({
+          code: createResult.failureCode,
+          action: createResult.failureAction,
+          message: createResult.errorMessage,
+        });
+
+    return {
+      success: false,
+      processing: false,
+      providerOrderId: null,
+      providerStatus: createResult.status || 'failed',
+      providerReference: null,
+      playerName: null,
+      raw: createResult.raw,
+      httpStatus: createResult.httpStatus,
+      message: failureMsg,
+    };
+  }
+
+  const orderId = createResult.orderId;
+  const referenceCode = createResult.referenceCode;
+
+  // Si no devolvió orderId (caso anómalo), devolver en processing
+  if (!orderId) {
+    return {
+      success: false,
+      processing: true,
+      providerOrderId: null,
+      providerStatus: createResult.status,
+      providerReference: referenceCode,
+      playerName: null,
+      raw: createResult.raw,
+      httpStatus: createResult.httpStatus,
+      message: 'Orden creada en Central One pero sin identificador de seguimiento.',
+    };
+  }
+
+  // Verificación rápida a los ~2.5 segundos (Regla 2 del manual)
+  await new Promise((resolve) => setTimeout(resolve, 2500));
+
+  const orderDetail = await centralOne.getOrder(orderId).catch(() => null);
+
+  if (orderDetail && orderDetail.found) {
+    if (orderDetail.isSuccess) {
+      return {
+        success: true,
+        processing: false,
+        providerOrderId: orderId,
+        providerStatus: orderDetail.lineStatus || orderDetail.orderStatus || 'completed',
+        providerReference: referenceCode,
+        playerName: order.playerNickname || null,
+        raw: orderDetail.raw,
+        httpStatus: 200,
+        message: 'Recarga completada exitosamente en Central One.',
+      };
+    }
+
+    if (orderDetail.isFailed) {
+      return {
+        success: false,
+        processing: false,
+        providerOrderId: orderId,
+        providerStatus: orderDetail.lineStatus || orderDetail.orderStatus || 'failed',
+        providerReference: referenceCode,
+        playerName: order.playerNickname || null,
+        raw: orderDetail.raw,
+        httpStatus: orderDetail.httpStatus || 400,
+        message:
+          orderDetail.failureMessage ||
+          'Falló la entrega del producto en Central One.',
+      };
+    }
+
+    return {
+      success: false,
+      processing: true,
+      providerOrderId: orderId,
+      providerStatus: orderDetail.lineStatus || orderDetail.orderStatus || 'processing',
+      providerReference: referenceCode,
+      playerName: order.playerNickname || null,
+      raw: orderDetail.raw,
+      httpStatus: 202,
+      message: 'Orden en proceso en Central One; en cola de entrega.',
+    };
+  }
+
+  // Si falló la consulta inmediata del detalle, mantener en processing de forma segura
+  return {
+    success: false,
+    processing: true,
+    providerOrderId: orderId,
+    providerStatus: createResult.status || 'confirmed',
+    providerReference: referenceCode,
+    playerName: order.playerNickname || null,
+    raw: createResult.raw,
+    httpStatus: 202,
+    message: 'Orden aceptada en Central One; esperando confirmación de entrega.',
+  };
+}
+
 async function dispatchFazerCall(
   order: Order,
   call: DispatchCallResult,
@@ -863,10 +1126,15 @@ export async function finalizeDispatch(
     : anyProcessing
       ? 'dispatching'
       : 'in_review';
+  const providerForEstado = calls.find((c) => c.provider)?.provider ?? order.provider ?? 'inefable';
   const nextEstado = allSucceeded
     ? 'COMPLETADO'
     : anyProcessing
-      ? 'DESPACHANDO_INEFABLE'
+      ? (providerForEstado === 'centralone'
+          ? 'DESPACHANDO_CENTRAL_ONE'
+          : providerForEstado === 'fazercards'
+            ? 'DESPACHANDO_FAZERCARDS'
+            : 'DESPACHANDO_INEFABLE')
       : esEntregaParcial
         ? 'ENTREGA_PARCIAL_COMBO'
         : 'REVISION_MANUAL';
@@ -985,7 +1253,7 @@ export async function finalizeDispatch(
   }
 
   const status = txOutcome.status;
-  const isWhatsappGuest = order.uid.startsWith('whatsapp:');
+  const isWhatsappGuest = Boolean(order.uid?.startsWith('whatsapp:'));
   const alreadyAccounted = txOutcome.current.metricsAccounted === true;
 
   // Aceptada y en curso: ni correo de entrega ni de fallo. La tarea programada
@@ -1296,31 +1564,44 @@ async function resolveOne(order: Order): Promise<boolean> {
         : null;
     const inefableResult =
       provider === 'inefable' ? await inefable.getOrderStatus(externalOrderId).catch(() => null) : null;
-    if (!fazerResult && !inefableResult) continue;
+    const centralOneResult =
+      provider === 'centralone' && call.providerOrderId
+        ? await centralOne.getOrder(call.providerOrderId).catch(() => null)
+        : null;
+    if (!fazerResult && !inefableResult && !centralOneResult) continue;
     if (inefableResult && !inefableResult.found) continue;
 
-    const providerStatus = fazerResult?.providerStatus ?? inefableResult?.status ?? null;
+    const providerStatus =
+      fazerResult?.providerStatus ??
+      (centralOneResult ? centralOneResult.lineStatus || centralOneResult.orderStatus : null) ??
+      inefableResult?.status ??
+      null;
     const normalizado = (providerStatus ?? '').toLowerCase();
     const requiresCode = order.providerFamily === 'gift_card' || order.providerFamily === 'game_key';
-    const success = fazerResult
-      ? fazerResult.success && (!requiresCode || Boolean(fazerResult.codes?.length))
-      : inefable.isSuccessStatus(normalizado);
-    const failed = fazerResult
-      ? !fazerResult.success && !fazerResult.processing
-      : inefable.isFailureStatus(normalizado);
+    const success = centralOneResult
+      ? centralOneResult.isSuccess
+      : fazerResult
+        ? fazerResult.success && (!requiresCode || Boolean(fazerResult.codes?.length))
+        : inefable.isSuccessStatus(normalizado);
+    const failed = centralOneResult
+      ? centralOneResult.isFailed
+      : fazerResult
+        ? !fazerResult.success && !fazerResult.processing
+        : inefable.isFailureStatus(normalizado);
     if (success) {
       if (fazerResult?.codes?.length) call.deliveredCodes = fazerResult.codes;
       call.status = 'success';
       call.error = null;
       call.completedAt = now();
       call.providerStatus = providerStatus;
-      call.providerOrderId = fazerResult?.providerOrderId ?? inefableResult?.providerOrderId ?? call.providerOrderId;
-      call.providerReference = fazerResult?.providerReference ?? inefableResult?.providerReference ?? call.providerReference;
+      call.providerOrderId = centralOneResult?.orderId ?? fazerResult?.providerOrderId ?? inefableResult?.providerOrderId ?? call.providerOrderId;
+      call.providerReference = centralOneResult?.referenceCode ?? fazerResult?.providerReference ?? inefableResult?.providerReference ?? call.providerReference;
       cambio = true;
     } else if (failed && call.status === 'processing') {
       call.status = 'error';
       call.error = sanitizeProviderError(
-        inefableResult?.error ||
+        centralOneResult?.failureMessage ||
+          inefableResult?.error ||
           fazerResult?.message ||
           `El proveedor marcó la recarga como ${providerStatus}.`
       );
@@ -1413,7 +1694,7 @@ export async function resolveProcessingOrders(): Promise<{
 export interface CallProviderCheck {
   index: number;
   packageId: number | string;
-  provider: 'inefable' | 'fazercards';
+  provider: 'inefable' | 'fazercards' | 'centralone';
   providerOrderId: string | null;
   found: boolean;
   status: 'completed' | 'processing' | 'failed' | 'not_found' | 'unknown';
@@ -1577,6 +1858,102 @@ export async function checkOrderProviderStatus(
             status: 'unknown',
             rawStatus: inefableResult.status,
             message: `Estado no reconocido en Inefable: ${inefableResult.status}`,
+          });
+        }
+      }
+        } else if (provider === 'centralone') {
+      const coResult = call.providerOrderId
+        ? await centralOne.getOrder(call.providerOrderId).catch(() => null)
+        : null;
+
+      if (!coResult || !coResult.found || coResult.httpStatus === 404) {
+        if (call.status === 'processing') {
+          call.status = 'error';
+          call.error = 'No registrada en Central One (la orden no existe o no llegó a crearse).';
+          callChanged = true;
+        }
+        checks.push({
+          index: call.index,
+          packageId: call.packageId,
+          provider: 'centralone',
+          providerOrderId: call.providerOrderId,
+          found: false,
+          status: 'not_found',
+          rawStatus: null,
+          message: '⚪ No registrada en Central One: La llamada nunca llegó a procesarse. Es seguro reintentar.',
+        });
+      } else {
+        const pOrderId = coResult.orderId ?? call.providerOrderId;
+        const pRef = coResult.referenceCode ?? call.providerReference;
+
+        if (coResult.isSuccess) {
+          call.status = 'success';
+          call.error = null;
+          call.completedAt = now();
+          call.providerOrderId = pOrderId;
+          call.providerReference = pRef;
+          call.providerStatus = coResult.lineStatus || coResult.orderStatus;
+          call.httpStatus = 200;
+          callChanged = true;
+
+          checks.push({
+            index: call.index,
+            packageId: call.packageId,
+            provider: 'centralone',
+            providerOrderId: pOrderId,
+            found: true,
+            status: 'completed',
+            rawStatus: call.providerStatus,
+            message: `Completada en Central One (Ref: ${pRef ?? pOrderId}).`,
+          });
+        } else if (coResult.isPending) {
+          if (call.status !== 'processing') {
+            call.status = 'processing';
+            call.providerOrderId = pOrderId;
+            call.providerReference = pRef;
+            call.providerStatus = coResult.lineStatus || coResult.orderStatus;
+            callChanged = true;
+          }
+          checks.push({
+            index: call.index,
+            packageId: call.packageId,
+            provider: 'centralone',
+            providerOrderId: pOrderId,
+            found: true,
+            status: 'processing',
+            rawStatus: coResult.lineStatus || coResult.orderStatus,
+            message: `En proceso en Central One (Ref: ${pRef ?? pOrderId}). Saldo retenido en cola.`,
+          });
+        } else if (coResult.isFailed) {
+          if (call.status === 'processing') {
+            call.status = 'error';
+            call.error = sanitizeProviderError(
+              coResult.failureMessage || `Falló en Central One: ${coResult.failureCode || coResult.lineStatus}`
+            );
+            call.providerOrderId = pOrderId;
+            call.providerStatus = coResult.lineStatus || coResult.orderStatus;
+            callChanged = true;
+          }
+          checks.push({
+            index: call.index,
+            packageId: call.packageId,
+            provider: 'centralone',
+            providerOrderId: pOrderId,
+            found: true,
+            status: 'failed',
+            rawStatus: coResult.lineStatus || coResult.orderStatus,
+            message: sanitizeProviderError(coResult.failureMessage || 'Marcada como fallida por Central One.'),
+          });
+        } else {
+          checks.push({
+            index: call.index,
+            packageId: call.packageId,
+            provider: 'centralone',
+            providerOrderId: pOrderId,
+            found: true,
+            status: 'unknown',
+            rawStatus: coResult.lineStatus || coResult.orderStatus,
+            message: `Estado no reconocido en Central One: ${coResult.lineStatus || coResult.orderStatus}`,
           });
         }
       }

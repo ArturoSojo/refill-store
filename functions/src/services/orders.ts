@@ -518,7 +518,7 @@ export async function createOrder(
     gameName: game.name,
     providerGameId: game.apiGameId,
     // Queda congelado: cambiar de proveedor mañana no altera una compra ya pagada.
-    provider: game.provider ?? 'inefable',
+    provider: product.provider ?? game.provider ?? 'inefable',
     providerFamily: game.providerFamily ?? 'topup',
     productId: product.id,
     productName: product.name,
@@ -2196,9 +2196,21 @@ export async function refundStaleReviewOrders(limit = 50): Promise<number> {
             orderId: doc.id,
             code: order.code,
           });
+          const isCentralOne =
+            order.provider === 'centralone' ||
+            checkResult.calls.some((c) => c.provider === 'centralone');
+          const isFazer =
+            order.provider === 'fazercards' ||
+            checkResult.calls.some((c) => c.provider === 'fazercards');
+          const nextEstado = isCentralOne
+            ? 'DESPACHANDO_CENTRAL_ONE'
+            : isFazer
+              ? 'DESPACHANDO_FAZERCARDS'
+              : 'DESPACHANDO_INEFABLE';
+
           await orders().doc(doc.id).update({
             status: 'dispatching',
-            estado: 'DESPACHANDO_INEFABLE',
+            estado: nextEstado,
             reviewDeadline: minutesFromNow(60),
             updatedAt: now(),
           });

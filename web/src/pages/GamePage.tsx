@@ -19,6 +19,7 @@ import {
   Loader2,
   Sparkles,
   Tag,
+  TrendingUp,
   Zap,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -49,7 +50,7 @@ import { readCreatorCode } from '@/lib/creatorCode';
 import { cn, hexToRgb } from '@/lib/utils';
 import type { PricePreview, PublicProduct } from '@/types/models';
 
-type Tab = 'auto' | 'manual';
+type Tab = 'auto' | 'manual' | 'level_up';
 
 export function GamePage() {
   const { slug } = useParams<{ slug: string }>();
@@ -116,7 +117,22 @@ export function GamePage() {
   );
 
   const { automatic, manual } = groupProducts(products);
-  const visible = tab === 'auto' ? automatic : manual;
+  const levelUp = useMemo(
+    () => products.filter((p) => p.kind === 'level_up'),
+    [products]
+  );
+  const automaticRegular = useMemo(
+    () => automatic.filter((p) => p.kind !== 'level_up'),
+    [automatic]
+  );
+  const visible =
+    tab === 'level_up'
+      ? levelUp
+      : tab === 'manual'
+        ? manual
+        : levelUp.length > 0
+          ? automaticRegular
+          : automatic;
   const selected = products.find((item) => item.id === selectedProductId) ?? null;
 
   useDocumentTitle(game ? `Recargar ${game.name}` : 'Recargar');
@@ -480,7 +496,7 @@ export function GamePage() {
               Elige tu paquete
             </h2>
 
-            {manual.length > 0 && (
+            {(manual.length > 0 || levelUp.length > 0) && (
               <div className="inline-flex rounded-xl border border-base-600 bg-base-800 p-1">
                 <button
                   type="button"
@@ -495,22 +511,51 @@ export function GamePage() {
                   <Zap className="h-3 w-3" aria-hidden />
                   {game.currencyLabel}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setTab('manual')}
-                  className={cn(
-                    'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition',
-                    tab === 'manual'
-                      ? 'bg-brand-gradient text-white shadow-glow'
-                      : 'text-slate-400 hover:text-white'
-                  )}
-                >
-                  <Sparkles className="h-3 w-3" aria-hidden />
-                  Especiales
-                </button>
+                {levelUp.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setTab('level_up')}
+                    className={cn(
+                      'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition',
+                      tab === 'level_up'
+                        ? 'bg-brand-gradient text-white shadow-glow'
+                        : 'text-slate-400 hover:text-white'
+                    )}
+                  >
+                    <TrendingUp className="h-3 w-3" aria-hidden />
+                    Subida de nivel
+                  </button>
+                )}
+                {manual.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setTab('manual')}
+                    className={cn(
+                      'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition',
+                      tab === 'manual'
+                        ? 'bg-brand-gradient text-white shadow-glow'
+                        : 'text-slate-400 hover:text-white'
+                    )}
+                  >
+                    <Sparkles className="h-3 w-3" aria-hidden />
+                    Especiales
+                  </button>
+                )}
               </div>
             )}
           </div>
+
+          {tab === 'level_up' && (
+            <p className="mb-3 rounded-xl border border-sky-500/25 bg-sky-500/10 px-3 py-2 text-xs text-sky-200">
+              Subida de nivel oficial para Free Fire. Se carga de forma directa e instantánea en tu cuenta con tu ID.
+            </p>
+          )}
+
+          {tab === 'level_up' && (
+            <p className="mb-3 rounded-xl border border-sky-500/25 bg-sky-500/10 px-3 py-2 text-xs text-sky-200">
+              Subida de nivel oficial para Free Fire. Se carga de forma directa e instantánea en tu cuenta con tu ID.
+            </p>
+          )}
 
           {tab === 'manual' && (
             <p className="mb-3 rounded-xl border border-green-500/25 bg-green-500/10 px-3 py-2 text-xs text-green-200">

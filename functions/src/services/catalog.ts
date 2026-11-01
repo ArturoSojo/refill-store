@@ -185,6 +185,15 @@ export function compareProducts(a: Product, b: Product): number {
   const bSpecial = b.kind === 'special' ? 1 : 0;
   if (aSpecial !== bSpecial) return aSpecial - bSpecial;
 
+  const aLevelUp = a.kind === 'level_up' ? 1 : 0;
+  const bLevelUp = b.kind === 'level_up' ? 1 : 0;
+  if (aLevelUp !== bLevelUp) return aLevelUp - bLevelUp;
+
+  if (aLevelUp === 1) {
+    if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+    return a.priceUsd - b.priceUsd;
+  }
+
   if (aSpecial === 1) {
     if (a.priceUsd !== b.priceUsd) return a.priceUsd - b.priceUsd;
     return a.sortOrder - b.sortOrder;
