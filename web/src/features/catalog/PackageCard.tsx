@@ -55,24 +55,23 @@ export function PackageCard({ product, game, selected, onSelect, index = 0 }: Pa
         } as React.CSSProperties
       }
     >
-      {/* Los distintivos se apilan en la esquina: un paquete puede ser combo y
-          destacado a la vez, y ocultar uno de los dos pierde información. */}
+      {/* Distintivo en la esquina: si tiene un badge propio (ej: COMBO, POPULAR, COMBO COMPLETO),
+          se muestra ese badge único para no saturar ni tapar el título con múltiples etiquetas. */}
       {(product.badge || product.featured) && (
-        <span className="absolute right-0 top-2.5 z-10 flex flex-col items-end gap-1">
-          {product.badge && (
+        <span className="absolute right-0 top-2 z-10 flex items-center">
+          {product.badge ? (
             <span
-              className="rounded-l-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-white"
+              className="rounded-l-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-white shadow-sm"
               style={{ backgroundColor: accent }}
             >
               {product.badge}
             </span>
-          )}
-          {product.featured && (
-            <span className="flex items-center gap-0.5 rounded-l-full bg-amber-400 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-base-900">
+          ) : product.featured ? (
+            <span className="flex items-center gap-0.5 rounded-l-full bg-amber-400 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-base-900 shadow-sm">
               <Star className="h-2.5 w-2.5 fill-current" aria-hidden />
               Destacado
             </span>
-          )}
+          ) : null}
         </span>
       )}
 
@@ -89,7 +88,7 @@ export function PackageCard({ product, game, selected, onSelect, index = 0 }: Pa
       )}
 
       {/* Cantidad de moneda del juego */}
-      <div className="mb-2 flex items-baseline gap-1.5 pt-3">
+      <div className={cn("mb-2 flex items-start gap-2 pt-3", (product.badge || product.featured) && "pt-4")}>
         {/* Un pase o una tarjeta no entregan monedas del juego, así que pintar
             ahí el diamante confunde: si el producto trae su propia imagen, esa
             manda. */}
@@ -104,9 +103,9 @@ export function PackageCard({ product, game, selected, onSelect, index = 0 }: Pa
         ) : (
           <CurrencyIcon game={game} className="h-7 w-7 self-center text-2xl" />
         )}
-        <div className="min-w-0">
+        <div className={cn("min-w-0 flex-1", (product.badge || product.featured) && "pr-12")}>
           {showOfferName ? (
-            <p className="line-clamp-2 text-sm font-bold leading-tight text-white">{product.name}</p>
+            <p className="line-clamp-2 text-xs sm:text-sm font-bold leading-tight text-white">{product.name}</p>
           ) : (
             <>
               <p className="text-xl font-black leading-none text-white">

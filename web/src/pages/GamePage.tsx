@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { api, isFazerCardsStorefront, ApiError } from '@/lib/api';
-import { useCatalog, useFamilyCatalog, useGameCatalog, groupProducts } from '@/hooks/useCatalog';
+import { useCatalog, useFamilyCatalog, useGameCatalog } from '@/hooks/useCatalog';
 import { usePricePreview } from '@/hooks/useOrders';
 import { useSavedPlayerIds } from '@/hooks/useAccount';
 import { useDocumentTitle } from '@/hooks/useMisc';
@@ -116,23 +116,35 @@ export function GamePage() {
     [catalog.data]
   );
 
-  const { automatic, manual } = groupProducts(products);
   const levelUp = useMemo(
     () => products.filter((p) => p.kind === 'level_up'),
     [products]
   );
-  const automaticRegular = useMemo(
-    () => automatic.filter((p) => p.kind !== 'level_up'),
-    [automatic]
+  const specials = useMemo(
+    () =>
+      products.filter(
+        (p) => p.kind === 'special' || p.fulfillment === 'manual'
+      ),
+    [products]
+  );
+  const currencyProducts = useMemo(
+    () =>
+      products.filter(
+        (p) =>
+          p.kind !== 'level_up' &&
+          p.kind !== 'special' &&
+          p.fulfillment === 'auto'
+      ),
+    [products]
   );
   const visible =
     tab === 'level_up'
       ? levelUp
       : tab === 'manual'
-        ? manual
-        : levelUp.length > 0
-          ? automaticRegular
-          : automatic;
+        ? specials
+        : currencyProducts.length > 0
+          ? currencyProducts
+          : products;
   const selected = products.find((item) => item.id === selectedProductId) ?? null;
 
   useDocumentTitle(game ? `Recargar ${game.name}` : 'Recargar');
@@ -496,7 +508,7 @@ export function GamePage() {
               Elige tu paquete
             </h2>
 
-            {(manual.length > 0 || levelUp.length > 0) && (
+            {(specials.length > 0 || levelUp.length > 0) && (
               <div className="inline-flex rounded-xl border border-base-600 bg-base-800 p-1">
                 <button
                   type="button"
@@ -526,7 +538,7 @@ export function GamePage() {
                     Subida de nivel
                   </button>
                 )}
-                {manual.length > 0 && (
+                {specials.length > 0 && (
                   <button
                     type="button"
                     onClick={() => setTab('manual')}
@@ -551,16 +563,13 @@ export function GamePage() {
             </p>
           )}
 
-          {tab === 'level_up' && (
-            <p className="mb-3 rounded-xl border border-sky-500/25 bg-sky-500/10 px-3 py-2 text-xs text-sky-200">
-              Subida de nivel oficial para Free Fire. Se carga de forma directa e instantánea en tu cuenta con tu ID.
-            </p>
-          )}
-
           {tab === 'manual' && (
             <p className="mb-3 rounded-xl border border-green-500/25 bg-green-500/10 px-3 py-2 text-xs text-green-200">
-              Estos productos los activa un asesor por WhatsApp. Pagas igual desde la web y al
-              verificarse el pago se abre el chat con todos tus datos ya cargados.
+              {specials.every((p) => p.fulfillment === 'auto')
+                ? 'Pases y ofertas especiales oficiales. Se acreditan de forma automática a tu cuenta.'
+                : specials.some((p) => p.fulfillment === 'auto')
+                  ? 'Pases y ofertas especiales. Las recargas instantáneas entran directo a tu ID y las manuales las activa un asesor por WhatsApp.'
+                  : 'Estos productos los activa un asesor por WhatsApp. Pagas igual desde la web y al verificarse el pago se abre el chat con todos tus datos ya cargados.'}
             </p>
           )}
 
