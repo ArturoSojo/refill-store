@@ -109,10 +109,11 @@ export function normalizeGameSlug(rawSlug: string): string | null {
     return 'pubg-mobile';
   }
   if (
-    s === 'arena-breakout' ||
-    s === 'arena_breakout' ||
-    s === 'arenabreakout' ||
-    (s.includes('arena') && s.includes('breakout'))
+    !s.includes('infinite') &&
+    (s === 'arena-breakout' ||
+      s === 'arena_breakout' ||
+      s === 'arenabreakout' ||
+      (s.includes('arena') && s.includes('breakout')))
   ) {
     return 'arena-breakout';
   }

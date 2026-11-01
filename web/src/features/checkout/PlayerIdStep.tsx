@@ -37,10 +37,15 @@ const SUPPORTED_VERIFICATION_SLUGS = [
   'arena-breakout',
 ];
 
-function isSupportedVerificationGame(gameId: string): boolean {
+function isSupportedVerificationGame(gameId: string, gameName?: string): boolean {
   const g = (gameId || '').toLowerCase();
+  const n = (gameName || '').toLowerCase();
+  if (g.includes('infinite') || n.includes('infinite')) return false;
   return SUPPORTED_VERIFICATION_SLUGS.some(
-    (slug) => g === slug || g.includes(slug) || (slug === 'mobile-legends' && g === 'mlbb')
+    (slug) =>
+      g === slug ||
+      g.includes(slug) ||
+      (slug === 'mobile-legends' && (g === 'mlbb' || n.includes('mobile legends')))
   );
 }
 
@@ -119,7 +124,7 @@ export function PlayerIdStep({
   const currentStatus = isVerifiedForCurrentInput ? validation.status : 'idle';
 
   const verifyAccount = async (): Promise<{ ok: boolean; playerName: string | null }> => {
-    if (!isSupportedVerificationGame(game.id) || !requiresPlayerData) {
+    if (!isSupportedVerificationGame(game.id, game.name) || !requiresPlayerData) {
       return { ok: true, playerName: null };
     }
 
@@ -195,7 +200,7 @@ export function PlayerIdStep({
   const handleFieldsBlur = () => {
     setTouched(true);
     if (
-      isSupportedVerificationGame(game.id) &&
+      isSupportedVerificationGame(game.id, game.name) &&
       isValid &&
       playerId &&
       (!isVerifiedForCurrentInput || validation.status === 'idle') &&
@@ -216,7 +221,7 @@ export function PlayerIdStep({
     setTouched(true);
     if (!isValid) return;
 
-    if (isSupportedVerificationGame(game.id) && requiresPlayerData) {
+    if (isSupportedVerificationGame(game.id, game.name) && requiresPlayerData) {
       if (currentStatus === 'invalid') {
         // Bloquea el avance al paso de Pago
         return;
@@ -313,7 +318,7 @@ export function PlayerIdStep({
           </p>
         )}
 
-        {requiresPlayerData && isSupportedVerificationGame(game.id) && (
+        {requiresPlayerData && isSupportedVerificationGame(game.id, game.name) && (
           <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
             <button
               type="button"
@@ -339,7 +344,7 @@ export function PlayerIdStep({
           </div>
         )}
 
-        {requiresPlayerData && !isSupportedVerificationGame(game.id) && (
+        {requiresPlayerData && !isSupportedVerificationGame(game.id, game.name) && (
           <button
             type="button"
             onClick={() => setHelpOpen(true)}
@@ -351,7 +356,7 @@ export function PlayerIdStep({
         )}
 
         {/* Banners visuales de validación en tiempo real */}
-        {requiresPlayerData && isSupportedVerificationGame(game.id) && (
+        {requiresPlayerData && isSupportedVerificationGame(game.id, game.name) && (
           <>
             {validation.status === 'checking' && (
               <div className="mt-3 flex items-center gap-2.5 rounded-xl border border-sky-500/30 bg-sky-500/10 p-3 text-xs text-sky-200">
@@ -412,7 +417,7 @@ export function PlayerIdStep({
 
         {requiresPlayerData &&
           game.validatesPlayerId === false &&
-          !isSupportedVerificationGame(game.id) && (
+          !isSupportedVerificationGame(game.id, game.name) && (
             <p className="mt-3 flex items-start gap-1.5 rounded-xl bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
               <span>

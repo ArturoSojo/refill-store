@@ -1,12 +1,15 @@
 /**
- * Configuración de validación de IDs con FazerCards (GET /api/v2/topups/validate-id).
+ * Configuración de validación de IDs de jugadores.
+ * Soporta Central One y FazerCards.
  */
 
 export interface FazerValidationCategoryConfig {
   categoryId:
     | 'free_fire'
+    | 'blood_strike'
     | 'pubg_mobile'
     | 'mobile_legends'
+    | 'arena_breakout'
     | 'magic_chess_gogo_global'
     | 'magic_chess_gogo_ru';
   name: string;
@@ -17,6 +20,16 @@ export const FAZER_VALIDATION_CATEGORIES: Record<string, FazerValidationCategory
   free_fire: {
     categoryId: 'free_fire',
     name: 'Free Fire',
+    requiredFields: ['player_id'],
+  },
+  blood_strike: {
+    categoryId: 'blood_strike',
+    name: 'Blood Strike',
+    requiredFields: ['player_id'],
+  },
+  arena_breakout: {
+    categoryId: 'arena_breakout',
+    name: 'Arena Breakout',
     requiredFields: ['player_id'],
   },
   pubg_mobile: {
@@ -42,8 +55,7 @@ export const FAZER_VALIDATION_CATEGORIES: Record<string, FazerValidationCategory
 };
 
 /**
- * Resuelve la categoría de validación de FazerCards para un juego dado.
- * Si el juego no soporta validación previa (ej: Blood Strike, Delta Force), retorna null.
+ * Resuelve si un juego soporta validación de Player ID.
  */
 export function resolveFazerValidationCategory(
   game: { id?: string; apiGameId?: string | number; name?: string } | null | undefined
@@ -66,10 +78,36 @@ export function resolveFazerValidationCategory(
     return FAZER_VALIDATION_CATEGORIES.free_fire;
   }
 
+  // Blood Strike
+  if (
+    id === 'blood-strike' ||
+    id === 'bloodstrike' ||
+    id.includes('blood-strike') ||
+    id.includes('bloodstrike') ||
+    name.includes('blood strike')
+  ) {
+    return FAZER_VALIDATION_CATEGORIES.blood_strike;
+  }
+
+  // Arena Breakout (excluyendo Infinite de PC)
+  if (
+    !id.includes('infinite') &&
+    !name.includes('infinite') &&
+    !apiId.includes('infinite') &&
+    (id === 'arena-breakout' ||
+      id === 'arenabreakout' ||
+      id.includes('arena-breakout') ||
+      id.includes('arenabreakout') ||
+      name.includes('arena breakout'))
+  ) {
+    return FAZER_VALIDATION_CATEGORIES.arena_breakout;
+  }
+
   // PUBG Mobile
   if (
     id.includes('pubg-mobile') ||
     id.includes('pubg_mobile') ||
+    id === 'pubg' ||
     apiId.startsWith('pubg_mobile') ||
     (name.includes('pubg') && name.includes('mobile'))
   ) {
@@ -96,7 +134,7 @@ export function resolveFazerValidationCategory(
     return FAZER_VALIDATION_CATEGORIES.magic_chess_gogo_global;
   }
 
-  // Mobile Legends (excluyendo Mobile Legends: Adventure que no soporta validación en FazerCards)
+  // Mobile Legends (excluyendo Mobile Legends: Adventure que no soporta validación)
   if (
     !id.includes('adventure') &&
     !apiId.includes('adventure') &&

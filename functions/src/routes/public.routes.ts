@@ -330,7 +330,12 @@ publicRouter.post(
         });
       }
 
-      if (!fazerCards.isFazerCardsConfigured()) {
+      const normalized = centralOne.normalizeGameSlug(gameId);
+      const isFazerSupported =
+        normalized &&
+        ['free-fire', 'pubg-mobile', 'mobile-legends'].includes(normalized);
+
+      if (!fazerCards.isFazerCardsConfigured() || !isFazerSupported) {
         return ok(res, {
           valid: true,
           playerName: null,

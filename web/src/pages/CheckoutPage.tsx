@@ -36,6 +36,9 @@ interface CheckoutState {
   playerId?: string;
   quantity?: number;
   couponCode?: string | null;
+  creatorCode?: string | null;
+  playerIdVerified?: boolean;
+  playerNickname?: string | null;
 }
 
 /** Mismo criterio que valida el backend, para avisar antes de enviar. */
@@ -77,7 +80,7 @@ export function CheckoutPage() {
   // Sólo lo piden los productos manuales configurados así. Se precarga del
   // perfil para que quien ya lo dejó una vez no lo escriba otra.
   const [contactPhone, setContactPhone] = useState('');
-  const [playerNickname, setPlayerNickname] = useState<string | null>(null);
+  const [playerNickname, setPlayerNickname] = useState<string | null>(incoming?.playerNickname ?? null);
 
   const createOrder = useCreateOrder();
   const verifyPayment = useVerifyPayment(orderData?.order.id);

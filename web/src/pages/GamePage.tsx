@@ -228,6 +228,7 @@ export function GamePage() {
       state: {
         playerFields: cleanValues(fields, playerValues),
         playerIdVerified: requiresFazerValidation && playerIdVerified,
+        playerNickname: playerValidation?.playerName || null,
         quantity,
         couponCode: couponCode.trim() || null,
         creatorCode: creatorCode.trim() || null,
@@ -275,10 +276,15 @@ export function GamePage() {
         valid: boolean;
         playerName: string | null;
         region: string | null;
+        status?: 'valid' | 'invalid' | 'unverified';
+        message?: string;
       }>(`/games/${encodeURIComponent(game.id)}/validate-player`, payload);
 
       if (!result.valid) {
-        toast.error(`No pudimos confirmar este ID de ${validationCategory.name}. Por favor revisa los datos con el comprador e intenta otra vez.`);
+        toast.error(
+          result.message ||
+            `No pudimos confirmar este ID de ${validationCategory.name}. Por favor revisa los datos antes de continuar.`
+        );
         return;
       }
       setPlayerValidation({
@@ -286,7 +292,17 @@ export function GamePage() {
         playerName: result.playerName,
         region: result.region,
       });
-      toast.success(`ID de ${validationCategory.name} verificado.`);
+      if (result.status === 'unverified') {
+        toast(result.message || 'No fue posible verificar el apodo en este momento, pero puedes continuar.', {
+          icon: 'ℹ️',
+        });
+      } else {
+        toast.success(
+          result.playerName
+            ? `Jugador verificado: ${result.playerName}`
+            : `ID de ${validationCategory.name} verificado.`
+        );
+      }
     } catch (error) {
       if (error instanceof ApiError) {
         if (error.status === 422) {
@@ -380,10 +396,22 @@ export function GamePage() {
                   {validatingPlayer ? 'Verificando ID…' : playerIdVerified ? 'ID verificado' : 'Verificar ID'}
                 </Button>
                 {playerIdVerified && (
-                  <p className="flex items-center gap-1.5 text-xs text-emerald-300" role="status">
-                    <BadgeCheck className="h-4 w-4" aria-hidden />
-                    Cuenta verificada{playerValidation?.playerName ? `: ${playerValidation.playerName}` : ''}
-                    {playerValidation?.region ? ` · ${playerValidation.region}` : ''}
+                  <p
+                    className={cn(
+                      'flex items-center gap-1.5 text-xs',
+                      playerValidation?.playerName ? 'text-emerald-300' : 'text-amber-300'
+                    )}
+                    role="status"
+                  >
+                    <BadgeCheck className="h-4 w-4 shrink-0" aria-hidden />
+                    {playerValidation?.playerName ? (
+                      <>
+                        Cuenta verificada: <span className="font-semibold text-emerald-200">{playerValidation.playerName}</span>
+                        {playerValidation?.region ? ` · ${playerValidation.region}` : ''}
+                      </>
+                    ) : (
+                      'Cuenta lista para recargar'
+                    )}
                   </p>
                 )}
               </div>
