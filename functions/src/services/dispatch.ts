@@ -143,6 +143,7 @@ export function buildCallPlan(
         // a dónde se envía una orden que ya se cotizó.
         providerGameId: call.providerGameId ?? null,
         provider: call.provider,
+        quantity: call.quantity || 1,
         index,
         status: 'pending',
         providerOrderId: null,
@@ -780,41 +781,16 @@ async function dispatchCentralOneCall(
     : `${order.code}-${call.index + 1}`;
 
   const orderFields = order.playerFields ?? {};
-  const targetPayload: Record<string, string> = {};
-  const gid = (order.gameId || '').toLowerCase();
-
-  // Mapear campos de jugador según el juego
-  if (gid.includes('blood-strike') || gid.includes('arena-breakout') || gid.includes('pubg')) {
-    targetPayload.game_user_id = (
-      orderFields.game_user_id ||
-      orderFields.player_id ||
-      order.playerId ||
-      ''
-    ).trim();
-  } else if (gid.includes('mobile-legends')) {
-    targetPayload.player_id = (
-      orderFields.player_id ||
-      order.playerId ||
-      ''
-    ).trim();
-    targetPayload.server_id = (
-      orderFields.server_id ||
-      orderFields.zone_id ||
-      order.playerId2 ||
-      ''
-    ).trim();
-  } else {
-    // Free Fire por defecto
-    targetPayload.player_id = (
-      orderFields.player_id ||
-      order.playerId ||
-      ''
-    ).trim();
-  }
+  const targetPayload = centralOne.buildCentralOneTargetPayload(
+    order.gameId || '',
+    order.playerId || '',
+    order.playerId2 || orderFields.server_id || orderFields.zone_id || (order as any).serverId || (order as any).zoneId,
+    orderFields
+  );
 
   const createResult = await centralOne.createOrder({
     catalogItemId: String(call.packageId),
-    quantity: 1,
+    quantity: call.quantity || 1,
     targetPayload,
     idempotencyKey,
     note: `Orden ${order.code} - ${order.gameName}`,

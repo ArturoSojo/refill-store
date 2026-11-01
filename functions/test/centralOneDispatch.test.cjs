@@ -589,4 +589,98 @@ test('Central One Dispatch & Post-Order Lifecycle', async (t) => {
     const firstKey = `${mockOrder.code}-${firstAttemptCall.index + 1}`;
     assert.equal(firstKey, 'RF-TEST-99-1', 'Primer intento o timeout de red usa la llave base');
   });
+
+  await t.test('5. Despacho de Oro de Blood Strike por Central One: envía target_payload con game_user_id', async () => {
+    const orderId = 'ord-bs-gold-1';
+    store.set(`orders/${orderId}`, {
+      id: orderId,
+      code: 'RF-BS-01',
+      uid: 'user-bs-test',
+      user: { email: 'striker@example.com', displayName: 'Striker' },
+      status: 'paid',
+      estado: 'POR_DESPACHAR',
+      fulfillment: 'auto',
+      provider: 'centralone',
+      productId: 'bs-g-105',
+      productName: '100 + 5 Gold',
+      playerId: '9988776655',
+      gameId: 'blood-strike',
+      gameName: 'Blood Strike',
+      pricing: { totalUsd: 0.95 },
+      dispatch: {
+        allSucceeded: false,
+        calls: [
+          {
+            index: 0,
+            packageId: 'ebc6b685-9d50-4d42-9aae-48e8c089a793',
+            provider: 'centralone',
+            status: 'pending',
+            attempts: 0,
+          }
+        ]
+      }
+    });
+
+    let capturedPostBody = null;
+
+    global.fetch = async (url, options = {}) => {
+      const u = String(url);
+      if (options.method === 'POST' && u.includes('/orders')) {
+        capturedPostBody = JSON.parse(options.body);
+        return {
+          ok: true,
+          status: 201,
+          json: async () => ({
+            order: {
+              id: 'co-ord-bs-100',
+              reference_code: 'CO-ORD-BS-REF',
+              status: 'confirmed',
+              total_sale_amount: '0.7041',
+              currency: 'USD',
+            }
+          })
+        };
+      }
+
+      if (u.includes('/orders/co-ord-bs-100')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            order: {
+              id: 'co-ord-bs-100',
+              reference_code: 'CO-ORD-BS-REF',
+              status: 'completed',
+              total_sale_amount: '0.7041',
+              currency: 'USD',
+              target_payload: { game_user_id: '9988776655' },
+              player: { name: 'BloodHero' },
+            }
+          })
+        };
+      }
+
+      return { ok: false, status: 404, json: async () => ({}) };
+    };
+
+    const res = await dispatchService.dispatchOrder(orderId, { actor: 'system' });
+    assert.equal(res.status, 'completed');
+
+    // Comprobación explícita del target_payload exigido por Central One para Blood Strike
+    assert.ok(capturedPostBody, 'Debe haber disparado POST /api/v1/orders');
+    assert.equal(capturedPostBody.items.length, 1);
+    assert.equal(capturedPostBody.items[0].catalog_item_id, 'ebc6b685-9d50-4d42-9aae-48e8c089a793');
+    assert.deepEqual(
+      capturedPostBody.items[0].target_payload,
+      { game_user_id: '9988776655' },
+      'Para Blood Strike, Central One exige obligatoriamente target_payload: { game_user_id }'
+    );
+
+    assert.equal(res.allSucceeded, true);
+
+    const saved = store.get(`orders/${orderId}`);
+    assert.equal(saved.status, 'completed');
+    assert.equal(saved.dispatch.calls[0].status, 'success');
+    assert.equal(saved.dispatch.calls[0].providerOrderId, 'co-ord-bs-100');
+  });
 });

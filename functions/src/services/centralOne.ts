@@ -124,6 +124,50 @@ export function isSupportedGame(rawSlug: string): boolean {
   return normalizeGameSlug(rawSlug) !== null;
 }
 
+/**
+ * Construye el target_payload adecuado según el juego para Central One API v1:
+ * - Free Fire: { player_id }
+ * - Blood Strike / PUBG / Arena Breakout: { game_user_id }
+ * - Mobile Legends: { player_id, server_id }
+ */
+export function buildCentralOneTargetPayload(
+  gameSlug: string,
+  playerId: string,
+  serverId?: string | null,
+  playerFields?: Record<string, string>
+): Record<string, string> {
+  const norm = normalizeGameSlug(gameSlug) || gameSlug.toLowerCase();
+  const rawId = (
+    playerFields?.game_user_id ||
+    playerFields?.player_id ||
+    playerId ||
+    ''
+  ).trim();
+
+  if (
+    norm === 'blood-strike' ||
+    norm.includes('blood-strike') ||
+    norm.includes('bloodstrike') ||
+    norm.includes('arena-breakout') ||
+    norm.includes('pubg')
+  ) {
+    return { game_user_id: rawId };
+  }
+
+  if (norm === 'mobile-legends' || norm.includes('mobile-legends') || norm.includes('mlbb')) {
+    const rawServer = (
+      playerFields?.server_id ||
+      playerFields?.zone_id ||
+      serverId ||
+      ''
+    ).trim();
+    return { player_id: rawId, server_id: rawServer };
+  }
+
+  // Free Fire y otros por defecto
+  return { player_id: rawId };
+}
+
 export function buildCacheKey(
   gameSlug: string,
   playerId: string,

@@ -339,6 +339,7 @@ export interface OrderSubOrden {
 
 export interface DispatchCallResult {
   packageId: number | string;
+  quantity?: number;
   /** Juego del proveedor con el que se envió. `null` = el del juego. */
   providerGameId?: number | string | null;
   provider?: 'inefable' | 'fazercards' | 'centralone';
