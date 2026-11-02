@@ -94,6 +94,7 @@ Servicios del backend:
 | `dispatch.ts`     | Ejecutar la secuencia de llamadas al proveedor y reintentos        |
 | `pabilo.ts`       | Verificación del Pago Móvil (`is_new`)                            |
 | `inefable.ts`     | Despacho de recargas                                              |
+| `centralOne.ts`   | Proveedor de la tienda .com (reemplaza a FazerCards): ver [`docs/centralone.md`](docs/centralone.md) |
 | `whatsapp.ts`     | Mensaje y enlace precargado de los productos manuales             |
 | `catalog.ts`      | Juegos y productos, validación de compra y de ID de jugador       |
 | `settings.ts`     | Configuración de la tienda con caché corta                        |
@@ -145,7 +146,12 @@ firebase functions:secrets:set GEMINI_API_KEY   # bot de preguntas (Gemini)
 firebase functions:secrets:set SETUP_TOKEN         # inventa una cadena larga
 firebase functions:secrets:set TELEGRAM_BOT_TOKEN  # opcional: avisos al equipo
 firebase functions:secrets:set GMAIL_APP_PASSWORD  # correos al cliente
+firebase functions:secrets:set CENTRAL_ONE_API_KEY         # catálogo y despacho de la tienda .com
+firebase functions:secrets:set CENTRAL_ONE_WEBHOOK_SECRET  # puede quedar en PENDIENTE hasta registrar el webhook
 ```
+
+Central One (catálogo, webhook, sincronización y retiro de FazerCards) está documentado en
+[`docs/centralone.md`](docs/centralone.md).
 
 `GMAIL_APP_PASSWORD` **no** es la contraseña de la cuenta: es una *contraseña de aplicación*
 de 16 caracteres que se genera en la seguridad de Google y exige tener activada la
