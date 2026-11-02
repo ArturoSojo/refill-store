@@ -1737,8 +1737,8 @@ function upsertGame(
     const freshPrice = priceFor(ctx, offer.costUsd);
 
     if (!current) {
-      const adminDisabled = offer.isFreeFireCard;
-      const active = offer.providerAvailable && !adminDisabled;
+      const adminDisabled = false;
+      const active = offer.providerAvailable;
       ctx.writer.set(
         products().doc(offer.docId),
         {
@@ -1758,7 +1758,7 @@ function upsertGame(
           targetFields: [...offer.targetFields],
           provider: 'centralone',
           providerOfferId: offer.productId,
-          imageUrl: plan.family === 'gift_card' ? gameImage : '',
+          imageUrl: plan.family === 'gift_card' ? gameImage : extraImage(offer.label, offer.kind),
           badge: offer.badge,
           active,
           adminDisabled,
@@ -1796,6 +1796,7 @@ function upsertGame(
       }
     }
     const active = offer.providerAvailable && !adminDisabled;
+    const desiredImageUrl = (current.imageUrl as string | undefined) || (plan.family === 'gift_card' ? gameImage : extraImage(offer.label, offer.kind));
     const changed = changedPatch(current, {
       provider: 'centralone',
       providerOfferId: offer.productId,
@@ -1805,6 +1806,7 @@ function upsertGame(
       priceUsd,
       stock: offer.stock,
       active,
+      imageUrl: desiredImageUrl,
       providerRemoved: false,
     });
     if (Object.keys(changed).length > 0) {
