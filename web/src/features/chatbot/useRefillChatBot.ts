@@ -21,7 +21,13 @@ import {
   usePricePreview,
   useVerifyPayment,
 } from '@/hooks/useOrders';
-import { cleanValues, fieldsAreValid, gameFields } from '@/features/catalog/PlayerFields';
+import {
+  cleanValues,
+  fieldOptions,
+  fieldsAreValid,
+  gameFields,
+  normalizeFieldValue,
+} from '@/features/catalog/PlayerFields';
 import { resolveFazerValidationCategory } from '@/features/catalog/validation';
 import { useAuth } from '@/providers/AuthProvider';
 import { useConfig } from '@/providers/ConfigProvider';
@@ -53,10 +59,12 @@ const MAX_POOL_GAMES = 600;
 
 const FAMILIES: ChatFamily[] = ['topup', 'gift_card', 'game_key'];
 
+// Sin «Game Keys»: Central One no vende claves y las de FazerCards se
+// retiraron. La familia sigue en `FAMILIES` por si el admin crea alguna a mano
+// (aparece en las búsquedas), pero no se ofrece un botón que lleve a una lista vacía.
 const CATEGORY_OPTIONS: ChatOption[] = [
   { id: 'cat:topup', label: '🎮 Juegos' },
   { id: 'cat:gift_card', label: '🎁 Gift Cards' },
-  { id: 'cat:game_key', label: '🔑 Game Keys' },
   { id: 'cat:wallet', label: '💰 RefillCoins' },
 ];
 
@@ -315,11 +323,17 @@ export function useRefillChatBot() {
     const field = gameFields(selected)[index];
     if (!field) return;
     const hint = field.placeholder ? ` (${field.placeholder})` : '';
+    // Las listas cerradas de Central One (servidores) no tienen desplegable en
+    // el chat: se enumeran para que el cliente escriba una que exista.
+    const options = fieldOptions(field);
+    const choices = options.length
+      ? ` Opciones: ${options.slice(0, 15).map((option) => option.label).join(', ')}${options.length > 15 ? '…' : ''}.`
+      : '';
     const optional = field.required ? '' : ' Es opcional: escribe «no» para omitirlo.';
     setStep('fields');
     botSay([
       {
-        text: `${prefix ?? ''}Escribe tu ${field.label}${hint}.${optional}`,
+        text: `${prefix ?? ''}Escribe tu ${field.label}${hint}.${choices}${optional}`,
         actions: [MENU_ACTION],
       },
     ]);
@@ -1339,7 +1353,8 @@ export function useRefillChatBot() {
       push({ from: 'user', text: masked ? '•'.repeat(Math.min(text.length, 12)) : text });
 
       const skipped = !field.required && normalizeSkip(text);
-      if (!skipped && !fieldsAreValid([field], { [field.key]: text })) {
+      const answer = normalizeFieldValue(field, text);
+      if (!skipped && !fieldsAreValid([field], { [field.key]: answer })) {
         botSay([
           {
             text: `${field.help || `El valor de «${field.label}» no es válido.`} Inténtalo de nuevo.`,
@@ -1349,7 +1364,7 @@ export function useRefillChatBot() {
         return;
       }
 
-      const values = skipped ? fieldValues : { ...fieldValues, [field.key]: text };
+      const values = skipped ? fieldValues : { ...fieldValues, [field.key]: answer };
       setFieldValues(values);
 
       if (fieldIndex + 1 < fields.length) {

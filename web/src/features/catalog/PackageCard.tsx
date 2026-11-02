@@ -31,7 +31,10 @@ export function PackageCard({ product, game, selected, onSelect, index = 0 }: Pa
   const hasDiscount = product.compareAtUsd !== null && product.compareAtUsd > product.priceUsd;
   const hasCustomImage = Boolean(product.imageUrl && product.imageUrl !== game.coverUrl && product.imageUrl !== game.logoUrl);
   const showProductImage = Boolean(product.imageUrl && (game.providerFamily !== 'topup' || hasCustomImage));
-  const showOfferName = product.kind === 'special' || product.kind === 'level_up' || (game.provider === 'fazercards' && !/^\s*[\d.,]+(?:\s|$)/.test(product.name));
+  // Los catálogos sincronizados (FazerCards antes, Central One ahora) nombran
+  // cada oferta a su manera: el nombre dice más que la cantidad sola.
+  const isSyncedCatalog = game.provider === 'fazercards' || game.provider === 'centralone';
+  const showOfferName = product.kind === 'special' || product.kind === 'level_up' || (isSyncedCatalog && !/^\s*[\d.,]+(?:\s|$)/.test(product.name));
 
   return (
     <motion.button
@@ -116,7 +119,7 @@ export function PackageCard({ product, game, selected, onSelect, index = 0 }: Pa
                   +{product.bonus.toLocaleString('es-VE')} extra
                 </p>
               )}
-              {game.provider === 'fazercards' && (
+              {isSyncedCatalog && (
                 <p className="mt-1 line-clamp-2 text-[11px] leading-tight text-slate-300">{product.name}</p>
               )}
             </>

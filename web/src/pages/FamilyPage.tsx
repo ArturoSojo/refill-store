@@ -73,6 +73,14 @@ export function FamilyPage() {
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">{Array.from({ length: 8 }, (_, i) => <Skeleton key={i} className="h-56 rounded-2xl" />)}</div>
         ) : catalog.error ? (
           <ErrorState message="No pudimos cargar esta categoría." action={<button onClick={() => void catalog.refetch()} className="rounded-xl bg-base-700 px-4 py-2 text-sm font-semibold text-white">Reintentar</button>} />
+        ) : games.length === 0 && family === 'game_key' && !debouncedSearch ? (
+          // Central One no vende game keys: quien llegue por un enlace viejo ve
+          // un aviso claro en lugar de un buscador sobre una lista vacía.
+          <EmptyState
+            title="Las game keys ya no están disponibles"
+            description="Por ahora vendemos recargas de juegos y gift cards."
+            action={<Link to={ROUTES.home} className="text-neon-crimson">Ver el catálogo</Link>}
+          />
         ) : games.length === 0 ? (
           <EmptyState title="No encontramos productos" description="Prueba con otro nombre, plataforma o región." />
         ) : (

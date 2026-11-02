@@ -40,6 +40,14 @@ import { ROUTES } from '@/lib/constants';
 import { formatBs, formatDateTime, formatUsd, formatRefillCoins } from '@/lib/format';
 import { describeOrder } from '@/lib/orderItem';
 import { cn, errorMessage, openWhatsapp } from '@/lib/utils';
+import type { Order } from '@/types/models';
+
+/** Nombre del proveedor para el equipo; sin proveedor la orden es de Inefable. */
+function providerLabel(provider: Order['provider'] | null | undefined): string {
+  if (provider === 'centralone') return 'Central One';
+  if (provider === 'fazercards') return 'FazerCards';
+  return 'Inefable';
+}
 
 export function AdminOrderDetail() {
   const { orderId } = useParams<{ orderId: string }>();
@@ -61,6 +69,8 @@ export function AdminOrderDetail() {
   // Las contraseñas de las cuentas se ocultan por defecto: quedan a la vista de
   // cualquiera que mire la pantalla del panel.
   const [revealSensitive, setRevealSensitive] = useState(false);
+  // Igual con los códigos de gift card: valen dinero para quien los vea.
+  const [showCodes, setShowCodes] = useState(false);
   const { display: reviewTimeLeft, expired: reviewExpired } = useCountdown(
     data?.order.reviewDeadline ?? 0
   );
@@ -81,6 +91,12 @@ export function AdminOrderDetail() {
   const walletApplied = order.pricing.walletAppliedUsd ?? 0;
   const isWhatsapp = order.origen === 'WHATSAPP' || order.canal === 'WHATSAPP';
   const whatsappContact = order.clienteContacto ?? order.contactPhone ?? null;
+  // Los de la orden si ya se completó; si no, los que ya trajo cada llamada
+  // (un combo de gift cards puede quedar a medias con códigos ya entregados).
+  const deliveredCodes =
+    order.deliveredCodes && order.deliveredCodes.length > 0
+      ? order.deliveredCodes
+      : order.dispatch.calls.flatMap((call) => call.deliveredCodes ?? []);
 
   const canRetry =
     order.fulfillment === 'auto' &&
@@ -116,7 +132,7 @@ export function AdminOrderDetail() {
             );
           } else if (c.status === 'not_found') {
             toast(
-              `⚪ No registrada en el proveedor: La llamada nunca llegó a procesarse en ${c.provider === 'fazercards' ? 'FazerCards' : 'Inefable'}. Es 100% seguro usar el botón de Reintentar.`,
+              `⚪ No registrada en el proveedor: La llamada nunca llegó a procesarse en ${providerLabel(c.provider)}. Es 100% seguro usar el botón de Reintentar.`,
               { duration: 8000, icon: '⚪' }
             );
           } else {
@@ -496,6 +512,9 @@ export function AdminOrderDetail() {
                     <span className="text-sm text-white">
                       #{call.index + 1} · package_id {call.packageId}
                       {call.providerGameId ? ` · game_id ${call.providerGameId}` : ''}
+                      {/* Una orden puede mezclar proveedores (p. ej. un pase de
+                          Central One en un Free Fire de Inefable). */}
+                      <span className="text-slate-500"> · {providerLabel(call.provider ?? order.provider)}</span>
                     </span>
                   </div>
 
@@ -540,6 +559,48 @@ export function AdminOrderDetail() {
             <p className="mt-3 rounded-xl bg-red-500/10 px-3 py-2 text-xs text-red-300">
               Último error: {order.providerError ?? order.dispatch.lastError}
             </p>
+          )}
+
+          {/* Códigos de gift cards: Central One no los manda en la respuesta
+              guardada (se borran de `providerResponse`), así que éste es el
+              único sitio donde soporte puede verlos para reenviarlos. */}
+          {deliveredCodes.length > 0 && (
+            <div className="mt-4 rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-emerald-100">
+                  Códigos entregados ({deliveredCodes.length})
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowCodes((current) => !current)}
+                  className="inline-flex items-center gap-1 rounded p-1 text-xs text-slate-400 hover:text-white"
+                  aria-label={showCodes ? 'Ocultar códigos' : 'Mostrar códigos'}
+                >
+                  {showCodes ? <EyeOff className="h-3.5 w-3.5" aria-hidden /> : <Eye className="h-3.5 w-3.5" aria-hidden />}
+                  {showCodes ? 'Ocultar' : 'Mostrar'}
+                </button>
+              </div>
+              <ul className="space-y-1.5">
+                {deliveredCodes.map((code, index) => (
+                  <li
+                    key={`${index}-${code}`}
+                    className="flex items-center justify-between gap-2 rounded-lg bg-base-900/60 px-3 py-2"
+                  >
+                    <span className="min-w-0 break-all font-mono text-xs text-white">
+                      {showCodes ? code : '•'.repeat(Math.min(code.length, 16))}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void copy(code, `code-${index}`)}
+                      className="rounded p-1 text-slate-500 hover:text-white"
+                      aria-label={`Copiar código ${index + 1}`}
+                    >
+                      <Copy className="h-3.5 w-3.5" aria-hidden />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </Card>
       )}

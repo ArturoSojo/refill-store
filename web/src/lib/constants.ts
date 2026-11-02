@@ -77,6 +77,8 @@ export const QUERY_KEYS = {
   adminTickets: (status?: string) => ['admin', 'tickets', status ?? 'all'] as const,
   adminRateHistory: ['admin', 'rate-history'] as const,
   adminProviders: ['admin', 'providers'] as const,
+  adminCentralOneAccount: ['admin', 'providers', 'centralone', 'account'] as const,
+  adminCentralOneSyncs: ['admin', 'providers', 'centralone', 'syncs'] as const,
   adminAlerts: (filters: string) => ['admin', 'alerts', filters] as const,
   adminEmail: ['admin', 'email'] as const,
   adminUserWallet: (id: string) => ['admin', 'user-wallet', id] as const,

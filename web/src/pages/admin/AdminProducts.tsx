@@ -46,6 +46,11 @@ interface ProductFormState {
   region: string;
   regionNotice: string;
   isRegionLocked: boolean;
+  /** `''` = el del juego (lo habitual). */
+  provider: '' | NonNullable<Product['provider']>;
+  priceLocked: boolean;
+  /** Sólo ofertas de la sync de Central One: apagada a mano (la sync no la enciende). */
+  adminDisabled: boolean;
 }
 
 const EMPTY_FORM: ProductFormState = {
@@ -72,7 +77,26 @@ const EMPTY_FORM: ProductFormState = {
   region: '',
   regionNotice: '',
   isRegionLocked: false,
+  provider: '',
+  priceLocked: false,
+  adminDisabled: false,
 };
+
+const PROVIDER_LABEL: Record<NonNullable<Product['provider']>, string> = {
+  inefable: 'Inefable',
+  fazercards: 'FazerCards',
+  centralone: 'Central One',
+};
+
+/**
+ * Producto que mantiene la sincronización de Central One (no los extras ni los
+ * sembrados). En ellos `active` y `priceUsd` del formulario son decisiones del
+ * admin que la sync respeta (`adminDisabled` / `priceLocked`), así que sólo se
+ * mandan cuando cambian de verdad.
+ */
+function isSyncedCentralOne(product: Product | null): boolean {
+  return Boolean(product && product.provider === 'centralone' && product.providerSyncedAt);
+}
 
 function toForm(product: Product): ProductFormState {
   return {
@@ -99,6 +123,9 @@ function toForm(product: Product): ProductFormState {
     region: product.region ?? '',
     regionNotice: product.regionNotice ?? '',
     isRegionLocked: product.isRegionLocked ?? false,
+    provider: product.provider ?? '',
+    priceLocked: product.priceLocked === true,
+    adminDisabled: product.adminDisabled === true,
   };
 }
 
@@ -118,7 +145,7 @@ function CallsEditor({
       <p className="mb-2 text-xs text-slate-500">
         Se ejecutan en orden. Para el combo 830+83 💎: paquete 3, luego paquete 2. Deja el juego
         vacío para usar el del producto; ponlo sólo si ese paquete sale más barato en otra tienda
-        del proveedor.
+        del proveedor. En Central One el package_id es el product_id de su catálogo.
       </p>
 
       <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
@@ -142,8 +169,9 @@ function CallsEditor({
                 next[index] = { ...call, packageId: /^\d+$/.test(raw) ? Number(raw) : raw };
                 onChange(next);
               }}
-              placeholder="offer_id"
+              placeholder="package_id"
               className="input-base flex-1 py-2"
+              title={call.provider ? `Proveedor de esta llamada: ${PROVIDER_LABEL[call.provider] ?? call.provider}` : undefined}
             />
             <input
               type="number"
@@ -275,6 +303,32 @@ export function AdminProducts() {
       isRegionLocked: form.isRegionLocked,
     };
 
+    // El proveedor sólo se manda si se eligió uno distinto: vacío = el del juego.
+    if (form.provider && form.provider !== (editing?.provider ?? '')) payload.provider = form.provider;
+
+    if (editing && isSyncedCentralOne(editing)) {
+      // El backend interpreta `priceUsd` como «precio fijado a mano» y `active`
+      // como «apagado/encendido por el admin». Mandarlos sin cambios al editar,
+      // por ejemplo, la descripción fijaría el precio o apagaría para siempre un
+      // producto que sólo estaba agotado en Central One.
+      const priceChanged = Number(form.priceUsd) !== editing.priceUsd;
+      if (!priceChanged) delete payload.priceUsd;
+      // Fijar el precio actual tal cual: sin `priceLocked` explícito el backend
+      // sólo fija cuando el precio cambia, y el interruptor no hacía nada.
+      if (form.priceLocked && !editing.priceLocked) payload.priceLocked = true;
+      if (!form.priceLocked && editing.priceLocked) {
+        payload.priceLocked = false;
+        // Liberar el precio y a la vez cambiarlo no tiene sentido: manda la liberación.
+        delete payload.priceUsd;
+      }
+      // En estas ofertas «activo» lo decide la disponibilidad en Central One;
+      // lo del admin es «apagada a mano», que se manda explícito sólo si lo
+      // cambió. Así se puede dejar apagada una oferta que ya estaba apagada
+      // por agotada sin que el stock que vuelva la encienda.
+      delete payload.active;
+      if (form.adminDisabled !== (editing.adminDisabled === true)) payload.adminDisabled = form.adminDisabled;
+    }
+
     saveProduct.mutate(
       { id: editing?.id, data: payload },
       {
@@ -360,6 +414,22 @@ export function AdminProducts() {
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-sm font-semibold text-white">{product.name}</span>
                   {!product.active && <Badge variant="danger">Inactivo</Badge>}
+                  {product.provider === 'centralone' && (
+                    <Badge variant="info">{product.centralOneExtra ? 'Central One · extra' : 'Central One'}</Badge>
+                  )}
+                  {product.kind === 'level_up' && <Badge>Subida de nivel</Badge>}
+                  {/* Por qué está como está: decisiones del admin que la sync respeta. */}
+                  {product.adminDisabled && (
+                    <span title="Lo apagaste a mano: la sincronización no lo vuelve a encender.">
+                      <Badge variant="warning">Apagado a mano</Badge>
+                    </span>
+                  )}
+                  {product.priceLocked && (
+                    <span title="Precio fijado a mano: la sincronización sólo actualiza el costo.">
+                      <Badge variant="warning">Precio fijo</Badge>
+                    </span>
+                  )}
+                  {product.providerRemoved && <Badge variant="danger">Retirado del proveedor</Badge>}
                   {product.featured && <Badge variant="brand">Destacado</Badge>}
                   {product.badge && <Badge>{product.badge}</Badge>}
                   <Badge variant={product.fulfillment === 'auto' ? 'info' : 'success'}>
@@ -488,6 +558,30 @@ export function AdminProducts() {
             rows={2}
           />
 
+          {isSyncedCentralOne(editing) && (
+            <p className="rounded-xl bg-sky-500/10 px-3 py-2 text-xs text-sky-200">
+              Este producto lo mantiene la sincronización con Central One (cada hora): costo, stock y
+              disponibilidad se actualizan solos. Si lo <strong>apagas</strong> aquí, queda apagado aunque
+              Central One lo tenga. Si cambias el <strong>precio</strong>, queda fijo y la sync sólo
+              actualiza el costo (si el costo llega a superarlo, se recalcula con tu margen).
+            </p>
+          )}
+
+          <Select
+            label="Proveedor del despacho"
+            value={form.provider}
+            onChange={(event) =>
+              setForm({ ...form, provider: event.target.value as ProductFormState['provider'] })
+            }
+            options={[
+              { value: '', label: 'El del juego' },
+              { value: 'inefable', label: 'Inefable' },
+              { value: 'centralone', label: 'Central One' },
+              ...(form.provider === 'fazercards' ? [{ value: 'fazercards', label: 'FazerCards (retirado)' }] : []),
+            ]}
+            hint="Sólo cámbialo para vender en un juego un paquete de otro proveedor (p. ej. un pase de Central One en un Free Fire de Inefable)."
+          />
+
           <div className="grid gap-4 sm:grid-cols-2">
             <Select
               label="Modalidad de entrega"
@@ -501,7 +595,7 @@ export function AdminProducts() {
                 })
               }
               options={[
-                { value: 'auto', label: 'Automática (API Inefable)' },
+                { value: 'auto', label: 'Automática (API del proveedor)' },
                 { value: 'manual', label: 'Manual (la entrega el equipo)' },
               ]}
             />
@@ -637,12 +731,33 @@ export function AdminProducts() {
           />
 
           <div className="space-y-3 border-t border-base-600 pt-4">
-            <Switch
-              checked={form.active}
-              onChange={(active) => setForm({ ...form, active })}
-              label="Activo"
-              description="Visible y comprable en la tienda."
-            />
+            {isSyncedCentralOne(editing) ? (
+              <Switch
+                checked={form.adminDisabled}
+                onChange={(adminDisabled) => setForm({ ...form, adminDisabled })}
+                label="Apagado a mano"
+                description={
+                  form.adminDisabled
+                    ? 'No se vende aunque Central One lo tenga: la sincronización no lo vuelve a encender.'
+                    : `Se vende mientras Central One lo tenga disponible (ahora: ${editing?.active ? 'a la venta' : 'agotado o pausado en Central One'}).`
+                }
+              />
+            ) : (
+              <Switch
+                checked={form.active}
+                onChange={(active) => setForm({ ...form, active })}
+                label="Activo"
+                description="Visible y comprable en la tienda."
+              />
+            )}
+            {isSyncedCentralOne(editing) && (
+              <Switch
+                checked={form.priceLocked}
+                onChange={(priceLocked) => setForm({ ...form, priceLocked })}
+                label="Precio fijo"
+                description="Encendido, la sincronización no toca el precio. Apágalo para volver al margen automático."
+              />
+            )}
             <Switch
               checked={form.featured}
               onChange={(featured) => setForm({ ...form, featured })}
@@ -661,7 +776,7 @@ export function AdminProducts() {
           reprice.reset();
         }}
         title="Recalcular precios por margen"
-        description="Aplica un margen sobre el costo de cada producto."
+        description="Aplica un margen sobre el costo de cada producto. En los de Central One el precio nuevo queda fijo (la sincronización ya no lo recalcula)."
         size="md"
       >
         <div className="space-y-4">

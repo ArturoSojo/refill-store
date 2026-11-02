@@ -146,6 +146,18 @@ export function GamePage() {
           ? currencyProducts
           : products;
   const selected = products.find((item) => item.id === selectedProductId) ?? null;
+  // Misma regla que `catalog.maxOrderQuantity` en el servidor: las recargas
+  // del catálogo de Central One (juegos `co-*` y extras que la sincronización
+  // cuelga de Free Fire) se compran de a una; las gift cards pueden ir varias y
+  // los productos de Central One sembrados en juegos de Inefable conservan su
+  // tope de siempre.
+  const selectedFamily = game?.providerFamily ?? 'topup';
+  const maxQuantity =
+    selectedFamily !== 'gift_card' &&
+    selectedFamily !== 'game_key' &&
+    (game?.provider === 'centralone' || selected?.centralOneExtra === true)
+      ? 1
+      : undefined;
 
   useDocumentTitle(game ? `Recargar ${game.name}` : 'Recargar');
 
@@ -154,7 +166,14 @@ export function GamePage() {
   const idIsValid = !requiresPlayerData || fieldsAreValid(fields, playerValues);
   const primaryField = fields[0];
   const validationCategory = useMemo(() => resolveFazerValidationCategory(game), [game]);
-  const requiresFazerValidation = Boolean(validationCategory && isFazerCardsStorefront());
+  // Los juegos de Central One dicen por sí mismos si el proveedor valida el ID
+  // (`validatesPlayerId` sale de su cobertura en cada sincronización); el resto
+  // sigue con la tabla por nombre de siempre.
+  const requiresFazerValidation =
+    game?.provider === 'centralone'
+      ? game.requiresPlayerData !== false && game.validatesPlayerId === true
+      : Boolean(validationCategory && isFazerCardsStorefront());
+  const validationName = validationCategory?.name || game?.name || 'jugador';
   const playerIdVerified = Boolean(
     requiresFazerValidation &&
       playerValidation &&
@@ -245,7 +264,7 @@ export function GamePage() {
     : !idIsValid
       ? `Completa ${missingLabel || primaryField?.label || 'los datos solicitados'} para continuar`
       : requiresFazerValidation && !playerIdVerified
-        ? `Verifica tu ID de ${validationCategory?.name || 'jugador'} para continuar`
+        ? `Verifica tu ID de ${validationName} para continuar`
       : undefined;
 
   const startCheckout = () => {
@@ -288,7 +307,7 @@ export function GamePage() {
   };
 
   const verifyPlayerId = async () => {
-    if (!idIsValid || validatingPlayer || !game || !validationCategory) {
+    if (!idIsValid || validatingPlayer || !game || !requiresFazerValidation) {
       setTouched(true);
       return;
     }
@@ -299,6 +318,9 @@ export function GamePage() {
         playerId: primaryField ? (playerValues[primaryField.key] ?? '').trim() : '',
         zoneId: fields[1] ? (playerValues[fields[1].key] ?? '').trim() : undefined,
         fields: cleanValues(fields, playerValues),
+        // Central One valida contra un producto concreto: el paquete elegido es
+        // el más fiel; sin él, el backend usa el primero activo del juego.
+        productId: selected?.id,
       };
       const result = await api.post<{
         valid: boolean;
@@ -311,7 +333,7 @@ export function GamePage() {
       if (!result.valid) {
         toast.error(
           result.message ||
-            `No pudimos confirmar este ID de ${validationCategory.name}. Por favor revisa los datos antes de continuar.`
+            `No pudimos confirmar este ID de ${validationName}. Por favor revisa los datos antes de continuar.`
         );
         return;
       }
@@ -328,13 +350,13 @@ export function GamePage() {
         toast.success(
           result.playerName
             ? `Jugador verificado: ${result.playerName}`
-            : `ID de ${validationCategory.name} verificado.`
+            : `ID de ${validationName} verificado.`
         );
       }
     } catch (error) {
       if (error instanceof ApiError) {
         if (error.status === 422) {
-          toast.error(`ID no confirmado en ${validationCategory.name}. Por favor revisa los datos con el comprador.`);
+          toast.error(`ID no confirmado en ${validationName}. Por favor revisa los datos con el comprador.`);
           return;
         }
         if (error.status === 400) {
@@ -715,6 +737,7 @@ export function GamePage() {
         loading={false}
         disabled={continueDisabled}
         disabledReason={disabledReason}
+        maxQuantity={maxQuantity}
       />
 
       <ConfirmDialog

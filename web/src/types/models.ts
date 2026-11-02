@@ -30,12 +30,21 @@ export interface PlayerField {
   pattern: string;
   help: string;
   placeholder: string;
-  type: 'text' | 'number' | 'email' | 'password';
+  /** `select` = lista cerrada (`options`) que declara Central One en `target_schema`. */
+  type: 'text' | 'number' | 'email' | 'password' | 'select';
+  /** Valores permitidos cuando `type` es `select`. */
+  options?: PlayerFieldOption[];
   /** Campo del proveedor al que se copia. `null` = sólo para entrega manual. */
   providerField: 'player_id' | 'player_id2' | null;
   required: boolean;
   /** Contraseñas: no se guardan como acceso rápido ni se muestran en listas. */
   sensitive: boolean;
+}
+
+/** Una opción de un campo `select`: `value` viaja al proveedor, `label` se muestra. */
+export interface PlayerFieldOption {
+  value: string;
+  label: string;
 }
 
 export const DEFAULT_PLAYER_FIELD: PlayerField = {
@@ -82,9 +91,17 @@ export interface Game {
   accentColorSecondary: string;
   active: boolean;
   sortOrder: number;
+  providerSyncedAt?: TimestampLike;
+  /** El proveedor ya no lo ofrece (o se retiró FazerCards); oculto, no borrado. */
+  providerRemoved?: boolean;
+  /** Por qué lo ocultó la sincronización. `null` = no lo ocultó ella. */
+  hiddenReason?: GameHiddenReason | null;
   createdAt: TimestampLike;
   updatedAt: TimestampLike;
 }
+
+/** `provider_removed` = Central One dejó de ofrecerlo; `provider_migrated` = era de FazerCards. */
+export type GameHiddenReason = 'provider_removed' | 'provider_migrated';
 
 export type PaymentMethod = 'pagomovil_bdv' | 'transfer' | 'binance_pay' | 'wallet';
 
@@ -124,6 +141,8 @@ export interface DispatchCall {
    */
   providerGameId?: number | string | null;
   provider?: 'inefable' | 'fazercards' | 'centralone';
+  /** Claves de `target_payload` de Central One. `[]` = gift card, sin datos del jugador. */
+  targetFields?: string[];
 }
 
 export interface Product {
@@ -153,6 +172,18 @@ export interface Product {
   region?: string;
   regionNotice?: string;
   isRegionLocked?: boolean;
+  /** Copia de `calls[].targetFields`; sobrevive a que el panel reemplace `calls`. */
+  targetFields?: string[];
+  /** Apagado a mano por el admin: la sincronización no lo vuelve a encender. */
+  adminDisabled?: boolean;
+  /** Precio fijado a mano: la sincronización sólo actualiza el costo. */
+  priceLocked?: boolean;
+  /** El proveedor ya no lo ofrece; oculto por la sincronización. */
+  providerRemoved?: boolean;
+  providerSyncedAt?: TimestampLike;
+  /** Pase o subida de nivel de Central One añadido a un Free Fire de Inefable. */
+  centralOneExtra?: boolean;
+  centralOneLinkedAt?: TimestampLike;
   createdAt: TimestampLike;
   updatedAt: TimestampLike;
 }
@@ -167,6 +198,17 @@ export interface PublicProduct {
   fulfillment: FulfillmentType;
   manualFlow: ManualFlow;
   kind: ProductKind;
+  /**
+   * Proveedor del despacho cuando difiere del juego (p. ej. la subida de
+   * nivel de Central One dentro de un Free Fire de Inefable). El catálogo
+   * público ya lo devolvía; se tipa para limitar la cantidad en la compra.
+   */
+  provider?: 'inefable' | 'fazercards' | 'centralone';
+  /**
+   * Extra de Free Fire que la sincronización de Central One añadió a un juego
+   * de Inefable: como el catálogo de Central One, se compra de a una unidad.
+   */
+  centralOneExtra?: boolean;
   amount: number;
   bonus: number;
   priceUsd: number;
@@ -239,6 +281,8 @@ export interface DispatchCallResult {
   /** Juego del proveedor con el que se envió. `null` = el del juego. */
   providerGameId?: number | string | null;
   provider?: 'inefable' | 'fazercards' | 'centralone';
+  /** `targetFields` congelados al crear la orden. */
+  targetFields?: string[];
   deliveredCodes?: string[];
   index: number;
   status: DispatchCallStatus;
@@ -878,6 +922,8 @@ export interface ProvidersStatus {
     accountName: string | null;
     message: string | null;
   };
+  /** Opcional: un backend anterior a la migración no lo manda. */
+  centralone?: CentralOneStatus;
 }
 
 /** Fila del desglose: lo vendido de un juego o de un producto. */
@@ -948,4 +994,59 @@ export interface CreatorSummary {
   commissionPercent: number;
   discountPercent: number;
   stats: Creator['stats'];
+}
+
+// ---------------------------------------------------------------------------
+// Central One: estado del proveedor y sincronización del catálogo
+// ---------------------------------------------------------------------------
+
+/** Bloque `centralone` de `GET /admin/providers/status`. */
+export interface CentralOneStatus {
+  configured: boolean;
+  reachable: boolean;
+  balanceUsd: number | null;
+  heldUsd: number | null;
+  message: string | null;
+}
+
+export type ProviderSyncTrigger = 'schedule' | 'admin' | 'manual';
+
+export type ProviderSyncStatus = 'queued' | 'running' | 'done' | 'error';
+
+/** Resumen de una sincronización del catálogo de Central One (fechas en ISO). */
+export interface CentralOneSyncSummary {
+  startedAt: string;
+  finishedAt: string;
+  /** Sólo una sync completa marca retirados, retira FazerCards y crea extras. */
+  completed: boolean;
+  aborted: string | null;
+  itemsReceived: number;
+  itemsMapped: number;
+  skipped: Record<string, number>;
+  gamesCreated: number;
+  gamesUpdated: number;
+  productsCreated: number;
+  productsUpdated: number;
+  gamesRemoved: number;
+  productsRemoved: number;
+  fazerRetired: { games: number; products: number } | null;
+  extrasCreated: string[];
+  /** Extras de Free Fire activos cuyo costo en Central One ya alcanza su precio. */
+  extrasAtLoss?: string[];
+  freeFireLatamGameId: string | null;
+  errors: string[];
+}
+
+/** Documento `providerSync/{id}` tal como lo devuelve la API del panel. */
+export interface ProviderSync {
+  id: string;
+  provider: 'centralone';
+  status: ProviderSyncStatus;
+  trigger: ProviderSyncTrigger;
+  actorUid: string | null;
+  createdAt: TimestampLike;
+  startedAt: TimestampLike;
+  finishedAt: TimestampLike;
+  summary: CentralOneSyncSummary | null;
+  error: string | null;
 }

@@ -321,6 +321,8 @@ export function auditActionLabel(action: string): string {
     'coupon.deleted': 'Cupón eliminado',
     'catalog.seeded': 'Catálogo sembrado',
     'setup.admin.granted': 'Admin asignado',
+    'centralone.sync.requested': 'Sincronización con Central One',
+    'centralone.webhook.tested': 'Prueba del webhook de Central One',
   };
   return labels[action] ?? action;
 }

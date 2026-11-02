@@ -23,6 +23,11 @@ interface PurchaseBarProps {
   loading: boolean;
   disabled: boolean;
   disabledReason?: string;
+  /**
+   * Tope de unidades por orden. Las recargas de Central One van de a una
+   * (el servidor rechaza más), así que el selector no debe ofrecerlas.
+   */
+  maxQuantity?: number;
 }
 
 const MAX_QUANTITY = 10;
@@ -38,7 +43,9 @@ export function PurchaseBar({
   loading,
   disabled,
   disabledReason,
+  maxQuantity = MAX_QUANTITY,
 }: PurchaseBarProps) {
+  const limit = Math.max(1, Math.min(MAX_QUANTITY, maxQuantity));
   const fallbackBs = product ? product.priceBs * quantity : 0;
   const fallbackUsd = product ? product.priceUsd * quantity : 0;
 
@@ -90,8 +97,8 @@ export function PurchaseBar({
                   </span>
                   <button
                     type="button"
-                    onClick={() => onQuantityChange(Math.min(MAX_QUANTITY, quantity + 1))}
-                    disabled={quantity >= MAX_QUANTITY}
+                    onClick={() => onQuantityChange(Math.min(limit, quantity + 1))}
+                    disabled={quantity >= limit}
                     className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-300 transition hover:bg-base-700 disabled:opacity-30"
                     aria-label="Añadir una unidad"
                   >

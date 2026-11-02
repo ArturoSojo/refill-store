@@ -45,6 +45,29 @@ const FAMILY_LABEL: Record<Family, string> = {
   game_key: 'Game key',
 };
 
+type Provider = GameFormState['provider'];
+
+const PROVIDER_LABEL: Record<Provider, string> = {
+  inefable: 'Inefable',
+  fazercards: 'FazerCards',
+  centralone: 'Central One',
+};
+
+/**
+ * Proveedores de catálogo (FazerCards antes, Central One ahora): su id de juego
+ * es texto, cada juego pertenece a una familia (recarga / gift card) y cada
+ * producto lleva el id de la oferta como `package_id`. Inefable usa ids numéricos.
+ */
+function isCatalogProvider(provider: Provider | undefined): boolean {
+  return provider === 'fazercards' || provider === 'centralone';
+}
+
+/** Por qué la sincronización ocultó un juego, para que el admin no lo reactive a ciegas. */
+const HIDDEN_REASON_LABEL: Record<NonNullable<Game['hiddenReason']>, string> = {
+  provider_removed: 'Central One ya no lo vende',
+  provider_migrated: 'Migrado a Central One',
+};
+
 /** Plantillas para no tener que escribir a mano los campos más habituales. */
 const FIELD_PRESETS: Array<{ id: string; label: string; build: () => PlayerField }> = [
   {
@@ -198,7 +221,7 @@ export function AdminGames() {
     const payload: Record<string, unknown> = {
       name: form.name.trim(),
       shortName: form.shortName.trim() || form.name.trim(),
-      apiGameId: form.provider === 'fazercards' ? form.apiGameId.trim() : Number(form.apiGameId),
+      apiGameId: isCatalogProvider(form.provider) ? form.apiGameId.trim() : Number(form.apiGameId),
       apiGameType: form.apiGameType.trim(),
       ...(editing ? {} : { provider: form.provider }),
       requiresPlayerData: form.requiresPlayerData,
@@ -230,7 +253,7 @@ export function AdminGames() {
 
     if (!editing) {
       payload.id = form.id.trim() || undefined;
-      if (form.provider === 'fazercards') payload.providerFamily = form.providerFamily;
+      if (isCatalogProvider(form.provider)) payload.providerFamily = form.providerFamily;
     }
 
     saveGame.mutate(
@@ -320,15 +343,21 @@ export function AdminGames() {
                     <h2 className="truncate text-sm font-semibold text-white">{game.name}</h2>
                     {!game.active && <Badge variant="danger">Inactivo</Badge>}
                     {game.manual && <Badge variant="info">Manual</Badge>}
-                    {game.provider === 'fazercards' && game.providerFamily && game.providerFamily !== 'topup' && (
+                    {isCatalogProvider(game.provider) && game.providerFamily && game.providerFamily !== 'topup' && (
                       <Badge>{FAMILY_LABEL[game.providerFamily]}</Badge>
+                    )}
+                    {game.provider === 'centralone' && <Badge variant="brand">Central One</Badge>}
+                    {game.hiddenReason && (
+                      <Badge variant="warning">{HIDDEN_REASON_LABEL[game.hiddenReason] ?? game.hiddenReason}</Badge>
                     )}
                     {game.validatesPlayerId === false && (
                       <Badge variant="warning">ID sin validar</Badge>
                     )}
                   </div>
                   <p className="mt-0.5 font-mono text-xs text-slate-500">
-                    {game.provider === 'fazercards' ? 'FazerCards' : 'Inefable'} · {game.provider === 'fazercards' ? 'category_id' : 'game_id'} {game.apiGameId}
+                    {PROVIDER_LABEL[game.provider ?? 'inefable'] ?? game.provider} ·{' '}
+                    {game.provider === 'centralone' ? 'familia' : game.provider === 'fazercards' ? 'category_id' : 'game_id'}{' '}
+                    {game.apiGameId}
                   </p>
                   <p className="mt-0.5 text-xs text-slate-500">
                     {game.requiresPlayerData === false
@@ -418,27 +447,45 @@ export function AdminGames() {
               disabled={Boolean(editing)}
               hint={editing ? 'Se elige al crear el juego y no se cambia después.' : 'Define por dónde se despachan las recargas.'}
               onChange={(event) => {
-                const provider = event.target.value as 'inefable' | 'fazercards';
+                const provider = event.target.value as Provider;
+                // Central One no vende game keys: al pasar a él se vuelve a recarga.
+                const providerFamily =
+                  provider === 'centralone' && form.providerFamily === 'game_key' ? 'topup' : form.providerFamily;
                 setForm({
                   ...form,
                   provider,
-                  apiGameType: provider === 'fazercards' ? form.providerFamily : form.apiGameType,
-                  requiresPlayerData: provider === 'fazercards' ? form.providerFamily === 'topup' : true,
+                  providerFamily,
+                  apiGameType: isCatalogProvider(provider) ? providerFamily : form.apiGameType,
+                  requiresPlayerData: isCatalogProvider(provider) ? providerFamily === 'topup' : true,
                 });
               }}
               options={[
                 { value: 'inefable', label: 'Inefable' },
-                { value: 'fazercards', label: 'FazerCards' },
+                { value: 'centralone', label: 'Central One' },
+                // FazerCards se retiró: sólo aparece para mostrar los juegos viejos.
+                ...(editing?.provider === 'fazercards' ? [{ value: 'fazercards', label: 'FazerCards (retirado)' }] : []),
               ]}
             />
             <Input
-              label={form.provider === 'fazercards' ? 'category_id de FazerCards' : 'game_id del proveedor'}
-              type={form.provider === 'fazercards' ? 'text' : 'number'}
+              label={
+                form.provider === 'centralone'
+                  ? 'Familia de Central One'
+                  : form.provider === 'fazercards'
+                    ? 'category_id de FazerCards'
+                    : 'game_id del proveedor'
+              }
+              type={isCatalogProvider(form.provider) ? 'text' : 'number'}
               value={form.apiGameId}
               onChange={(event) => setForm({ ...form, apiGameId: event.target.value })}
-              hint={form.provider === 'fazercards' ? 'ID de la categoría en FazerCards. Cada producto lleva su offer_id como package_id.' : 'Free Fire = -1, Blood Strike = 15'}
+              hint={
+                form.provider === 'centralone'
+                  ? 'Referencia de la sincronización (co-familia-región). Cada producto lleva su product_id como package_id.'
+                  : form.provider === 'fazercards'
+                    ? 'ID de la categoría en FazerCards. Cada producto lleva su offer_id como package_id.'
+                    : 'Free Fire = -1, Blood Strike = 15'
+              }
             />
-            {form.provider === 'fazercards' ? (
+            {isCatalogProvider(form.provider) ? (
               <Select
                 label="Tipo de producto"
                 value={form.providerFamily}
@@ -455,7 +502,9 @@ export function AdminGames() {
                 options={[
                   { value: 'topup', label: 'Recarga (pide ID)' },
                   { value: 'gift_card', label: 'Gift card (código)' },
-                  { value: 'game_key', label: 'Game key (código)' },
+                  ...(form.provider === 'centralone' && form.providerFamily !== 'game_key'
+                    ? []
+                    : [{ value: 'game_key', label: 'Game key (código)' }]),
                 ]}
                 hint={editing ? 'No se cambia después de crear el juego.' : 'Define en qué sección de la tienda aparece.'}
               />
@@ -577,8 +626,16 @@ export function AdminGames() {
                         })
                       }
                       className="font-mono"
-                      disabled={index === 0}
-                      hint={index === 0 ? 'El campo principal no cambia de clave.' : undefined}
+                      // En Central One la clave es la de `target_fields`: si cambia,
+                      // el despacho manda el dato con un nombre que el proveedor no conoce.
+                      disabled={index === 0 || (form.provider === 'centralone' && Boolean(editing?.providerSyncedAt))}
+                      hint={
+                        form.provider === 'centralone' && editing?.providerSyncedAt
+                          ? 'La define Central One.'
+                          : index === 0
+                            ? 'El campo principal no cambia de clave.'
+                            : undefined
+                      }
                     />
                     <Input
                       label="Patrón de validación"
@@ -598,7 +655,15 @@ export function AdminGames() {
                         { value: 'text', label: 'Texto' },
                         { value: 'email', label: 'Correo' },
                         { value: 'password', label: 'Contraseña' },
+                        // Las listas (servidores, regiones) las declara Central One y la
+                        // sincronización las mantiene: no se crean a mano.
+                        ...(field.type === 'select' ? [{ value: 'select', label: 'Lista (Central One)' }] : []),
                       ]}
+                      hint={
+                        field.type === 'select'
+                          ? `${field.options?.length ?? 0} opciones; las actualiza la sincronización.`
+                          : undefined
+                      }
                     />
                     <Input
                       label="Mensaje de ayuda"

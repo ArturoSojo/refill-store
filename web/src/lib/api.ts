@@ -9,7 +9,13 @@ import { auth } from './firebase';
 
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
 
-/** Identidad del escaparate que se envía a la API. */
+/**
+ * Identidad del escaparate que se envía a la API.
+ *
+ * `fazercards` es el nombre histórico del escaparate de recargasrefillstore.com,
+ * no el proveedor: el backend también le muestra los juegos de Central One.
+ * Cambiarlo rompería el filtro del catálogo público.
+ */
 function storefront(): 'inefable' | 'fazercards' {
   return 'fazercards';
 }

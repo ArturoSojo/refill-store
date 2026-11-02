@@ -113,7 +113,7 @@ export function PrivacyPolicyPage() {
               push. Si eliges Google para iniciar sesión, Google también procesa ese acceso.
             </li>
             <li>
-              <strong className="text-slate-100">Inefable y FazerCards:</strong> proveedor de
+              <strong className="text-slate-100">Inefable y Central One:</strong> proveedor de
               entrega seleccionado para la orden. Reciben los datos del producto y de la cuenta del
               juego que sean necesarios para entregar la recarga, el código o la clave.
             </li>

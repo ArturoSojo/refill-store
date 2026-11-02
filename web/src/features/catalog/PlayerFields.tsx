@@ -12,7 +12,7 @@
 import { useMemo } from 'react';
 import { BadgeCheck, Gamepad2, KeyRound, Mail, MapPin } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { Input } from '@/components/ui/Field';
+import { Input, Select } from '@/components/ui/Field';
 import { onlyDigits } from '@/lib/utils';
 import { DEFAULT_PLAYER_FIELD, type Game, type PlayerField } from '@/types/models';
 import { resolveFazerValidationCategory } from './validation';
@@ -22,7 +22,11 @@ export function gameFields(game: Game | null | undefined): PlayerField[] {
   if (!game) return [DEFAULT_PLAYER_FIELD];
 
   const declared = Array.isArray(game.playerFields) ? game.playerFields : [];
-  const validation = resolveFazerValidationCategory(game);
+  // Los juegos de Central One traen sus campos de `target_schema` (claves,
+  // etiquetas y listas de servidores reales): forzar aquí el par User ID /
+  // Zone ID de MLBB los pisaría con claves que el proveedor no pide.
+  const validation =
+    game.provider === 'centralone' && declared.length > 0 ? null : resolveFazerValidationCategory(game);
   if (
     validation?.categoryId === 'mobile_legends' ||
     validation?.categoryId === 'magic_chess_gogo_global' ||
@@ -77,12 +81,44 @@ function compile(pattern: string): RegExp {
   }
 }
 
+/** Opciones de un campo `select`; vacío si el campo no es una lista cerrada. */
+export function fieldOptions(field: PlayerField): Array<{ value: string; label: string }> {
+  if (field.type !== 'select' || !Array.isArray(field.options)) return [];
+  return field.options.filter((option) => option && typeof option.value === 'string' && option.value);
+}
+
+/**
+ * Traduce lo que escribió el cliente al `value` de una opción.
+ *
+ * En el chatbot no hay desplegable: el cliente escribe «Brasil» o «br». Se
+ * acepta la etiqueta o el valor sin distinguir mayúsculas; lo que no coincide
+ * se devuelve tal cual para que la validación lo rechace.
+ */
+export function normalizeFieldValue(field: PlayerField, raw: string): string {
+  const value = raw.trim();
+  const options = fieldOptions(field);
+  if (options.length === 0 || !value) return value;
+  const lower = value.toLowerCase();
+  const match = options.find(
+    (option) => option.value.toLowerCase() === lower || option.label.trim().toLowerCase() === lower
+  );
+  return match ? match.value : value;
+}
+
+/** `true` si el valor cumple el campo: patrón y, si es lista, una opción válida. */
+function valueIsValid(field: PlayerField, value: string): boolean {
+  const options = fieldOptions(field);
+  // Una lista cerrada manda sobre el patrón: el proveedor sólo acepta esos valores.
+  if (options.length > 0) return options.some((option) => option.value === value);
+  return compile(field.pattern).test(value);
+}
+
 /** `true` si todos los campos obligatorios están completos y bien formados. */
 export function fieldsAreValid(fields: PlayerField[], values: Record<string, string>): boolean {
   return fields.every((field) => {
     const value = (values[field.key] ?? '').trim();
     if (!value) return !field.required;
-    return compile(field.pattern).test(value);
+    return valueIsValid(field, value);
   });
 }
 
@@ -134,6 +170,27 @@ export function PlayerFields({
     <div className={fields.length > 1 ? 'grid gap-3 sm:grid-cols-2' : 'space-y-3'}>
       {fields.map((field) => {
         const value = values[field.key] ?? '';
+        const options = fieldOptions(field);
+
+        if (options.length > 0) {
+          // Lista cerrada (servidor/región de Central One): un desplegable evita
+          // que el cliente escriba un valor que el proveedor rechazaría.
+          const known = options.some((option) => option.value === value);
+          return (
+            <Select
+              key={field.key}
+              id={`${idPrefix}-${field.key}`}
+              label={field.label}
+              options={options}
+              placeholder={field.placeholder || `Elige ${field.label.toLowerCase()}`}
+              value={known ? value : ''}
+              onChange={(event) => onChange({ ...values, [field.key]: event.target.value })}
+              onBlur={onBlur}
+              error={showErrors && field.required && !known ? field.help : null}
+            />
+          );
+        }
+
         const valid = value.length > 0 && patterns[field.key].test(value);
         const invalid = value.length > 0 && !valid;
 

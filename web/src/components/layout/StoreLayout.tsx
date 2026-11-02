@@ -28,6 +28,7 @@ import { cn, initials, isImageUrl } from '@/lib/utils';
 import { captureCreatorCodeFromUrl } from '@/lib/creatorCode';
 import { StoreModals } from '@/components/common/StoreModals';
 import { RefillChatbot } from '@/features/chatbot';
+import { useCatalog } from '@/hooks/useCatalog';
 import { formatBs, formatRefillCoins } from '@/lib/format';
 import { Button, ButtonLink } from '@/components/ui/Button';
 import type { StoreNotice } from '@/types/models';
@@ -162,10 +163,15 @@ function GooglePlayIcon({ className }: { className?: string }) {
 }
 
 function CategoryNav() {
+  // Central One no vende game keys: el enlace sólo aparece si el catálogo
+  // tiene alguna (p. ej. creada a mano). Mientras carga se omite para no
+  // mostrar un enlace que luego desaparece.
+  const catalog = useCatalog();
+  const hasGameKeys = (catalog.data?.familyCounts?.game_key ?? 0) > 0;
   const links = [
     { to: ROUTES.family('topup'), label: 'Juegos' },
     { to: ROUTES.family('gift_card'), label: 'Gift cards' },
-    { to: ROUTES.family('game_key'), label: 'Game key' },
+    ...(hasGameKeys ? [{ to: ROUTES.family('game_key'), label: 'Game key' }] : []),
   ];
 
   return (

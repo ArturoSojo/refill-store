@@ -160,7 +160,7 @@ function Hero() {
 
           <p className="mt-4 max-w-lg text-base text-slate-400 sm:text-lg">
             {config?.tagline ??
-              'Recargas de juegos, gift cards y game keys para Latinoamérica, con pago verificado y entrega digital.'}
+              'Recargas de juegos y gift cards para Latinoamérica, con pago verificado y entrega digital.'}
           </p>
 
           <div className="mt-7 flex flex-wrap items-center gap-3">
@@ -316,7 +316,8 @@ export function HomePage() {
       <span id="catalogo" className="sr-only" aria-hidden />
         <div id="juegos" className="scroll-mt-20 space-y-10 rounded-3xl transition-all duration-500">
         {isLoading ? (
-          (['topup', 'gift_card', 'game_key'] as const).map((family) => (
+          // Sin esqueleto de game keys: con Central One esa sección casi nunca existe.
+          (['topup', 'gift_card'] as const).map((family) => (
             <section key={family} className="mx-auto max-w-6xl px-4">
               <Skeleton className="mb-4 h-8 w-56 rounded-xl" />
               <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">
@@ -365,7 +366,7 @@ export function HomePage() {
         <div className="neon-card overflow-hidden p-0">
           <div className="grid gap-0 sm:grid-cols-4">
             {[
-              { step: '01', title: 'Elige un producto', text: 'Recarga, gift card o game key.' },
+              { step: '01', title: 'Elige un producto', text: 'Recarga o gift card.' },
               { step: '02', title: 'Completa los datos', text: 'ID del juego o datos de entrega solicitados.' },
               { step: '03', title: 'Paga y pega la referencia', text: 'Pago Móvil BDV, monto exacto.' },
               { step: '04', title: 'Recibe digitalmente', text: 'Seguimiento y entrega desde tu cuenta.' },

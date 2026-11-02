@@ -19,6 +19,7 @@ import type {
   PlayerFieldLabel,
   Product,
   ProvidersStatus,
+  ProviderSync,
   Ticket,
   TopProductsResponse,
   UserProfile,
@@ -56,28 +57,122 @@ export function useProvidersStatus() {
   });
 }
 
-export interface FazerCatalogBatch {
-  summary: {
-    createdGames: number;
-    updatedGames: number;
-    createdProducts: number;
-    updatedProducts: number;
-    skipped: number;
-    errors: string[];
-    family: 'topup' | 'gift_card' | 'game_key';
-    nextOffset: number;
-    totalCategories: number;
-    done: boolean;
-  };
+// --- Central One ----------------------------------------------------------
+
+/** URL que hay que registrar en el portal de Central One (Integración → Webhooks). */
+export const CENTRAL_ONE_WEBHOOK_URL = 'https://recargasrefillstore.com/api/webhooks/centralone';
+
+/** Saldo de la cuenta de Central One (USD). */
+export interface CentralOneBalance {
+  availableUsd: number;
+  heldUsd: number;
+  totalUsd: number;
+  currency: string;
 }
 
-export function useSyncFazerCatalogBatch() {
+/** Una entrega del webhook según Central One (sus últimas, no las nuestras). */
+export interface CentralOneWebhookDelivery {
+  id: string;
+  event: string;
+  status: string;
+  attempts: number;
+  lastHttpStatus: number | null;
+  lastError: string | null;
+  deliveredAt: string | null;
+  createdAt: string | null;
+}
+
+/** Lo que Central One dice tener registrado; `null` si no se pudo consultar. */
+export interface CentralOneRegisteredWebhook {
+  exists?: boolean;
+  url?: string | null;
+  events?: string[];
+  status?: string | null;
+  includeCodes?: boolean;
+}
+
+export interface CentralOneAccountResponse {
+  balance: CentralOneBalance | null;
+  balanceError: string | null;
+  webhook: {
+    expectedUrl: string;
+    secretConfigured: boolean;
+    lastWebhookAt: string | null;
+    // El backend reenvía lo que devuelve Central One: se lee con cuidado.
+    registered: CentralOneRegisteredWebhook | null;
+    /** Por qué no se pudo leer `registered` (llave sin permiso, caída…). */
+    registeredError?: string | null;
+  };
+  deliveries: CentralOneWebhookDelivery[];
+  deliveriesError?: string | null;
+}
+
+/**
+ * Saldo, webhook y últimas entregas de Central One.
+ *
+ * Son varias llamadas al proveedor por cada lectura: sólo se piden en la
+ * pantalla de configuración y sin refresco agresivo.
+ */
+export function useCentralOneAccount(enabled = true) {
+  return useQuery({
+    queryKey: QUERY_KEYS.adminCentralOneAccount,
+    queryFn: () => api.get<CentralOneAccountResponse>('/admin/providers/centralone/account'),
+    staleTime: 60_000,
+    enabled,
+  });
+}
+
+/** Pide a Central One que envíe un `webhook.test` al endpoint registrado. */
+export function useTestCentralOneWebhook() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: { family: FazerCatalogBatch['summary']['family']; offset: number; limit?: number }) =>
-      api.post<FazerCatalogBatch>('/admin/providers/fazercards/sync', input),
+    mutationFn: () =>
+      api.post<{ ok: boolean; message?: string | null }>('/admin/providers/centralone/webhook/test'),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.catalog });
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminCentralOneAccount });
+    },
+  });
+}
+
+/** Fila de `GET /admin/providers/centralone/sync/history` (fechas en ISO). */
+export type CentralOneSyncRun = Pick<
+  ProviderSync,
+  'id' | 'status' | 'trigger' | 'createdAt' | 'startedAt' | 'finishedAt' | 'summary' | 'error'
+>;
+
+/**
+ * Últimas sincronizaciones del catálogo.
+ *
+ * La sync corre en segundo plano (un trigger de Firestore, varios minutos):
+ * mientras haya una en cola o corriendo se consulta cada pocos segundos para
+ * que el panel muestre cuándo termina sin recargar.
+ */
+export function useCentralOneSyncHistory(enabled = true) {
+  return useQuery({
+    queryKey: QUERY_KEYS.adminCentralOneSyncs,
+    queryFn: () =>
+      api.get<{ items: CentralOneSyncRun[] }>('/admin/providers/centralone/sync/history'),
+    staleTime: 30_000,
+    enabled,
+    refetchInterval: (query) =>
+      query.state.data?.items.some((run) => run.status === 'queued' || run.status === 'running')
+        ? 5_000
+        : false,
+  });
+}
+
+/**
+ * Encola una sincronización (202 `{syncId}`); 409 si ya hay una activa.
+ *
+ * No espera a que termine: el historial se encarga de mostrar el progreso.
+ */
+export function useSyncCentralOneCatalog() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<{ syncId: string }>('/admin/providers/centralone/sync'),
+    onSettled: () => {
+      // También tras un 409: la que ya estaba en curso tiene que aparecer.
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminCentralOneSyncs });
     },
   });
 }
@@ -210,7 +305,7 @@ function useOrderInvalidator() {
 export interface CallProviderCheck {
   index: number;
   packageId: number | string;
-  provider: 'inefable' | 'fazercards';
+  provider: 'inefable' | 'fazercards' | 'centralone';
   providerOrderId: string | null;
   found: boolean;
   status: 'completed' | 'processing' | 'failed' | 'not_found' | 'unknown';
