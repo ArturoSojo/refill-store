@@ -448,7 +448,7 @@ export function useDeleteGame() {
   const invalidate = useCatalogInvalidator();
 
   return useMutation({
-    mutationFn: (id: string) => api.delete<{ deleted: boolean }>(`/admin/games/${id}`),
+    mutationFn: (id: string) => api.delete<{ deleted: boolean; deletedProducts?: number }>(`/admin/games/${id}`),
     onSuccess: invalidate,
   });
 }

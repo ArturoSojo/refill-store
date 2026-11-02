@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { AlertTriangle, Gamepad2, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { useAdminGames, useSaveGame, useDeleteGame } from '@/hooks/useAdmin';
+import { useAdminGames, useSaveGame, useDeleteGame, useAdminProducts } from '@/hooks/useAdmin';
 import { useAuth } from '@/providers/AuthProvider';
 import { useDocumentTitle } from '@/hooks/useMisc';
 import { Card } from '@/components/ui/Card';
@@ -190,6 +190,8 @@ export function AdminGames() {
   const [editing, setEditing] = useState<Game | null>(null);
   const [form, setForm] = useState<GameFormState>(EMPTY);
   const [toDelete, setToDelete] = useState<Game | null>(null);
+  const toDeleteProducts = useAdminProducts(toDelete?.id);
+  const toDeleteCount = toDeleteProducts.data?.products?.length ?? toDelete?.productCount;
   const [search, setSearch] = useState('');
 
   /** Cambia una propiedad de un campo sin tocar los demás. */
@@ -809,16 +811,26 @@ export function AdminGames() {
         onConfirm={() => {
           if (!toDelete) return;
           deleteGame.mutate(toDelete.id, {
-            onSuccess: () => {
-              toast.success('Juego eliminado.');
+            onSuccess: (res) => {
+              const count = res?.deletedProducts;
+              const countText = count !== undefined ? `${count} ` : 'sus ';
+              toast.success(`Juego "${toDelete.name}" eliminado junto con ${countText}paquetes.`);
               setToDelete(null);
             },
             onError: (error) => toast.error(errorMessage(error)),
           });
         }}
         title="Eliminar juego"
-        message={`Se eliminará "${toDelete?.name}". Sólo es posible si no tiene productos asociados.`}
-        confirmLabel="Eliminar"
+        message={
+          toDelete
+            ? `Se eliminará "${toDelete.name}" junto con ${
+                toDeleteCount !== undefined && toDeleteCount > 0
+                  ? `${toDeleteCount} `
+                  : 'todos sus '
+              }paquetes asociados de forma permanente. Esta acción no se puede deshacer.`
+            : ''
+        }
+        confirmLabel="Eliminar juego y paquetes"
         destructive
         loading={deleteGame.isPending}
       />

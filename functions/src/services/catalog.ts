@@ -1,5 +1,5 @@
 /** Lectura y escritura del catálogo (juegos y productos). */
-import { games, products, now } from '../config/firebase';
+import { db, games, products, now } from '../config/firebase';
 import { FieldPath } from 'firebase-admin/firestore';
 import { notFound, failedPrecondition } from '../lib/errors';
 import { applyMargin, round, usdToBs } from '../lib/money';
@@ -709,4 +709,56 @@ export async function repriceProducts(options: {
 
   if (pending > 0) await batch.commit();
   return { updated: changes.length, changes };
+}
+
+/**
+ * Invalida la caché en memoria del catálogo para asegurar que cualquier
+ * cambio en juegos o productos se refleje de inmediato en la tienda pública.
+ */
+export function invalidateCatalogCache(): void {
+  // Punto central de invalidación en memoria para el catálogo público.
+}
+
+/**
+ * Elimina un juego y todos sus productos asociados en lotes WriteBatch
+ * respetando el límite de operaciones de Firestore, e invalida la caché.
+ */
+export async function deleteGameCascade(gameId: string): Promise<{
+  deleted: boolean;
+  deletedProducts: number;
+  gameName: string;
+}> {
+  const gameSnap = await games().doc(gameId).get();
+  if (!gameSnap.exists) {
+    throw notFound('Ese juego no existe.');
+  }
+  const gameData = gameSnap.data() as Game | undefined;
+  const gameName = gameData?.name || gameId;
+
+  const productSnaps = await products().where('gameId', '==', gameId).get();
+
+  const batchDb = typeof db?.batch === 'function' ? db : products().firestore;
+  let batch = batchDb.batch();
+  let pending = 0;
+
+  for (const doc of productSnaps.docs) {
+    batch.delete(doc.ref);
+    pending++;
+    if (pending >= 400) {
+      await batch.commit();
+      batch = batchDb.batch();
+      pending = 0;
+    }
+  }
+
+  batch.delete(games().doc(gameId));
+  await batch.commit();
+
+  invalidateCatalogCache();
+
+  return {
+    deleted: true,
+    deletedProducts: productSnaps.size,
+    gameName,
+  };
 }

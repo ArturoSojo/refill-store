@@ -26,7 +26,7 @@
  *  - Corre dentro del trigger `runCentralOneSync` (540 s): el presupuesto de
  *    480 s deja margen para cerrar el doc `providerSync/{id}`.
  */
-import { FieldPath, Timestamp, type DocumentReference } from 'firebase-admin/firestore';
+import { FieldPath, FieldValue, Timestamp, type DocumentReference } from 'firebase-admin/firestore';
 import {
   db,
   games,
@@ -1171,6 +1171,355 @@ export function findExtrasAtLoss(
 }
 
 // ---------------------------------------------------------------------------
+// Combos de Central One (Free Fire LATAM y Blood Strike)
+// ---------------------------------------------------------------------------
+
+export interface CentralOneComboSpec {
+  idSuffix: string;
+  legacyId?: string;
+  skuSuffix: string;
+  name: string;
+  description: string;
+  amount: number;
+  bonus: number;
+  sortOrder: number;
+  badge?: string | null;
+  /** Cantidades base que componen el combo */
+  baseRequirements: number[];
+}
+
+export const BLOOD_STRIKE_COMBO_SPECS: CentralOneComboSpec[] = [
+  {
+    idSuffix: 'c-425',
+    legacyId: 'bs-c-425',
+    skuSuffix: 'C-425',
+    name: '425 Gold',
+    description: 'Combo de 425 Gold para Blood Strike (105 + 320 Gold). Recarga rápida y directa a tu cuenta.',
+    amount: 400,
+    bonus: 25,
+    sortOrder: 25,
+    badge: 'COMBO',
+    baseRequirements: [100, 300], // 105 Gold + 320 Gold
+  },
+  {
+    idSuffix: 'c-860',
+    legacyId: 'bs-c-860',
+    skuSuffix: 'C-860',
+    name: '860 Gold',
+    description: 'Combo de 860 Gold para Blood Strike (540 + 320 Gold). Recarga rápida y directa a tu cuenta.',
+    amount: 800,
+    bonus: 60,
+    sortOrder: 48,
+    badge: 'COMBO',
+    baseRequirements: [500, 300], // 540 Gold + 320 Gold
+  },
+  {
+    idSuffix: 'c-1640',
+    legacyId: 'bs-c-1620',
+    skuSuffix: 'C-1640',
+    name: '1.640 Gold',
+    description: 'Combo de 1.640 Gold para Blood Strike (1100 + 540 Gold). Recarga rápida y directa a tu cuenta.',
+    amount: 1500,
+    bonus: 140,
+    sortOrder: 55,
+    badge: 'COMBO',
+    baseRequirements: [1000, 500], // 1100 Gold + 540 Gold
+  },
+  {
+    idSuffix: 'c-3360',
+    legacyId: 'bs-c-3340',
+    skuSuffix: 'C-3360',
+    name: '3.360 Gold',
+    description: 'Combo de 3.360 Gold para Blood Strike (2260 + 1100 Gold). Recarga rápida y directa a tu cuenta.',
+    amount: 3000,
+    bonus: 360,
+    sortOrder: 65,
+    badge: 'COMBO',
+    baseRequirements: [2000, 1000], // 2260 Gold + 1100 Gold
+  },
+  {
+    idSuffix: 'c-8060',
+    legacyId: 'bs-c-8060',
+    skuSuffix: 'C-8060',
+    name: '8.060 Gold',
+    description: 'Combo de 8.060 Gold para Blood Strike (5800 + 2260 Gold). Recarga rápida y directa a tu cuenta.',
+    amount: 7000,
+    bonus: 1060,
+    sortOrder: 75,
+    badge: 'COMBO',
+    baseRequirements: [5000, 2000], // 5800 Gold + 2260 Gold
+  },
+];
+
+export const FREE_FIRE_LATAM_COMBO_SPECS: CentralOneComboSpec[] = [
+  {
+    idSuffix: 'c-220',
+    skuSuffix: 'C-220',
+    name: '200 + 20 Diamantes',
+    description: 'Combo de 220 diamantes (se acredita en 2 recargas seguidas).',
+    amount: 200,
+    bonus: 20,
+    sortOrder: 15,
+    badge: 'COMBO',
+    baseRequirements: [100, 100], // 2 llamadas separadas de 100 con quantity: 1
+  },
+  {
+    idSuffix: 'c-451',
+    skuSuffix: 'C-451',
+    name: '410 + 41 Diamantes',
+    description: 'Combo de 451 diamantes (se acredita en 2 recargas seguidas).',
+    amount: 410,
+    bonus: 41,
+    sortOrder: 25,
+    badge: 'COMBO',
+    baseRequirements: [310, 100],
+  },
+  {
+    idSuffix: 'c-682',
+    skuSuffix: 'C-682',
+    name: '620 + 62 Diamantes',
+    description: 'Combo de 682 diamantes (se acredita en 2 recargas seguidas).',
+    amount: 620,
+    bonus: 62,
+    sortOrder: 35,
+    badge: 'COMBO',
+    baseRequirements: [520, 100],
+  },
+  {
+    idSuffix: 'c-913',
+    skuSuffix: 'C-913',
+    name: '830 + 83 Diamantes',
+    description: 'Combo de 913 diamantes (se acredita en 2 recargas seguidas).',
+    amount: 830,
+    bonus: 83,
+    sortOrder: 45,
+    badge: 'COMBO',
+    baseRequirements: [520, 310],
+  },
+  {
+    idSuffix: 'c-1738',
+    skuSuffix: 'C-1738',
+    name: '1.580 + 158 Diamantes',
+    description: 'Combo de 1.738 diamantes (se acredita en 2 recargas seguidas).',
+    amount: 1580,
+    bonus: 158,
+    sortOrder: 48,
+    badge: 'COMBO',
+    baseRequirements: [1060, 520],
+  },
+  {
+    idSuffix: 'c-3542',
+    skuSuffix: 'C-3542',
+    name: '3.220 + 322 Diamantes',
+    description: 'Combo de 3.542 diamantes (se acredita en 2 recargas seguidas).',
+    amount: 3220,
+    bonus: 322,
+    sortOrder: 55,
+    badge: 'COMBO',
+    baseRequirements: [2180, 1060],
+  },
+  {
+    idSuffix: 'c-8536',
+    skuSuffix: 'C-8536',
+    name: '7.760 + 776 Diamantes',
+    description: 'Combo de 8.536 diamantes (se acredita en 2 recargas seguidas).',
+    amount: 7760,
+    bonus: 776,
+    sortOrder: 65,
+    badge: 'COMBO',
+    baseRequirements: [5600, 2180],
+  },
+];
+
+/**
+ * Busca una oferta base dentro del catálogo de Central One según el monto requerido.
+ */
+export function findBaseOfferForRequirement(
+  offers: Array<Pick<CentralOneOffer, 'productId' | 'amount' | 'costUsd' | 'stock' | 'providerAvailable' | 'kind'> & { label?: string }>,
+  requiredAmount: number,
+  isBloodStrike = false
+): (Pick<CentralOneOffer, 'productId' | 'amount' | 'costUsd' | 'stock' | 'providerAvailable' | 'kind'> & { label?: string }) | undefined {
+  if (isBloodStrike) {
+    const bsUuidMap: Record<number, string> = {
+      100: 'ebc6b685-9d50-4d42-9aae-48e8c089a793',
+      300: '35213545-bd4b-4e0b-8e76-b6ef476df25a',
+      500: 'a4600212-f5a1-40ab-805a-5a549c3b5fba',
+      1000: '13f92eb4-f186-41d7-b4b0-432aa9b9f0d9',
+      2000: '17b5a2e5-8820-440a-a8a5-b30913a6fad8',
+      5000: '8f29be10-34de-456c-86e9-698353ede6bb',
+    };
+    const targetUuid = bsUuidMap[requiredAmount];
+    if (targetUuid) {
+      const byUuid = offers.find((o) => o.productId === targetUuid);
+      if (byUuid) return byUuid;
+    }
+    return offers.find((o) => {
+      if (o.kind !== 'package') return false;
+      const amt = o.amount;
+      if (requiredAmount === 100) return amt === 100 || amt === 105;
+      if (requiredAmount === 300) return amt === 300 || amt === 320;
+      if (requiredAmount === 500) return amt === 500 || amt === 540;
+      if (requiredAmount === 1000) return amt === 1000 || amt === 1100;
+      if (requiredAmount === 2000) return amt === 2000 || amt === 2260;
+      if (requiredAmount === 5000) return amt === 5000 || amt === 5800;
+      return amt === requiredAmount;
+    });
+  }
+
+  // Free Fire:
+  return offers.find((o) => {
+    if (o.kind !== 'package') return false;
+    const amt = o.amount;
+    if (requiredAmount === 100) return amt === 100 || amt === 110;
+    if (requiredAmount === 310) return amt === 310 || amt === 341;
+    if (requiredAmount === 520) return amt === 520 || amt === 572;
+    if (requiredAmount === 1060) return amt === 1060 || amt === 1166;
+    if (requiredAmount === 2180) return amt === 2180 || amt === 2398;
+    if (requiredAmount === 5600) return amt === 5600 || amt === 6160;
+    return amt === requiredAmount;
+  });
+}
+
+export interface CentralOneComboPlanInput {
+  plan: Pick<CentralOneGamePlan, 'id' | 'offers' | 'targetFields' | 'familyName'>;
+  specs: CentralOneComboSpec[];
+  targetGameId: string;
+  existingProducts: ReadonlyMap<string, DocData> | Record<string, DocData | undefined>;
+  pricing: { marginPercent: number; roundToUsd: number };
+  timestamp: unknown;
+}
+
+/**
+ * Planifica los combos de Central One aplicando todas las reglas de arquitectura:
+ *  1. `quantity: 1` estricto en cada llamada (NUNCA quantity > 1).
+ *  2. `costUsd` = suma exacta de reseller_price de las ofertas base.
+ *  3. Sin stock si alguna oferta base no tiene stock o providerAvailable es false.
+ *  4. Respeta precio fijado / personalizado salvo si el costo supera al precio.
+ */
+export function planCentralOneCombos(input: CentralOneComboPlanInput): {
+  combos: DocData[];
+  seenIds: string[];
+} {
+  const combos: DocData[] = [];
+  const seenIds: string[] = [];
+  const isBloodStrike = /blood\s*strike/i.test(input.plan.familyName);
+  const targetFields = isBloodStrike
+    ? (input.plan.targetFields.length > 0 ? input.plan.targetFields : ['game_user_id'])
+    : (input.plan.targetFields.length > 0 ? input.plan.targetFields : ['player_id']);
+
+  const getExisting = (id: string): DocData | undefined => {
+    if (input.existingProducts instanceof Map) {
+      return input.existingProducts.get(id);
+    }
+    return (input.existingProducts as Record<string, DocData | undefined>)[id];
+  };
+
+  for (const spec of input.specs) {
+    let docId: string;
+    if (input.targetGameId === 'blood-strike') {
+      const preferredLegacy = spec.legacyId ? getExisting(spec.legacyId) : undefined;
+      docId = preferredLegacy ? spec.legacyId! : (spec.legacyId || `bs-${spec.idSuffix}`);
+    } else if (input.targetGameId === 'free-fire') {
+      docId = `ff-${spec.idSuffix}`;
+    } else if (input.targetGameId === 'freefire-id') {
+      docId = `freefire-id--${spec.idSuffix}`;
+    } else {
+      docId = `${input.targetGameId}--${spec.idSuffix}`;
+    }
+
+    seenIds.push(docId);
+    const current = getExisting(docId);
+
+    // Encontrar ofertas base correspondientes
+    const matchedOffers: Array<Pick<CentralOneOffer, 'productId' | 'amount' | 'costUsd' | 'stock' | 'providerAvailable' | 'kind'>> = [];
+    let hasAllOffers = true;
+    for (const req of spec.baseRequirements) {
+      const offer = findBaseOfferForRequirement(input.plan.offers, req, isBloodStrike);
+      if (!offer) {
+        hasAllOffers = false;
+        break;
+      }
+      matchedOffers.push(offer);
+    }
+    if (!hasAllOffers) continue;
+
+    // Regla estricta quantity: 1 en TODAS las llamadas
+    const calls: DispatchCall[] = matchedOffers.map((offer) => ({
+      packageId: offer.productId,
+      quantity: 1,
+      provider: 'centralone',
+      targetFields: [...targetFields],
+    }));
+
+    // Costo: suma exacta de reseller_price
+    const costUsd = round(
+      matchedOffers.reduce((sum, offer) => sum + offer.costUsd, 0),
+      4
+    );
+
+    // Stock: si alguno no tiene stock o providerAvailable es false, sin stock
+    const inStock = matchedOffers.every(
+      (offer) => offer.providerAvailable && (offer.stock === null || offer.stock > 0)
+    );
+
+    const freshPrice = applyMargin(costUsd, input.pricing.marginPercent, input.pricing.roundToUsd);
+    let priceUsd = freshPrice;
+    if (current && typeof current.priceUsd === 'number') {
+      const currentPrice = current.priceUsd;
+      // Respeta precios personalizados o fijados por el admin, salvo si el costo supera al precio
+      if (costUsd > currentPrice) {
+        priceUsd = freshPrice;
+      } else {
+        priceUsd = currentPrice;
+      }
+    }
+
+    const adminDisabled = current?.adminDisabled === true;
+    const active = inStock && !adminDisabled;
+    const stock = inStock ? null : 0;
+
+    const data: DocData = {
+      id: docId,
+      gameId: input.targetGameId,
+      sku: `${input.targetGameId.startsWith('co-') ? 'CO-' : ''}${spec.skuSuffix}`.slice(0, 40),
+      name: spec.name,
+      description: spec.description,
+      fulfillment: 'auto',
+      manualFlow: 'notify',
+      kind: 'combo',
+      amount: spec.amount,
+      bonus: spec.bonus,
+      costUsd,
+      priceUsd,
+      compareAtUsd: current?.compareAtUsd ?? null,
+      calls,
+      targetFields: [...targetFields],
+      provider: 'centralone',
+      imageUrl: '',
+      badge: spec.badge ?? 'COMBO',
+      active,
+      adminDisabled,
+      priceLocked: current?.priceLocked === true,
+      featured: current?.featured ?? false,
+      sortOrder: spec.sortOrder,
+      stock,
+      deliveryEtaMinutes: 2,
+      providerRemoved: false,
+      providerSyncedAt: input.timestamp,
+      updatedAt: input.timestamp,
+    };
+
+    if (!current) {
+      data.createdAt = input.timestamp;
+    }
+
+    combos.push(data);
+  }
+
+  return { combos, seenIds };
+}
+
+// ---------------------------------------------------------------------------
 // Escritura por lotes
 // ---------------------------------------------------------------------------
 
@@ -1698,6 +2047,27 @@ export const CENTRAL_ONE_SYNC_STALE_MS = 15 * 60_000;
  * consulta y la creación van en una transacción sobre un candado único
  * (`privateConfig/centralOneSyncLock`), así que sólo una de las dos gana.
  */
+/**
+ * Registra un juego como eliminado por el admin para que la sincronización
+ * automática de Central One no lo vuelva a crear en el futuro.
+ */
+export async function recordDeletedGame(gameId: string): Promise<void> {
+  await privateCentralOneConfigDoc().set(
+    { deletedGameIds: FieldValue.arrayUnion(gameId) },
+    { merge: true }
+  );
+}
+
+/**
+ * Remueve un juego de la lista de eliminados si el admin lo crea de nuevo explícitamente.
+ */
+export async function unrecordDeletedGame(gameId: string): Promise<void> {
+  await privateCentralOneConfigDoc().set(
+    { deletedGameIds: FieldValue.arrayRemove(gameId) },
+    { merge: true }
+  );
+}
+
 export async function enqueueCentralOneSync(input: {
   trigger: ProviderSyncTrigger;
   actorUid?: string | null;
@@ -1829,14 +2199,39 @@ export async function runCentralOneSync(opts: {
 
     // --- Lectura de productos existentes (sólo los ids que importan) ---
     const productIds = new Set<string>(mapping.inactiveProductIds);
-    for (const plan of mapping.games) for (const offer of plan.offers) productIds.add(offer.docId);
+    for (const plan of mapping.games) {
+      for (const offer of plan.offers) productIds.add(offer.docId);
+      const isBS = /blood\s*strike/i.test(plan.familyName);
+      const isFF = plan.isFreeFireLatam;
+      if (isBS) {
+        for (const spec of BLOOD_STRIKE_COMBO_SPECS) {
+          productIds.add(`${plan.id}--${spec.idSuffix}`);
+          if (spec.legacyId) productIds.add(spec.legacyId);
+          productIds.add(`bs-${spec.idSuffix}`);
+        }
+      }
+      if (isFF) {
+        for (const spec of FREE_FIRE_LATAM_COMBO_SPECS) {
+          productIds.add(`${plan.id}--${spec.idSuffix}`);
+          productIds.add(`ff-${spec.idSuffix}`);
+          productIds.add(`freefire-id--${spec.idSuffix}`);
+        }
+      }
+    }
     const existingProducts = await readDocs(Array.from(productIds).map((id) => products().doc(id)));
+    const linkedGameDocs = await readDocs(['blood-strike', 'free-fire', 'freefire-id'].map((id) => games().doc(id)));
 
     // --- Upsert ---
     const seenGames = new Set<string>();
     const seenProducts = new Set<string>();
     const protectedGames = new Set<string>();
     for (const [id, game] of coGames) if (game.manual === true) protectedGames.add(id);
+
+    // Juegos explícitamente eliminados por el admin para que la sincronización no los vuelva a crear:
+    const deletedGameIds = new Set<string>(
+      Array.isArray(previousState.deletedGameIds) ? previousState.deletedGameIds : []
+    );
+    for (const id of deletedGameIds) protectedGames.add(id);
     // Un doc con el mismo id que NO es de Central One (un juego creado a mano
     // desde el panel con otro proveedor, por ejemplo) no aparece en `coGames`
     // y se tomaría por inexistente: se crearía encima con `merge: false`,
@@ -1867,6 +2262,67 @@ export async function runCentralOneSync(opts: {
         continue;
       }
       upsertGame(ctx, plan, coGames.get(plan.id), existingProducts, fazerGames);
+
+      // Sincronización de Combos para Central One (Blood Strike y Free Fire LATAM)
+      const isBS = /blood\s*strike/i.test(plan.familyName);
+      const isFF = plan.isFreeFireLatam;
+      if (isBS || isFF) {
+        const specs = isBS ? BLOOD_STRIKE_COMBO_SPECS : FREE_FIRE_LATAM_COMBO_SPECS;
+        // 1. Combo en el juego de Central One
+        const plannedCo = planCentralOneCombos({
+          plan,
+          specs,
+          targetGameId: plan.id,
+          existingProducts,
+          pricing: { marginPercent: ctx.marginPercent, roundToUsd: ctx.roundToUsd },
+          timestamp: ctx.timestamp,
+        });
+        for (const id of plannedCo.seenIds) seenProducts.add(id);
+        if (isFF) seenProducts.add(`${plan.id}--nivel-completo`);
+        for (const combo of plannedCo.combos) {
+          const id = combo.id as string;
+          const current = existingProducts.get(id);
+          if (!current) {
+            ctx.writer.set(products().doc(id), combo, false);
+            ctx.summary.productsCreated += 1;
+          } else {
+            const patch = changedPatch(current, combo);
+            if (Object.keys(patch).length > 0) {
+              ctx.writer.set(products().doc(id), { ...patch, providerSyncedAt: ctx.timestamp, updatedAt: ctx.timestamp });
+              ctx.summary.productsUpdated += 1;
+            }
+          }
+        }
+
+        // 2. Combos en juegos vinculados si existen en Firestore
+        const targets = isBS ? ['blood-strike'] : ['free-fire', 'freefire-id'];
+        for (const targetId of targets) {
+          if (linkedGameDocs.has(targetId)) {
+            const plannedLinked = planCentralOneCombos({
+              plan,
+              specs,
+              targetGameId: targetId,
+              existingProducts,
+              pricing: { marginPercent: ctx.marginPercent, roundToUsd: ctx.roundToUsd },
+              timestamp: ctx.timestamp,
+            });
+            for (const combo of plannedLinked.combos) {
+              const id = combo.id as string;
+              const current = existingProducts.get(id);
+              if (!current) {
+                ctx.writer.set(products().doc(id), combo, false);
+                ctx.summary.productsCreated += 1;
+              } else {
+                const patch = changedPatch(current, combo);
+                if (Object.keys(patch).length > 0) {
+                  ctx.writer.set(products().doc(id), { ...patch, providerSyncedAt: ctx.timestamp, updatedAt: ctx.timestamp });
+                  ctx.summary.productsUpdated += 1;
+                }
+              }
+            }
+          }
+        }
+      }
       await ctx.writer.maybeFlush();
     }
 

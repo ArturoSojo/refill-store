@@ -45,7 +45,7 @@ import * as inefable from '../services/inefable';
 import * as fazercards from '../services/fazercards';
 import * as centralOne from '../services/centralOne';
 import { checkOrderProviderStatus, orderDeliveryDoc } from '../services/dispatch';
-import { enqueueCentralOneSync } from '../services/centralOneCatalogSync';
+import { enqueueCentralOneSync, recordDeletedGame, unrecordDeletedGame } from '../services/centralOneCatalogSync';
 import { listEvents } from '../services/orderEvents';
 import { getConfig, updateConfig } from '../services/settings';
 import * as settings from '../services/settings';
@@ -888,6 +888,8 @@ adminRouter.post(
       ip: clientIp(req),
     });
 
+    await unrecordDeletedGame(id);
+    catalog.invalidateCatalogCache();
     ok(res, { game: await catalog.getGame(id) }, 201);
   })
 );
@@ -933,6 +935,7 @@ adminRouter.patch(
       ip: clientIp(req),
     });
 
+    catalog.invalidateCatalogCache();
     ok(res, { game: await catalog.getGame(id) });
   })
 );
@@ -943,25 +946,25 @@ adminRouter.delete(
   asyncHandler(async (req, res) => {
     const { id } = parseParams(req, idParam);
 
-    const linked = await products().where('gameId', '==', id).count().get();
-    if (linked.data().count > 0) {
-      throw failedPrecondition(
-        `Ese juego tiene ${linked.data().count} productos. Desactívalo en lugar de borrarlo, o elimina antes sus productos.`
-      );
-    }
+    const result = await catalog.deleteGameCascade(id);
+    await recordDeletedGame(id);
 
-    await games().doc(id).delete();
     await audit.record({
       action: audit.ACTIONS.GAME_DELETED,
       actorUid: currentUser(req).uid,
       actorEmail: currentUser(req).email,
       targetType: 'game',
       targetId: id,
-      summary: `Juego eliminado: ${id}.`,
+      summary: `Juego eliminado: ${result.gameName} (${result.deletedProducts} paquetes eliminados).`,
+      data: {
+        gameId: id,
+        gameName: result.gameName,
+        deletedProductsCount: result.deletedProducts,
+      },
       ip: clientIp(req),
     });
 
-    ok(res, { deleted: true });
+    ok(res, { deleted: true, deletedProducts: result.deletedProducts });
   })
 );
 
@@ -1116,6 +1119,7 @@ adminRouter.post(
       ip: clientIp(req),
     });
     await catalog.refreshManualGameSummary(body.gameId);
+    catalog.invalidateCatalogCache();
 
     ok(res, { product: await catalog.getProduct(id) }, 201);
   })
@@ -1158,6 +1162,7 @@ adminRouter.patch(
     });
     await catalog.refreshManualGameSummary(current.gameId);
     if (body.gameId && body.gameId !== current.gameId) await catalog.refreshManualGameSummary(body.gameId);
+    catalog.invalidateCatalogCache();
 
     ok(res, { product: await catalog.getProduct(id) });
   })
@@ -1250,6 +1255,7 @@ adminRouter.delete(
       ip: clientIp(req),
     });
     await catalog.refreshManualGameSummary(product.gameId);
+    catalog.invalidateCatalogCache();
 
     ok(res, { deleted: true });
   })

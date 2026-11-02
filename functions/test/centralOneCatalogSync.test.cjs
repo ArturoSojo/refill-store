@@ -787,3 +787,184 @@ test('findExtrasAtLoss: extras activos cuyo costo alcanza el precio', () => {
   ];
   assert.deepEqual(sync.findExtrasAtLoss(inefableProducts, offers), ['free-fire--co-a', 'freefire-id--co-nivel-completo']);
 });
+
+// ---------------------------------------------------------------------------
+// Tests de Combos de Central One (Free Fire LATAM y Blood Strike)
+// ---------------------------------------------------------------------------
+
+test('planCentralOneCombos: Blood Strike genera los 5 combos de Gold con llamadas quantity: 1 y target_payload game_user_id', () => {
+  const bloodStrikePlan = {
+    id: 'co-topup-blood-strike-latam',
+    familyName: 'Blood Strike',
+    targetFields: ['game_user_id'],
+    offers: [
+      { productId: 'ebc6b685-9d50-4d42-9aae-48e8c089a793', label: '100 + 5 Gold', kind: 'package', amount: 100, costUsd: 0.7041, stock: null, providerAvailable: true },
+      { productId: '35213545-bd4b-4e0b-8e76-b6ef476df25a', label: '300 + 20 Gold', kind: 'package', amount: 300, costUsd: 2.1172, stock: null, providerAvailable: true },
+      { productId: 'a4600212-f5a1-40ab-805a-5a549c3b5fba', label: '500 + 40 Gold', kind: 'package', amount: 500, costUsd: 3.5278, stock: null, providerAvailable: true },
+      { productId: '13f92eb4-f186-41d7-b4b0-432aa9b9f0d9', label: '1000 + 100 Gold', kind: 'package', amount: 1000, costUsd: 7.0555, stock: null, providerAvailable: true },
+      { productId: '17b5a2e5-8820-440a-a8a5-b30913a6fad8', label: '2000 + 260 Gold', kind: 'package', amount: 2000, costUsd: 14.1112, stock: null, providerAvailable: true },
+      { productId: '8f29be10-34de-456c-86e9-698353ede6bb', label: '5000 + 800 Gold', kind: 'package', amount: 5000, costUsd: 35.2753, stock: null, providerAvailable: true },
+    ],
+  };
+
+  const result = sync.planCentralOneCombos({
+    plan: bloodStrikePlan,
+    specs: sync.BLOOD_STRIKE_COMBO_SPECS,
+    targetGameId: bloodStrikePlan.id,
+    existingProducts: new Map(),
+    pricing: { marginPercent: 30, roundToUsd: 0.05 },
+    timestamp: 'ts',
+  });
+
+  // 1. Debe generar exactamente los 5 combos de Gold
+  assert.equal(result.combos.length, 5);
+  const ids = result.combos.map((c) => c.id);
+  assert.ok(ids.includes('co-topup-blood-strike-latam--c-425'));
+  assert.ok(ids.includes('co-topup-blood-strike-latam--c-860'));
+  assert.ok(ids.includes('co-topup-blood-strike-latam--c-1640'));
+  assert.ok(ids.includes('co-topup-blood-strike-latam--c-3360'));
+  assert.ok(ids.includes('co-topup-blood-strike-latam--c-8060'));
+
+  // 2. Todas las llamadas deben tener estrictamente quantity: 1 y targetFields: ['game_user_id']
+  for (const combo of result.combos) {
+    assert.equal(combo.kind, 'combo');
+    assert.equal(combo.provider, 'centralone');
+    assert.deepEqual(combo.targetFields, ['game_user_id']);
+    for (const call of combo.calls) {
+      assert.equal(call.quantity, 1, `Combo ${combo.id} tiene llamada con quantity !== 1`);
+      assert.equal(call.provider, 'centralone');
+      assert.deepEqual(call.targetFields, ['game_user_id']);
+    }
+  }
+
+  // 3. Verificación específica del combo 425 Gold (105 + 320)
+  const c425 = result.combos.find((c) => c.id === 'co-topup-blood-strike-latam--c-425');
+  assert.equal(c425.calls.length, 2);
+  assert.equal(c425.calls[0].packageId, 'ebc6b685-9d50-4d42-9aae-48e8c089a793');
+  assert.equal(c425.calls[0].quantity, 1);
+  assert.equal(c425.calls[1].packageId, '35213545-bd4b-4e0b-8e76-b6ef476df25a');
+  assert.equal(c425.calls[1].quantity, 1);
+  assert.equal(c425.costUsd, 2.8213);
+  assert.equal(c425.active, true);
+});
+
+test('planCentralOneCombos: Free Fire LATAM genera combos con regla estricta quantity: 1 (200+20 son 2 llamadas separadas)', () => {
+  const freeFirePlan = {
+    id: 'co-topup-free-fire-latam',
+    familyName: 'Free Fire',
+    targetFields: ['player_id'],
+    offers: [
+      { productId: 'ff-100', label: '110 Diamantes', kind: 'package', amount: 100, costUsd: 0.85, stock: null, providerAvailable: true },
+      { productId: 'ff-310', label: '341 Diamantes', kind: 'package', amount: 310, costUsd: 2.50, stock: null, providerAvailable: true },
+      { productId: 'ff-520', label: '572 Diamantes', kind: 'package', amount: 520, costUsd: 4.15, stock: null, providerAvailable: true },
+      { productId: 'ff-1060', label: '1166 Diamantes', kind: 'package', amount: 1060, costUsd: 7.75, stock: null, providerAvailable: true },
+      { productId: 'ff-2180', label: '2398 Diamantes', kind: 'package', amount: 2180, costUsd: 15.30, stock: null, providerAvailable: true },
+      { productId: 'ff-5600', label: '6160 Diamantes', kind: 'package', amount: 5600, costUsd: 38.95, stock: null, providerAvailable: true },
+    ],
+  };
+
+  const result = sync.planCentralOneCombos({
+    plan: freeFirePlan,
+    specs: sync.FREE_FIRE_LATAM_COMBO_SPECS,
+    targetGameId: freeFirePlan.id,
+    existingProducts: new Map(),
+    pricing: { marginPercent: 20, roundToUsd: 0.05 },
+    timestamp: 'ts',
+  });
+
+  // Genera los 7 combos de diamantes (220, 451, 682, 913, 1738, 3542, 8536)
+  assert.equal(result.combos.length, 7);
+
+  // Verificación estricta del combo 200 + 20 Diamantes:
+  // Central One rechaza quantity > 1. Debe generar 2 llamadas SEPARADAS con quantity: 1 cada una
+  const c220 = result.combos.find((c) => c.id === 'co-topup-free-fire-latam--c-220');
+  assert.ok(c220);
+  assert.equal(c220.calls.length, 2);
+  assert.equal(c220.calls[0].packageId, 'ff-100');
+  assert.equal(c220.calls[0].quantity, 1);
+  assert.equal(c220.calls[1].packageId, 'ff-100');
+  assert.equal(c220.calls[1].quantity, 1);
+  assert.equal(c220.costUsd, 1.70); // 0.85 + 0.85
+
+  // Verificación de combos superiores
+  const c1738 = result.combos.find((c) => c.id === 'co-topup-free-fire-latam--c-1738');
+  assert.ok(c1738);
+  assert.equal(c1738.calls.length, 2);
+  assert.equal(c1738.calls[0].packageId, 'ff-1060');
+  assert.equal(c1738.calls[0].quantity, 1);
+  assert.equal(c1738.calls[1].packageId, 'ff-520');
+  assert.equal(c1738.calls[1].quantity, 1);
+  assert.equal(c1738.costUsd, 11.90); // 7.75 + 4.15
+
+  const c8536 = result.combos.find((c) => c.id === 'co-topup-free-fire-latam--c-8536');
+  assert.ok(c8536);
+  assert.equal(c8536.calls.length, 2);
+  assert.equal(c8536.calls[0].packageId, 'ff-5600');
+  assert.equal(c8536.calls[0].quantity, 1);
+  assert.equal(c8536.calls[1].packageId, 'ff-2180');
+  assert.equal(c8536.calls[1].quantity, 1);
+  assert.equal(c8536.costUsd, 54.25); // 38.95 + 15.30
+});
+
+test('planCentralOneCombos: propagación de stock y protección de precios personalizados', () => {
+  const freeFirePlan = {
+    id: 'co-topup-free-fire-latam',
+    familyName: 'Free Fire',
+    targetFields: ['player_id'],
+    offers: [
+      { productId: 'ff-100', label: '110 Diamantes', kind: 'package', amount: 100, costUsd: 1.00, stock: null, providerAvailable: true },
+      // 310 diamantes sin stock en Central One:
+      { productId: 'ff-310', label: '341 Diamantes', kind: 'package', amount: 310, costUsd: 3.00, stock: 0, providerAvailable: false },
+    ],
+  };
+
+  const existingMap = new Map([
+    // Combo 220 ya existe con precio fijado por el admin
+    [
+      'co-topup-free-fire-latam--c-220',
+      { id: 'co-topup-free-fire-latam--c-220', priceUsd: 3.50, priceLocked: true, costUsd: 1.80 },
+    ],
+  ]);
+
+  const result = sync.planCentralOneCombos({
+    plan: freeFirePlan,
+    specs: sync.FREE_FIRE_LATAM_COMBO_SPECS.slice(0, 2), // 220 y 451
+    targetGameId: freeFirePlan.id,
+    existingProducts: existingMap,
+    pricing: { marginPercent: 20, roundToUsd: 0.05 },
+    timestamp: 'ts',
+  });
+
+  // 1. Combo 220: respeta el precio fijado por el admin (3.50) porque costUsd (2.00) <= 3.50
+  const c220 = result.combos.find((c) => c.id === 'co-topup-free-fire-latam--c-220');
+  assert.ok(c220);
+  assert.equal(c220.costUsd, 2.00);
+  assert.equal(c220.priceUsd, 3.50);
+  assert.equal(c220.active, true);
+
+  // 2. Combo 451: incluye ff-310 que no tiene stock -> combo marcado sin stock y active: false
+  const c451 = result.combos.find((c) => c.id === 'co-topup-free-fire-latam--c-451');
+  assert.ok(c451);
+  assert.equal(c451.stock, 0);
+  assert.equal(c451.active, false);
+
+  // 3. Si el costo supera al precio fijado, se recalcula para no vender a pérdida
+  const lossMap = new Map([
+    [
+      'co-topup-free-fire-latam--c-220',
+      { id: 'co-topup-free-fire-latam--c-220', priceUsd: 1.50, priceLocked: true, costUsd: 1.20 },
+    ],
+  ]);
+  const resultLoss = sync.planCentralOneCombos({
+    plan: freeFirePlan,
+    specs: [sync.FREE_FIRE_LATAM_COMBO_SPECS[0]],
+    targetGameId: freeFirePlan.id,
+    existingProducts: lossMap,
+    pricing: { marginPercent: 20, roundToUsd: 0.05 },
+    timestamp: 'ts',
+  });
+  const c220Loss = resultLoss.combos[0];
+  assert.equal(c220Loss.costUsd, 2.00);
+  // Nuevo precio calculado con margen (costo 2.00 * 1.20 = 2.40) porque 2.00 > 1.50
+  assert.ok(c220Loss.priceUsd > 2.00);
+});

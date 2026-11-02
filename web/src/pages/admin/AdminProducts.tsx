@@ -15,6 +15,7 @@ import { useDocumentTitle } from '@/hooks/useMisc';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input, Select, Switch, Textarea } from '@/components/ui/Field';
+import { SearchableSelect } from '@/components/ui/SearchableSelect';
 import { Modal, ConfirmDialog } from '@/components/ui/Modal';
 import { Badge, EmptyState, Skeleton } from '@/components/ui/Feedback';
 import { ImageUpload } from '@/components/common/ImageUpload';
@@ -254,7 +255,10 @@ export function AdminProducts() {
   const seed = useSeedCatalog();
 
   const gameOptions = useMemo(
-    () => (games.data?.games ?? []).map((game) => ({ value: game.id, label: game.name })),
+    () =>
+      (games.data?.games ?? [])
+        .map((game) => ({ value: game.id, label: game.name }))
+        .sort((a, b) => a.label.localeCompare(b.label, 'es', { sensitivity: 'base' })),
     [games.data]
   );
 
@@ -380,9 +384,9 @@ export function AdminProducts() {
         )}
       </div>
 
-      <Select
+      <SearchableSelect
         value={gameFilter}
-        onChange={(event) => setGameFilter(event.target.value)}
+        onChange={setGameFilter}
         placeholder="Todos los juegos"
         options={gameOptions}
         containerClassName="max-w-xs"
@@ -503,11 +507,12 @@ export function AdminProducts() {
       >
         <div className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
-            <Select
+            <SearchableSelect
               label="Juego"
               value={form.gameId}
-              onChange={(event) => setForm({ ...form, gameId: event.target.value })}
+              onChange={(val) => setForm({ ...form, gameId: val })}
               options={gameOptions}
+              placeholder="Selecciona un juego..."
               required
             />
             <Input
