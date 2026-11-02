@@ -170,8 +170,18 @@ export function toCustomerOrder(order: Order): CustomerOrder {
     ...rest
   } = order;
   const { costUsd: _costUsd, profitUsd: _profitUsd, ...pricing } = fullPricing;
+  // Los códigos se entregan sólo por `deliveredCodes` y sólo con la orden
+  // completada. Las órdenes viejas los tienen también por llamada: una
+  // entregada a medias y luego reembolsada los dejaba leer igual.
+  const dispatch = rest.dispatch
+    ? {
+        ...rest.dispatch,
+        calls: (rest.dispatch.calls ?? []).map(({ deliveredCodes: _codes, ...call }) => call),
+      }
+    : rest.dispatch;
   return {
     ...rest,
+    dispatch,
     deliveredCodes: order.status === 'completed' ? order.deliveredCodes ?? [] : [],
     pricing,
   };
@@ -316,6 +326,14 @@ export async function createOrder(
 
   if (product.stock !== null && product.stock < input.quantity) {
     throw failedPrecondition(`Sólo quedan ${product.stock} unidades de ese producto.`);
+  }
+
+  // La ruta ya lo valida, pero el servicio también lo exige para cualquier
+  // otro llamador: una recarga de Central One va a una cuenta y cada unidad
+  // sería otro pedido al mismo jugador (un pase repetido falla ya cobrado).
+  const maxQuantity = catalog.maxOrderQuantity(product, game);
+  if (maxQuantity !== null && Math.trunc(input.quantity) > maxQuantity) {
+    throw invalidArgument('Esta recarga se compra de a una unidad por orden.');
   }
 
   // Evita que un usuario acumule órdenes sin pagar y bloquee el inventario.
@@ -466,9 +484,19 @@ export async function createOrder(
     });
   }
 
+  // Los datos que pide Central One (`targetFields`) se congelan en el plan: del
+  // call si los trae, si no del producto. El PATCH del panel reemplaza `calls`
+  // entero y podía dejarlos fuera; la copia del producto es la que sobrevive.
+  const callsToPlan = product.calls.map((call) => {
+    const callProvider = call.provider ?? product.provider ?? game.provider ?? 'inefable';
+    if (callProvider !== 'centralone' || Array.isArray(call.targetFields)) return call;
+    return Array.isArray(product.targetFields)
+      ? { ...call, targetFields: [...product.targetFields] }
+      : call;
+  });
   const plannedCalls =
     product.fulfillment === 'auto'
-      ? Array.from({ length: quantity }, () => buildCallPlan(product.calls))
+      ? Array.from({ length: quantity }, () => buildCallPlan(callsToPlan))
           .flat()
           .map((call, index) => ({ ...call, index }))
       : [];
@@ -2224,7 +2252,10 @@ export async function refundStaleReviewOrders(limit = 50): Promise<number> {
           continue;
         }
 
-        // c) SOLO si todas las llamadas están confirmadas como fallida o not_found:
+        // c) SOLO si todas las llamadas están confirmadas como fallida o not_found.
+        //    Un proveedor que no se pudo consultar (sin llave, red caída) o un
+        //    POST de Central One que pudo haber entrado vuelven como `unknown`,
+        //    nunca como `not_found`: no se reembolsa a ciegas.
         const allFailedOrNotFound = checkResult.calls.every(
           (c) => c.status === 'failed' || c.status === 'not_found'
         );

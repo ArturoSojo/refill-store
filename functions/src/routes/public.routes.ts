@@ -1,16 +1,26 @@
 /** Endpoints públicos: configuración de la tienda y catálogo. */
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
-import { orders } from '../config/firebase';
+import { orders, playerIdCache, now } from '../config/firebase';
+import { centralOneApiKey, centralOneBaseUrl } from '../config/env';
+import { fetchJson } from '../lib/fetchJson';
+import { log } from '../lib/logger';
+import type { Game, Order } from '../types/models';
 import { asyncHandler, ok, parseBody, parseParams, parseQuery } from '../lib/http';
-import type { Order } from '../types/models';
 import { usdToBs } from '../lib/money';
 import { normalizeLadder } from '../lib/tiers';
 import * as catalog from '../services/catalog';
 import * as modalsService from '../services/modals';
 import { getConfig, toPublicConfig } from '../services/settings';
 import { buildSupportUrl } from '../services/whatsapp';
-import { assertStorefrontGame, belongsToStorefront, resolveStorefront, FAZER_FREE_FIRE_ID, INEFABLE_FREE_FIRE_ID } from '../lib/storefront';
+import {
+  assertStorefrontGame,
+  belongsToStorefront,
+  resolveStorefront,
+  FAZER_FREE_FIRE_ID,
+  INEFABLE_FREE_FIRE_ID,
+  INEFABLE_FREE_FIRE_ID_NEW,
+} from '../lib/storefront';
 import { PAGE_LIMIT } from '../lib/pagination';
 import { rateLimit } from '../middleware/rateLimit';
 import * as fazerCards from '../services/fazercards';
@@ -19,6 +29,11 @@ import * as centralOne from '../services/centralOne';
 import { invalidArgument, providerError } from '../lib/errors';
 import { resolveFazerValidationCategory } from '../lib/validation';
 
+/**
+ * Familias del catálogo .com. `game_key` queda vacía tras pasar a Central One
+ * (no vende keys), pero se conserva: el conteo da 0 y la tienda oculta la
+ * sección, mientras que quitarla rompería `?family=game_key` en enlaces viejos.
+ */
 const FAZER_FAMILIES = ['topup', 'gift_card', 'game_key'] as const;
 const HOME_CATEGORIES_PER_FAMILY = 8;
 
@@ -84,9 +99,14 @@ publicRouter.get(
 /**
  * Catálogo de portada.
  * Inefable tiene sólo dos juegos, así que incluye sus paquetes activos para
- * compatibilidad con clientes antiguos. FazerCards devuelve sólo
- * 8 categorías por familia y sus totales; el listado completo se consulta por
- * familia y las ofertas sólo al abrir una categoría.
+ * compatibilidad con clientes antiguos. La tienda .com (catálogo sincronizado
+ * de Central One, y de FazerCards mientras conviva) devuelve sólo 8 categorías
+ * por familia y sus totales; el listado completo se consulta por familia y las
+ * ofertas sólo al abrir una categoría.
+ *
+ * Totales: el conteo del catálogo sincronizado sólo incluye
+ * `provider in ['fazercards','centralone']`; los juegos de Inefable que se
+ * añaden a mano (Free Fire y los manuales) se suman aparte, una vez cada uno.
  */
 publicRouter.get(
   '/catalog',
@@ -108,14 +128,14 @@ publicRouter.get(
           const [page, total] = await Promise.all([
             family
               ? search
-                ? catalog.searchFazerGamesByFamily(currentFamily, search, { cursor, limit })
-                : catalog.pageFazerGamesByFamily(currentFamily, { cursor, limit })
-              : catalog.listFazerHomeGamesByFamily(currentFamily, HOME_CATEGORIES_PER_FAMILY).then((items) => ({
+                ? catalog.searchStorefrontGamesByFamily(currentFamily, search, { cursor, limit })
+                : catalog.pageStorefrontGamesByFamily(currentFamily, { cursor, limit })
+              : catalog.listStorefrontHomeGamesByFamily(currentFamily, HOME_CATEGORIES_PER_FAMILY).then((items) => ({
                   items,
                   nextCursor: null,
                   total: undefined,
                 })),
-            family ? Promise.resolve(undefined) : catalog.countFazerGamesByFamily(currentFamily),
+            family ? Promise.resolve(undefined) : catalog.countStorefrontGamesByFamily(currentFamily),
           ]);
           if (currentFamily === 'topup' && family && !cursor && (!search || 'free-fire'.includes(search.toLowerCase()) || 'freefire'.includes(search.toLowerCase()) || search.toLowerCase().includes('free'))) {
             const inefableGames = await Promise.all([
@@ -152,9 +172,14 @@ publicRouter.get(
         rate: config.rate.value,
         games: results.flatMap((result) => result.items.map(catalog.toPublicGame)),
         products: [],
+        // En portada los dos Free Fire de Inefable llegan fijados (no por el
+        // conteo ni como «extras»), así que se suman aquí, cada uno una vez.
+        // Antes sólo contaba `free-fire` y `freefire-id` quedaba fuera del total.
         familyCounts: Object.fromEntries(results.flatMap((result) =>
           result.categoryTotal === undefined ? [] : [[result.family, result.categoryTotal +
-            Number(result.family === 'topup' && result.items.some((game) => game.id === INEFABLE_FREE_FIRE_ID))]]
+            (result.family === 'topup'
+              ? result.items.filter((game) => game.id === INEFABLE_FREE_FIRE_ID || game.id === INEFABLE_FREE_FIRE_ID_NEW).length
+              : 0)]]
         )),
         nextCursor: family ? results[0]?.nextCursor ?? null : null,
         total: family ? results[0]?.total : undefined,
@@ -261,6 +286,178 @@ publicRouter.post(
   })
 );
 
+// ---------------------------------------------------------------------------
+// Validación genérica para los juegos del catálogo de Central One
+// ---------------------------------------------------------------------------
+
+/**
+ * Central One permite 30 validaciones por minuto para TODA la cuenta, y el
+ * límite por IP de la ruta se esquiva cambiando de IP. Por eso las consultas
+ * de los juegos `co-*` pasan además por un cupo global compartido (Firestore,
+ * clave constante) un poco por debajo del tope, para dejar aire a los reintentos
+ * del despacho. Se consume sólo si no hubo acierto de caché.
+ */
+const CENTRAL_ONE_VALIDATE_GLOBAL = { max: 25, windowSeconds: 60 } as const;
+const centralOneValidateBudget = rateLimit({
+  name: 'centralone_validate',
+  max: CENTRAL_ONE_VALIDATE_GLOBAL.max,
+  windowSeconds: CENTRAL_ONE_VALIDATE_GLOBAL.windowSeconds,
+  keyResolver: () => 'centralone_validate_global',
+});
+
+/** `true` si queda cupo global. Si Firestore falla, el middleware deja pasar. */
+function consumeCentralOneValidateBudget(req: Request, res: Response): Promise<boolean> {
+  return new Promise((resolve) => {
+    void centralOneValidateBudget(req, res, (error?: unknown) => resolve(!error));
+  });
+}
+
+const CENTRAL_ONE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const UNVERIFIED_MESSAGE =
+  'No fue posible verificar el nombre en este momento. Asegúrate de que el ID sea correcto.';
+
+type GameValidationResponse = {
+  valid: boolean;
+  playerName: string | null;
+  region: null;
+  status: 'valid' | 'invalid' | 'unverified';
+  message?: string;
+};
+
+function unverifiedResponse(message = UNVERIFIED_MESSAGE): GameValidationResponse {
+  // «Sin verificar» nunca bloquea la compra: el comprador sigue bajo su
+  // responsabilidad, igual que con el camino por slug.
+  return { valid: true, playerName: null, region: null, status: 'unverified', message };
+}
+
+/**
+ * `POST /player/validate` sobre una oferta concreta. Nunca lanza; sin reintentos
+ * (cada intento gasta cupo de la cuenta) y con el mismo timeout que el
+ * validador por slug.
+ */
+async function callCentralOneValidate(
+  productId: string,
+  targetPayload: Record<string, string>
+): Promise<{ status: 'valid' | 'invalid' | 'unverified'; playerName: string | null; reason: string | null }> {
+  const apiKey = centralOneApiKey();
+  if (!apiKey) return { status: 'unverified', playerName: null, reason: 'not_configured' };
+  try {
+    const response = await fetchJson<{ status?: unknown; player?: { name?: unknown } | null; reason?: unknown }>(
+      `${centralOneBaseUrl().replace(/\/+$/, '')}/player/validate`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body: { product_id: productId, target_payload: targetPayload },
+        timeoutMs: 10_000,
+        retries: 0,
+      }
+    );
+    if (!response.ok) {
+      log.warn('Central One rechazó la validación de ID', { status: response.status, productId });
+      return { status: 'unverified', playerName: null, reason: `http_${response.status}` };
+    }
+    const status = response.data?.status;
+    const rawName = response.data?.player?.name;
+    const playerName = typeof rawName === 'string' && rawName.trim() ? rawName.trim() : null;
+    if (status === 'valid') return { status: 'valid', playerName, reason: null };
+    if (status === 'invalid') return { status: 'invalid', playerName: null, reason: null };
+    const reason = response.data?.reason;
+    return { status: 'unverified', playerName: null, reason: typeof reason === 'string' ? reason : 'unverified' };
+  } catch (error) {
+    log.warn('Fallo de red o timeout validando ID en Central One', {
+      productId,
+      error: error instanceof Error ? error.name : String(error),
+    });
+    return { status: 'unverified', playerName: null, reason: 'network_error' };
+  }
+}
+
+/**
+ * Valida contra Central One un juego de su catálogo (`provider: 'centralone'`).
+ *
+ * No usa el mapa fijo por slug (`CENTRAL_ONE_SUPPORTED_GAMES`): un id como
+ * `co-topup-free-fire-global` caería en el `product_id` de Free Fire LATAM y
+ * validaría contra otra región. Aquí manda la oferta real del juego —la que
+ * eligió el comprador si es de este juego, si no la primera activa— y el
+ * `target_payload` lleva exactamente las claves que esa oferta declara.
+ */
+async function validateCentralOneCatalogGame(
+  req: Request,
+  res: Response,
+  game: Game,
+  input: { playerId: string; zoneId: string; fields: Record<string, string>; productId?: string }
+): Promise<GameValidationResponse> {
+  if (!game.validatesPlayerId || game.requiresPlayerData === false) {
+    return unverifiedResponse('Este juego no admite comprobación previa del ID. Revisa el dato antes de pagar.');
+  }
+  if (!centralOne.isCentralOneConfigured()) return unverifiedResponse();
+
+  const productList = await catalog.listProducts({ gameId: game.id, onlyActive: true });
+  const target = catalog.pickCentralOneValidationTarget(game, productList, input.productId ?? null);
+  if (!target || target.targetFields.length === 0) return unverifiedResponse();
+
+  const payload = centralOne.buildTargetPayloadFromFields(target.targetFields, input.fields, {
+    playerId: input.playerId,
+    playerId2: input.zoneId || null,
+  });
+  const missing = target.targetFields.find((key) => !payload[key]);
+  if (missing) {
+    const label = catalog.resolvePlayerFields(game).find((field) => field.key === missing)?.label ?? missing;
+    throw invalidArgument(`Completa «${label}» para verificar.`);
+  }
+
+  // Caché por juego y datos de la cuenta (no por oferta: la cuenta es la misma
+  // en todo el juego). Sólo se guardan los `valid`, como en el validador por slug.
+  const cacheKey = centralOne.buildCacheKey(
+    game.id,
+    target.targetFields.map((key) => payload[key]).join('__')
+  );
+  try {
+    const cached = await playerIdCache().doc(cacheKey).get();
+    const data = cached.exists ? cached.data() : undefined;
+    const cachedAtMs = typeof data?.cachedAt?.toMillis === 'function' ? data.cachedAt.toMillis() : 0;
+    if (data?.status === 'valid' && cachedAtMs > 0 && Date.now() - cachedAtMs < CENTRAL_ONE_CACHE_TTL_MS) {
+      return { valid: true, playerName: data.playerName ?? null, region: null, status: 'valid' };
+    }
+  } catch (error) {
+    log.warn('Error al consultar caché de playerIdCache', { error: String(error) });
+  }
+
+  if (!(await consumeCentralOneValidateBudget(req, res))) {
+    log.warn('Cupo global de validaciones de Central One agotado', CENTRAL_ONE_VALIDATE_GLOBAL);
+    return unverifiedResponse('Hay muchas verificaciones en este momento. Revisa el dato antes de pagar o intenta en un minuto.');
+  }
+
+  const result = await callCentralOneValidate(target.productId, payload);
+  if (result.status === 'valid') {
+    playerIdCache()
+      .doc(cacheKey)
+      .set({
+        gameSlug: game.id,
+        playerId: input.playerId,
+        serverId: input.zoneId || null,
+        playerName: result.playerName,
+        status: 'valid',
+        cachedAt: now(),
+        updatedAt: now(),
+      })
+      .catch((error) => log.warn('Fallo al escribir en playerIdCache', { error: String(error) }));
+    return { valid: true, playerName: result.playerName, region: null, status: 'valid' };
+  }
+  if (result.status === 'invalid') {
+    return {
+      valid: false,
+      playerName: null,
+      region: null,
+      status: 'invalid',
+      message: 'El ID ingresado no existe en este juego. Verifica tus datos.',
+    };
+  }
+  return unverifiedResponse(
+    result.reason === 'not_supported' ? 'Este juego no admite comprobación previa del ID. Revisa el dato antes de pagar.' : UNVERIFIED_MESSAGE
+  );
+}
+
 /** Valida Player ID / User ID antes de ordenar. Esta consulta no crea una orden. */
 publicRouter.post(
   '/games/:gameId/validate-player',
@@ -278,6 +475,8 @@ publicRouter.post(
         playerId: z.string().trim().optional(),
         zoneId: z.string().trim().optional(),
         fields: z.record(z.string()).optional(),
+        /** Oferta elegida: en los juegos de Central One se valida contra ella. */
+        productId: z.string().trim().max(200).optional(),
       })
     );
 
@@ -302,6 +501,23 @@ publicRouter.post(
 
     if (!playerId) {
       throw invalidArgument('Debes ingresar tu Player ID / User ID para verificar.');
+    }
+
+    const game = await catalog.getGame(gameId).catch(() => null);
+
+    // Catálogo de Central One: va antes del camino por slug porque
+    // `isSupportedGame` reconoce cualquier id que contenga «free-fire» o
+    // «blood-strike», también los `co-*`, y los mandaría al producto fijo.
+    if (game?.provider === 'centralone') {
+      return ok(
+        res,
+        await validateCentralOneCatalogGame(req, res, game, {
+          playerId,
+          zoneId,
+          fields: rawFields,
+          productId: body.productId,
+        })
+      );
     }
 
     if (centralOne.isSupportedGame(gameId)) {
@@ -346,7 +562,6 @@ publicRouter.post(
       }
     }
 
-    const game = await catalog.getGame(gameId).catch(() => null);
     const categoryInfo = resolveFazerValidationCategory(game ?? { id: gameId });
 
     if (!categoryInfo || !fazerCards.isFazerCardsConfigured()) {

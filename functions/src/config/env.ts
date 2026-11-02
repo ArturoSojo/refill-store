@@ -38,6 +38,18 @@ export const FAZERCARDS_WEBHOOK_TOKEN = defineSecret('FAZERCARDS_WEBHOOK_TOKEN')
 export const CENTRAL_ONE_API_KEY = defineSecret('CENTRAL_ONE_API_KEY');
 
 /**
+ * Secreto HMAC de los avisos de Central One (`X-CentralOne-Signature`).
+ *
+ * El portal lo muestra una sola vez, al registrar la URL del webhook. Como
+ * `firebase deploy` falla si un secreto declarado no existe, hasta tenerlo se
+ * guarda `PENDIENTE`; `centralOneWebhookSecret()` lo trata como «sin
+ * configurar» y la ruta responde 503 en vez de aceptar avisos sin firmar.
+ *
+ *   firebase functions:secrets:set CENTRAL_ONE_WEBHOOK_SECRET
+ */
+export const CENTRAL_ONE_WEBHOOK_SECRET = defineSecret('CENTRAL_ONE_WEBHOOK_SECRET');
+
+/**
  * Token de un solo uso para los endpoints de arranque (`/api/setup/*`), que
  * crean el primer administrador y siembran el catálogo. Sin él, esas rutas
  * quedan cerradas.
@@ -105,6 +117,7 @@ export const API_SECRETS = [
   FAZERCARDS_WEBHOOK_SECRET,
   FAZERCARDS_WEBHOOK_TOKEN,
   CENTRAL_ONE_API_KEY,
+  CENTRAL_ONE_WEBHOOK_SECRET,
   SETUP_TOKEN,
   TELEGRAM_BOT_TOKEN,
   GMAIL_APP_PASSWORD,
@@ -169,15 +182,41 @@ export const fazerBaseUrl = () => fromEnv('FAZERCARDS_BASE_URL', 'https://api.fz
 export const centralOneBaseUrl = () =>
   fromEnv('CENTRAL_ONE_BASE_URL', 'https://portal.centraloneglobal.com/api/v1');
 
-/** Clave de autenticación para Central One API v1. */
+/**
+ * Valores que se guardan como marcador cuando el secreto real aún no existe.
+ * Confundirlos con una clave haría llamadas condenadas a fallar (o, en el
+ * webhook, firmar con un secreto que cualquiera puede adivinar).
+ */
+const SECRET_PLACEHOLDERS = new Set(['', 'PENDIENTE', 'CAMBIAME', 'TODO']);
+
+const isPlaceholder = (value: string): boolean =>
+  SECRET_PLACEHOLDERS.has(value.trim().toUpperCase());
+
+/** Clave de autenticación para Central One API v1. `''` si falta o es un marcador. */
 export const centralOneApiKey = (): string => {
   try {
     const fromSecret = CENTRAL_ONE_API_KEY.value().trim();
-    if (fromSecret) return fromSecret;
+    if (fromSecret && !isPlaceholder(fromSecret)) return fromSecret;
   } catch {
     // Fuera de Cloud Functions el secreto no está enlazado.
   }
-  return fromEnv('CENTRAL_ONE_API_KEY', '');
+  const fromProcess = fromEnv('CENTRAL_ONE_API_KEY', '');
+  return isPlaceholder(fromProcess) ? '' : fromProcess;
+};
+
+/**
+ * Secreto de firma del webhook de Central One, o `null` si no está configurado
+ * (vacío o `PENDIENTE`). La ruta del webhook responde 503 con `null`.
+ */
+export const centralOneWebhookSecret = (): string | null => {
+  try {
+    const fromSecret = CENTRAL_ONE_WEBHOOK_SECRET.value().trim();
+    if (fromSecret && !isPlaceholder(fromSecret)) return fromSecret;
+  } catch {
+    // Fuera de Cloud Functions el secreto no está enlazado.
+  }
+  const fromProcess = fromEnv('CENTRAL_ONE_WEBHOOK_SECRET', '');
+  return isPlaceholder(fromProcess) ? null : fromProcess;
 };
 
 /** Fuente pública para refrescar la tasa BCV cuando `rate.source = auto`. */

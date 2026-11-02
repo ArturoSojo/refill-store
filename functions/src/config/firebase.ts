@@ -46,6 +46,17 @@ export const COLLECTIONS = {
   /** Sesiones activas y pausas de 30 min sincronizadas desde RefillBot (WhatsApp). */
   sessions: 'sessions',
   playerIdCache: 'playerIdCache',
+  /**
+   * Avisos de webhook ya procesados (doc id = `event_id`). Central One reintenta
+   * el mismo aviso hasta recibir un 2xx: sin este candado un `order.completed`
+   * repetido volvería a cerrar la orden. Caducan solos por TTL (`expireAt`).
+   */
+  providerWebhookEvents: 'providerWebhookEvents',
+  /**
+   * Cola e historial de sincronizaciones del catálogo de Central One. Crear un
+   * doc `queued` dispara `runCentralOneSync` (trigger de Firestore, 9 min).
+   */
+  providerSync: 'providerSync',
 } as const;
 
 export const CONFIG_DOC_ID = 'app';
@@ -67,10 +78,23 @@ export const modals = () => db.collection(COLLECTIONS.modals);
 export const providerOrders = () => db.collection(COLLECTIONS.providerOrders);
 export const sessions = () => db.collection(COLLECTIONS.sessions);
 export const playerIdCache = () => db.collection(COLLECTIONS.playerIdCache);
+export const providerWebhookEvents = () => db.collection(COLLECTIONS.providerWebhookEvents);
+export const providerSync = () => db.collection(COLLECTIONS.providerSync);
 export const configDoc = () => db.collection(COLLECTIONS.config).doc(CONFIG_DOC_ID);
 /** Configuración privada que no se expone por las reglas públicas de Firestore. */
 export const privateChatbotConfigDoc = () => db.collection('privateConfig').doc('chatbot');
 export const privateWhatsappSyncConfigDoc = () => db.collection('privateConfig').doc('whatsappSync');
+/**
+ * Estado privado de Central One: última sync, marcador del retiro de
+ * FazerCards, extras de Free Fire ya creados y último aviso del webhook.
+ * Vive en `privateConfig` porque `config` sólo expone `app` al público.
+ */
+export const privateCentralOneConfigDoc = () => db.collection('privateConfig').doc('centralOne');
+/**
+ * Candado para encolar la sync de Central One: el cron y el panel lo toman en
+ * una transacción, así que dos peticiones a la vez no encolan dos syncs.
+ */
+export const privateCentralOneSyncLockDoc = () => db.collection('privateConfig').doc('centralOneSyncLock');
 export const dailyStats = () =>
   db.collection(COLLECTIONS.stats).doc('daily').collection('days');
 

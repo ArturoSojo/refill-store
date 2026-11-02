@@ -36,8 +36,16 @@ export interface PlayerField {
   /** Mensaje que se muestra cuando el valor no cumple el patrón. */
   help: string;
   placeholder: string;
-  /** Cómo se pinta el campo y qué teclado abre en el móvil. */
-  type: 'text' | 'number' | 'email' | 'password';
+  /**
+   * Cómo se pinta el campo y qué teclado abre en el móvil.
+   *
+   * `select` = lista cerrada de valores (`options`). Central One la declara en
+   * `target_schema` para campos como el servidor de algunos juegos: un valor
+   * fuera de la lista lo rechaza el proveedor después de cobrar.
+   */
+  type: 'text' | 'number' | 'email' | 'password' | 'select';
+  /** Valores permitidos cuando `type` es `select`, en el orden del proveedor. */
+  options?: PlayerFieldOption[];
   /**
    * Campo del cuerpo de despacho al que se copia este valor.
    *
@@ -52,6 +60,12 @@ export interface PlayerField {
    * de WhatsApp; sólo se guarda en la orden para que el equipo pueda entregarla.
    */
   sensitive: boolean;
+}
+
+/** Una opción de un campo `select`: `value` viaja al proveedor, `label` se muestra. */
+export interface PlayerFieldOption {
+  value: string;
+  label: string;
 }
 
 /** Campo único por defecto: el ID numérico de toda la vida. */
@@ -128,9 +142,29 @@ export interface Game {
   accentColorSecondary: string;
   active: boolean;
   sortOrder: number;
+  /** Última vez que una sincronización del proveedor escribió este juego. */
+  providerSyncedAt?: TimestampLike | null;
+  /**
+   * El proveedor ya no lo ofrece (o se retiró FazerCards). Se oculta con
+   * `active: false` en vez de borrarse porque las órdenes viejas lo citan.
+   */
+  providerRemoved?: boolean;
+  /**
+   * Por qué lo ocultó la sincronización. Sólo un juego oculto por
+   * `provider_removed` se vuelve a mostrar solo cuando el proveedor lo
+   * recupera; lo que apagó el admin o el retiro de FazerCards no se toca.
+   */
+  hiddenReason?: GameHiddenReason | null;
   createdAt: TimestampLike;
   updatedAt: TimestampLike;
 }
+
+/**
+ * Motivo con el que la sincronización ocultó un juego:
+ *  - `provider_removed`  Central One dejó de ofrecerlo.
+ *  - `provider_migrated` Era de FazerCards y se retiró al pasar a Central One.
+ */
+export type GameHiddenReason = 'provider_removed' | 'provider_migrated';
 
 // ---------------------------------------------------------------------------
 // Productos
@@ -206,6 +240,13 @@ export interface DispatchCall {
    */
   providerGameId?: number | string | null;
   provider?: 'inefable' | 'fazercards' | 'centralone';
+  /**
+   * Claves de `target_payload` que pide Central One para esta oferta
+   * (`target_fields` del catálogo). Con lista se manda exactamente eso; sin
+   * ella el despacho cae a la heurística por juego. `[]` = gift card: sin
+   * `target_payload`.
+   */
+  targetFields?: string[];
 }
 
 export interface Product {
@@ -245,6 +286,35 @@ export interface Product {
   region?: string;
   regionNotice?: string;
   isRegionLocked?: boolean;
+  /**
+   * Copia de `calls[].targetFields` a nivel de producto. Existe porque el PATCH
+   * del panel reemplaza `calls` entero: si sólo viviera ahí, una edición de
+   * precio dejaría la oferta sin saber qué datos mandar al proveedor.
+   */
+  targetFields?: string[];
+  /**
+   * El admin lo apagó a mano. La sincronización calcula `active` como
+   * «disponible en el proveedor Y no apagado por el admin», así que esta
+   * decisión sobrevive a cada sync.
+   */
+  adminDisabled?: boolean;
+  /**
+   * El admin fijó el precio a mano: la sincronización actualiza el costo pero
+   * no el precio (salvo que el costo lo supere, para no vender a pérdida).
+   */
+  priceLocked?: boolean;
+  /** El proveedor ya no lo ofrece; oculto por la sincronización, no borrado. */
+  providerRemoved?: boolean;
+  /** Última vez que la sincronización del proveedor escribió este producto. */
+  providerSyncedAt?: TimestampLike | null;
+  /**
+   * Pase o subida de nivel de Central One añadido a un juego de Inefable
+   * (`free-fire`, `freefire-id`). No lleva `providerSyncedAt` para que la
+   * sincronización nunca lo marque como retirado.
+   */
+  centralOneExtra?: boolean;
+  /** Cuándo se enlazó a Central One un producto que no es de su sync. */
+  centralOneLinkedAt?: TimestampLike | null;
   createdAt: TimestampLike;
   updatedAt: TimestampLike;
 }
@@ -343,6 +413,11 @@ export interface DispatchCallResult {
   /** Juego del proveedor con el que se envió. `null` = el del juego. */
   providerGameId?: number | string | null;
   provider?: 'inefable' | 'fazercards' | 'centralone';
+  /**
+   * `targetFields` congelados al crear la orden (del call o del producto), para
+   * que una edición posterior del catálogo no cambie lo que se manda.
+   */
+  targetFields?: string[];
   /** Códigos digitales devueltos para ESTA llamada; se preservan al cliente al finalizar. */
   deliveredCodes?: string[];
   index: number;
@@ -1136,4 +1211,100 @@ export interface DailyStats {
   byGame: Record<string, BreakdownEntry>;
   byProduct: Record<string, BreakdownEntry>;
   updatedAt: TimestampLike;
+}
+
+// ---------------------------------------------------------------------------
+// Central One: estado del proveedor y sincronización del catálogo
+// ---------------------------------------------------------------------------
+
+/** Bloque `centralone` de `GET /admin/providers/status`. */
+export interface CentralOneStatus {
+  /** Hay llave (no vacía ni `PENDIENTE`). */
+  configured: boolean;
+  /** `GET /balance` respondió. */
+  reachable: boolean;
+  /** Saldo disponible para despachar, en USD. */
+  balanceUsd: number | null;
+  /** Saldo retenido por pedidos en curso, en USD. */
+  heldUsd: number | null;
+  message: string | null;
+}
+
+/** Quién pidió una sincronización del catálogo. */
+export type ProviderSyncTrigger = 'schedule' | 'admin' | 'manual';
+
+/** Ciclo de vida de `providerSync/{id}`: `queued` → `running` → `done|error`. */
+export type ProviderSyncStatus = 'queued' | 'running' | 'done' | 'error';
+
+/**
+ * Resumen de una sincronización del catálogo de Central One.
+ *
+ * Las fechas van en ISO porque el resumen se guarda tal cual en
+ * `providerSync/{id}.summary` y en `privateConfig/centralOne` y el panel lo
+ * pinta sin convertir Timestamps.
+ */
+export interface CentralOneSyncSummary {
+  startedAt: string;
+  finishedAt: string;
+  /**
+   * `true` sólo si se recorrió el catálogo entero sin freno ni falta de
+   * tiempo. Sólo una sync completa marca retirados, retira FazerCards y crea
+   * los extras de Free Fire.
+   */
+  completed: boolean;
+  /** Motivo del freno de seguridad (`catalog_suspicious`, `empty_catalog`…) o `null`. */
+  aborted: string | null;
+  itemsReceived: number;
+  itemsMapped: number;
+  /** Ítems descartados por motivo (`no_category`, `password_field`, `currency`…). */
+  skipped: Record<string, number>;
+  gamesCreated: number;
+  gamesUpdated: number;
+  productsCreated: number;
+  productsUpdated: number;
+  gamesRemoved: number;
+  productsRemoved: number;
+  /** Conteo del retiro de FazerCards si ocurrió en ESTA sync; `null` si no. */
+  fazerRetired: { games: number; products: number } | null;
+  /** IDs de productos extra de Free Fire creados en esta sync. */
+  extrasCreated: string[];
+  /**
+   * Extras de Free Fire activos cuyo costo en Central One ya alcanza su precio
+   * (la sync no los reprecia; se avisa al equipo al entrar en la lista).
+   */
+  extrasAtLoss?: string[];
+  /** Juego Free Fire LATAM de Central One (`co-topup-…`), si existe. */
+  freeFireLatamGameId: string | null;
+  errors: string[];
+}
+
+/** Documento `providerSync/{id}`. */
+export interface ProviderSync {
+  id: string;
+  provider: 'centralone';
+  status: ProviderSyncStatus;
+  trigger: ProviderSyncTrigger;
+  actorUid: string | null;
+  createdAt: TimestampLike;
+  startedAt: TimestampLike | null;
+  finishedAt: TimestampLike | null;
+  summary: CentralOneSyncSummary | null;
+  error: string | null;
+}
+
+/** Documento `privateConfig/centralOne` (sólo Admin SDK). */
+export interface CentralOnePrivateState {
+  lastSyncAt?: TimestampLike | null;
+  lastSyncSummary?: CentralOneSyncSummary | null;
+  freeFireLatamGameId?: string | null;
+  /** Marca del retiro de FazerCards: existe = ya se hizo y no se repite. */
+  fazerRetiredAt?: TimestampLike | null;
+  fazerRetired?: { games: number; products: number } | null;
+  /**
+   * Extras de Free Fire ya creados (productDocId → fecha). Nunca se recrea lo
+   * que está aquí: si el admin lo borra, se respeta.
+   */
+  extras?: Record<string, TimestampLike>;
+  /** Último aviso del webhook recibido (se escribe como mucho una vez por minuto). */
+  lastWebhookAt?: TimestampLike | null;
 }

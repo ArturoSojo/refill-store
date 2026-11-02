@@ -1,9 +1,16 @@
 /**
  * Separa los dos escaparates que comparten API y Firestore.
  *
- * En `recargasrefillstore.com`, Free Fire se vende por FazerCards y por Inefable;
- * las demás categorías usan FazerCards. La selección se hace en el servidor para que un enlace directo
- * a un producto no permita saltarse el filtro visual de la portada.
+ * En `recargasrefillstore.com`, Free Fire se vende por Inefable (y por Central
+ * One); las demás categorías vienen del catálogo sincronizado de Central One
+ * (antes FazerCards, cuyos juegos quedan ocultos tras la migración pero siguen
+ * pasando este filtro para los pedidos viejos). La selección se hace en el
+ * servidor para que un enlace directo a un producto no permita saltarse el
+ * filtro visual de la portada.
+ *
+ * El valor `'fazercards'` de `Storefront` es el NOMBRE de la tienda .com (lo
+ * manda el frontend en `?storefront=`), no el proveedor: no se renombra para
+ * no romper clientes con la pestaña abierta.
  */
 import type { Request } from 'express';
 import { notFound } from './errors';
@@ -66,6 +73,10 @@ export function belongsToStorefront(game: Game, storefront: Storefront): boolean
   // Creado a mano desde el panel: el proveedor sólo decide por dónde se
   // despacha, no en qué tienda se muestra.
   if (game.manual === true && (game.provider ?? 'inefable') === 'inefable') return true;
+  // Catálogo sincronizado de Central One. Va DESPUÉS de las reglas de Inefable
+  // a propósito: ningún juego de Inefable (free-fire, freefire-id, manuales)
+  // cambia de tienda por esta línea.
+  if (game.provider === 'centralone') return true;
   return game.provider === 'fazercards';
 }
 

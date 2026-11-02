@@ -21,12 +21,29 @@ import { listEvents } from '../services/orderEvents';
 import { getConfig } from '../services/settings';
 import { assertStorefrontGame } from '../lib/storefront';
 import { invalidArgument } from '../lib/errors';
+import type { Game, Product } from '../types/models';
 
 export const ordersRouter = Router();
 
 ordersRouter.use(requireAuth);
 
 const orderIdParam = z.object({ orderId: z.string().min(1) });
+
+/**
+ * El esquema deja hasta 10 unidades para cualquier producto; las recargas de
+ * Central One se limitan a 1 (ver `catalog.maxOrderQuantity`). Se comprueba
+ * igual en la vista previa para que el comprador vea el aviso antes de pagar.
+ */
+function assertOrderQuantity(product: Product, game: Game, quantity: number): void {
+  const max = catalog.maxOrderQuantity(product, game);
+  if (max !== null && quantity > max) {
+    throw invalidArgument(
+      max === 1
+        ? 'Esta recarga se compra de a una unidad por orden. Si necesitas más, crea otra orden al terminar.'
+        : `Puedes comprar hasta ${max} unidades de este producto por orden.`
+    );
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Crear orden
@@ -82,6 +99,7 @@ ordersRouter.post(
       throw invalidArgument('El paquete no corresponde al juego seleccionado.');
     }
     assertStorefrontGame(req, game);
+    assertOrderQuantity(product, game, body.quantity);
 
     const order = await ordersService.createOrder(user, profile, {
       gameId: body.gameId,
@@ -285,6 +303,7 @@ ordersRouter.post(
     ]);
     const game = await catalog.getGame(product.gameId);
     assertStorefrontGame(req, game);
+    assertOrderQuantity(product, game, body.quantity);
 
     const subtotalUsd = Number((product.priceUsd * body.quantity).toFixed(2));
     const tierPercent = await usersService.tierDiscountPercent(profile.tier);

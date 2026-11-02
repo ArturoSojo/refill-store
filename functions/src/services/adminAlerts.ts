@@ -211,9 +211,13 @@ export async function alert(input: AlertInput): Promise<void> {
  *
  * Se llama con el `remaining_balance` que devuelve cada despacho, así que el
  * aviso llega en la misma compra que agotó el saldo y no cuando ya empezaron a
- * fallar las siguientes.
+ * fallar las siguientes. `providerName` va en el texto: con varios proveedores
+ * el aviso tiene que decir qué cuenta recargar.
  */
-export async function checkProviderBalance(remainingBalance: number | null): Promise<void> {
+export async function checkProviderBalance(
+  remainingBalance: number | null,
+  providerName = 'Inefable'
+): Promise<void> {
   if (remainingBalance === null) return;
 
   try {
@@ -224,12 +228,12 @@ export async function checkProviderBalance(remainingBalance: number | null): Pro
     await alert({
       kind: 'low_balance',
       severity: remainingBalance <= 0 ? 'critical' : 'warning',
-      title: 'Saldo bajo en el proveedor',
+      title: `Saldo bajo en ${providerName}`,
       body:
-        `Quedan $${remainingBalance.toFixed(2)} en la cuenta de Inefable ` +
+        `Quedan $${remainingBalance.toFixed(2)} en la cuenta de ${providerName} ` +
         `(umbral: $${threshold.toFixed(2)}). Recárgala o las próximas recargas fallarán.`,
       link: '/admin',
-      data: { remainingBalance, threshold },
+      data: { remainingBalance, threshold, provider: providerName },
     });
   } catch {
     // `alert` ya registra sus propios fallos.

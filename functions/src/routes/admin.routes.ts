@@ -18,11 +18,14 @@ import {
   orders,
   coupons,
   now,
+  privateCentralOneConfigDoc,
+  providerSync,
   Timestamp,
 } from '../config/firebase';
+import { centralOneWebhookSecret } from '../config/env';
 import { asyncHandler, clientIp, ok, parseBody, parseParams, parseQuery } from '../lib/http';
 import { PAGE_LIMIT, paginate } from '../lib/pagination';
-import { failedPrecondition, invalidArgument, notFound } from '../lib/errors';
+import { failedPrecondition, invalidArgument, notFound, providerError } from '../lib/errors';
 import { applyMargin, round } from '../lib/money';
 import { slugify } from '../lib/ids';
 import { MAX_DISCOUNT_PERCENT, TIER_ORDER, normalizeLadder } from '../lib/tiers';
@@ -40,8 +43,9 @@ import * as notificationsService from '../services/notifications';
 import * as pabilo from '../services/pabilo';
 import * as inefable from '../services/inefable';
 import * as fazercards from '../services/fazercards';
-import * as fazerCatalogSync from '../services/fazerCatalogSync';
-import { checkOrderProviderStatus } from '../services/dispatch';
+import * as centralOne from '../services/centralOne';
+import { checkOrderProviderStatus, orderDeliveryDoc } from '../services/dispatch';
+import { enqueueCentralOneSync } from '../services/centralOneCatalogSync';
 import { listEvents } from '../services/orderEvents';
 import { getConfig, updateConfig } from '../services/settings';
 import * as settings from '../services/settings';
@@ -51,8 +55,17 @@ import * as emailService from '../services/email';
 import * as modalsService from '../services/modals';
 import * as chatbotService from '../services/chatbot';
 import { renderOrderEmail } from '../services/emailTemplates';
+import { CENTRAL_ONE_WEBHOOK_URL } from './webhooks.routes';
 import { DEFAULT_PLAYER_FIELD } from '../types/models';
-import type { Coupon, Order, Ticket, UserProfile } from '../types/models';
+import type {
+  CentralOneStatus,
+  Coupon,
+  DispatchCall,
+  Order,
+  ProviderSync,
+  Ticket,
+  UserProfile,
+} from '../types/models';
 
 export const adminRouter = Router();
 
@@ -153,7 +166,7 @@ adminRouter.get(
 adminRouter.get(
   '/providers/status',
   asyncHandler(async (_req, res) => {
-    const [balance, fazerBalance, pabiloHealth] = await Promise.all([
+    const [balance, fazerBalance, coBalance, pabiloHealth] = await Promise.all([
       inefable.isInefableConfigured()
         ? inefable.getBalance()
         : Promise.resolve({
@@ -170,6 +183,7 @@ adminRouter.get(
             accountName: null,
             message: 'Sin API key.',
           }),
+      centralOne.isCentralOneConfigured() ? centralOne.getBalance() : Promise.resolve(null),
       // No basta con que el secreto exista: la cuenta puede haber dejado de
       // existir en Pabilo y los pagos fallarían sin que nadie se entere.
       pabilo.checkAccount(),
@@ -191,7 +205,168 @@ adminRouter.get(
         accountName: fazerBalance.accountName,
         message: fazerBalance.message,
       },
+      centralone: centralOneStatus(coBalance),
     });
+  })
+);
+
+/** Bloque `centralone` del estado: el saldo retenido es lo que está en pedidos en curso. */
+function centralOneStatus(
+  result: Awaited<ReturnType<typeof centralOne.getBalance>> | null
+): CentralOneStatus {
+  if (!result) {
+    return { configured: false, reachable: false, balanceUsd: null, heldUsd: null, message: 'Sin API key.' };
+  }
+  if (!result.ok) {
+    return { configured: true, reachable: false, balanceUsd: null, heldUsd: null, message: result.message };
+  }
+  return {
+    configured: true,
+    reachable: true,
+    balanceUsd: result.balance.availableUsd,
+    heldUsd: result.balance.heldUsd,
+    message: null,
+  };
+}
+
+/** Fecha guardada (`Timestamp`) en ISO para el panel; `null` si no hay. */
+function isoOrNull(value: unknown): string | null {
+  if (!value) return null;
+  if (typeof value === 'string') return value;
+  const toDate = (value as { toDate?: () => Date }).toDate;
+  return typeof toDate === 'function' ? toDate.call(value).toISOString() : null;
+}
+
+/**
+ * Cuenta de Central One para la pantalla de configuración: saldo, el webhook
+ * que tiene registrado el portal frente al que esperamos, y sus últimas
+ * entregas. Tres llamadas en paralelo que nunca lanzan: si una falla, el panel
+ * muestra el resto y el motivo.
+ */
+adminRouter.get(
+  '/providers/centralone/account',
+  asyncHandler(async (_req, res) => {
+    const configured = centralOne.isCentralOneConfigured();
+    const [balance, webhook, deliveries, state] = await Promise.all([
+      configured ? centralOne.getBalance() : Promise.resolve(null),
+      configured ? centralOne.getWebhook() : Promise.resolve(null),
+      configured ? centralOne.listWebhookDeliveries(10) : Promise.resolve(null),
+      privateCentralOneConfigDoc().get(),
+    ]);
+    const missingKey = 'Falta la API key de Central One (CENTRAL_ONE_API_KEY).';
+
+    ok(res, {
+      balance: balance?.ok ? balance.balance : null,
+      balanceError: !balance ? missingKey : balance.ok ? null : balance.message,
+      webhook: {
+        expectedUrl: CENTRAL_ONE_WEBHOOK_URL,
+        // Sólo si existe, nunca el valor: el secreto no sale de Secret Manager.
+        secretConfigured: centralOneWebhookSecret() !== null,
+        lastWebhookAt: isoOrNull(state.data()?.lastWebhookAt),
+        registered: webhook?.ok ? webhook.webhook : null,
+        registeredError: !webhook ? missingKey : webhook.ok ? null : webhook.message,
+      },
+      deliveries: deliveries?.ok ? deliveries.deliveries : [],
+      deliveriesError: !deliveries ? missingKey : deliveries.ok ? null : deliveries.message,
+    });
+  })
+);
+
+/**
+ * Pide a Central One que mande un `webhook.test` a la URL registrada. El
+ * proveedor permite 5 por hora a toda la cuenta: el límite es global, no por
+ * admin, para no gastarlos entre varios.
+ */
+adminRouter.post(
+  '/providers/centralone/webhook/test',
+  requireAdmin,
+  rateLimit({
+    name: 'admin_centralone_webhook_test',
+    max: 5,
+    windowSeconds: 3600,
+    keyResolver: () => 'global',
+    message: 'Central One sólo permite 5 avisos de prueba por hora.',
+  }),
+  asyncHandler(async (req, res) => {
+    if (!centralOne.isCentralOneConfigured()) {
+      throw failedPrecondition('Falta la API key de Central One (CENTRAL_ONE_API_KEY).');
+    }
+    const result = await centralOne.testWebhook();
+    await audit.record({
+      action: audit.ACTIONS.CENTRAL_ONE_WEBHOOK_TESTED,
+      actorUid: currentUser(req).uid,
+      actorEmail: currentUser(req).email,
+      targetType: 'provider',
+      targetId: 'centralone',
+      summary: result.ok
+        ? 'Aviso de prueba del webhook de Central One solicitado.'
+        : `Central One rechazó el aviso de prueba: ${result.message}`,
+      ip: clientIp(req),
+    });
+    if (!result.ok) throw providerError(result.message, { code: result.code });
+    ok(res, { ok: true, message: result.message });
+  })
+);
+
+/** `providerSync/{id}` con las fechas en ISO, como lo pinta el historial. */
+function toSyncRun(id: string, data: FirebaseFirestore.DocumentData) {
+  return {
+    id,
+    provider: 'centralone' as const,
+    status: data.status as ProviderSync['status'],
+    trigger: data.trigger as ProviderSync['trigger'],
+    actorUid: (data.actorUid as string | null | undefined) ?? null,
+    createdAt: isoOrNull(data.createdAt),
+    startedAt: isoOrNull(data.startedAt),
+    finishedAt: isoOrNull(data.finishedAt),
+    summary: (data.summary as ProviderSync['summary'] | undefined) ?? null,
+    error: (data.error as string | null | undefined) ?? null,
+  };
+}
+
+/**
+ * Encola una sincronización del catálogo de Central One (202). No sincroniza
+ * aquí: el catálogo son ~5 MB y miles de escrituras, que no caben en los 60 s
+ * de una petición de Hosting. Crear el doc dispara `runCentralOneSync`.
+ * 409 si ya hay una en cola o corriendo que no esté muerta.
+ */
+adminRouter.post(
+  '/providers/centralone/sync',
+  requireAdmin,
+  rateLimit({ name: 'admin_centralone_sync', max: 6, windowSeconds: 3600 }),
+  asyncHandler(async (req, res) => {
+    if (!centralOne.isCentralOneConfigured()) {
+      throw failedPrecondition('Falta la API key de Central One (CENTRAL_ONE_API_KEY).');
+    }
+    const actor = currentUser(req);
+    // Comprobar y encolar van juntos en una transacción (compartida con el
+    // cron): dos clics o un clic a la vez que el cron no encolan dos syncs.
+    const queued = await enqueueCentralOneSync({ trigger: 'admin', actorUid: actor.uid });
+    if (!queued.ok) {
+      throw failedPrecondition('Ya hay una sincronización de Central One en curso.', { syncId: queued.activeId });
+    }
+    const ref = { id: queued.id };
+
+    await audit.record({
+      action: audit.ACTIONS.CENTRAL_ONE_SYNC_REQUESTED,
+      actorUid: actor.uid,
+      actorEmail: actor.email,
+      targetType: 'catalog',
+      targetId: ref.id,
+      summary: 'Sincronización del catálogo de Central One solicitada.',
+      ip: clientIp(req),
+    });
+
+    ok(res, { syncId: ref.id }, 202);
+  })
+);
+
+/** Últimas 10 sincronizaciones (cron y panel), la más reciente primero. */
+adminRouter.get(
+  '/providers/centralone/sync/history',
+  asyncHandler(async (_req, res) => {
+    const snap = await providerSync().orderBy('createdAt', 'desc').limit(10).get();
+    ok(res, { items: snap.docs.map((doc) => toSyncRun(doc.id, doc.data())) });
   })
 );
 
@@ -206,29 +381,24 @@ adminRouter.get(
   })
 );
 
-/** Importa el catálogo LATAM de FazerCards. Sólo administra catálogo, nunca órdenes. */
+/**
+ * La importación de FazerCards quedó retirada: el catálogo de la tienda sale
+ * ahora de Central One y volver a importar reactivaría los juegos `fz-*` ya
+ * retirados. 410 (y no 404) para que un panel viejo en caché muestre el motivo.
+ * Despacho y consulta de órdenes viejas de FazerCards siguen funcionando.
+ */
 adminRouter.post(
   '/providers/fazercards/sync',
   requireAdmin,
-  asyncHandler(async (req, res) => {
-    const input = parseBody(req, z.object({
-      family: z.enum(['topup', 'gift_card', 'game_key']),
-      offset: z.number().int().min(0).default(0),
-      limit: z.number().int().min(1).max(4).default(4),
-    }));
-    const summary = await fazerCatalogSync.syncFazerCatalog(input);
-    await audit.record({
-      action: 'FAZERCARDS_CATALOG_SYNC',
-      actorUid: currentUser(req).uid,
-      actorEmail: currentUser(req).email,
-      targetType: 'catalog',
-      targetId: 'fazercards',
-      summary: `Catálogo FazerCards ${input.family}: ${summary.createdGames} categorías y ${summary.createdProducts} productos nuevos.`,
-      data: { ...summary },
-      ip: clientIp(req),
+  (_req, res) => {
+    res.status(410).json({
+      ok: false,
+      error: {
+        code: 'failed_precondition',
+        message: 'FazerCards fue reemplazado por Central One. Sincroniza el catálogo desde Central One.',
+      },
     });
-    ok(res, { summary });
-  })
+  }
 );
 
 /** Top de productos del periodo, resuelto contra el catálogo. */
@@ -333,10 +503,23 @@ adminRouter.get(
   asyncHandler(async (req, res) => {
     const { id } = parseParams(req, idParam);
     const [order, events] = await Promise.all([ordersService.getOrder(id), listEvents(id)]);
-    const [profile, game] = await Promise.all([
+    const [profile, game, delivery] = await Promise.all([
       usersService.getProfileOrNull(order.uid),
       catalog.getGame(order.gameId).catch(() => null),
+      orderDeliveryDoc(id)
+        .get()
+        .catch(() => null),
     ]);
+    // El despacho guarda los códigos de cada llamada aparte del doc de la orden
+    // (el cliente puede leer la orden entera); el panel los ve aquí.
+    const callCodes = (delivery?.data()?.callCodes ?? {}) as Record<string, string[]>;
+    if (order.dispatch?.calls?.length && Object.keys(callCodes).length > 0) {
+      order.dispatch.calls = order.dispatch.calls.map((call) =>
+        call.deliveredCodes?.length || !callCodes[String(call.index)]?.length
+          ? call
+          : { ...call, deliveredCodes: callCodes[String(call.index)] }
+      );
+    }
 
     ok(res, {
       order,
@@ -504,32 +687,43 @@ const playerFieldSchema = z.object({
     .min(1)
     .max(40)
     .regex(/^[a-zA-Z][a-zA-Z0-9_]*$/, 'La clave del campo sólo admite letras, números y guion bajo.'),
-  label: z.string().trim().min(1).max(40),
-  pattern: z.string().trim().min(1).max(200),
+  // Topes holgados: la sync de Central One genera etiquetas con el texto del
+  // proveedor y, en las listas cerradas, un patrón `^(a|b|…)$` con todas las
+  // opciones. Con los topes viejos (40/200) un juego así no se podía guardar
+  // desde el panel ni para activarlo, y la sync regenera el patrón cada hora.
+  label: z.string().trim().min(1).max(80),
+  pattern: z.string().trim().min(1).max(8000),
   help: z.string().trim().max(200).default(''),
   placeholder: z.string().trim().max(60).default(''),
-  type: z.enum(['text', 'number', 'email', 'password']).default('text'),
+  // `select` lo crea la sincronización de Central One para los campos que el
+  // proveedor declara como lista cerrada (servidor, región…).
+  type: z.enum(['text', 'number', 'email', 'password', 'select']).default('text'),
+  options: z
+    .array(z.object({ value: z.string().trim().min(1).max(200), label: z.string().trim().min(1).max(200) }))
+    .max(500)
+    .optional(),
   providerField: z.enum(['player_id', 'player_id2']).nullable().default(null),
   required: z.boolean().default(true),
   sensitive: z.boolean().default(false),
 });
 
 const gameSchema = z.object({
-  name: z.string().trim().min(2).max(60),
-  shortName: z.string().trim().min(2).max(40).optional(),
+  name: z.string().trim().min(2).max(120),
+  shortName: z.string().trim().min(2).max(120).optional(),
   apiGameId: z.union([z.coerce.number().int(), z.string().trim().min(1).max(100)]),
   apiGameType: z.string().trim().min(1).max(40),
-  provider: z.enum(['inefable', 'fazercards']).optional(),
+  provider: z.enum(['inefable', 'fazercards', 'centralone']).optional(),
   providerFamily: z.enum(['topup', 'gift_card', 'game_key']).optional(),
   requiresPlayerData: z.boolean().optional(),
   currencyLabel: z.string().trim().min(1).max(30),
   currencyIcon: z.string().trim().max(8).optional(),
   currencyIconUrl: z.string().trim().max(500).optional(),
   // Vacío sólo para gift cards y keys, que no piden datos del jugador.
-  playerFields: z.array(playerFieldSchema).max(3).optional(),
+  // Central One puede pedir más de tres datos (la sync no los recorta).
+  playerFields: z.array(playerFieldSchema).max(10).optional(),
   validatesPlayerId: z.boolean().optional(),
-  playerIdLabel: z.string().trim().min(2).max(40).optional(),
-  playerIdPattern: z.string().trim().min(2).max(120).optional(),
+  playerIdLabel: z.string().trim().min(2).max(80).optional(),
+  playerIdPattern: z.string().trim().min(2).max(8000).optional(),
   playerIdHelp: z.string().trim().max(200).optional(),
   howToFindId: z.array(z.string().max(200)).max(6).optional(),
   logoUrl: z.string().trim().max(500).optional(),
@@ -578,6 +772,10 @@ function assertValidPlayerFields(fields?: PlayerFieldInput[]) {
     }
     keys.add(field.key);
     assertValidPattern(field.pattern);
+    // Un `select` sin opciones dejaría al comprador sin nada que elegir.
+    if (field.type === 'select' && (!field.options || field.options.length === 0)) {
+      throw invalidArgument(`El campo «${field.key}» es una lista y necesita al menos una opción.`);
+    }
 
     if (field.providerField === 'player_id') primaries += 1;
     if (field.providerField === 'player_id2') secondaries += 1;
@@ -619,16 +817,23 @@ adminRouter.post(
     assertValidPlayerFields(body.playerFields);
 
     const provider = body.provider ?? 'inefable';
-    const providerFamily = provider === 'fazercards' ? body.providerFamily ?? 'topup' : undefined;
+    const providerFamily =
+      provider === 'fazercards' || provider === 'centralone' ? body.providerFamily ?? 'topup' : undefined;
+    // Central One sólo vende recargas y gift cards: no hay keys de juego.
+    if (provider === 'centralone' && providerFamily === 'game_key') {
+      throw invalidArgument('Central One no vende keys de juego: usa recarga o gift card.');
+    }
     const requiresPlayerData = body.requiresPlayerData ?? (providerFamily !== 'gift_card' && providerFamily !== 'game_key');
     if (requiresPlayerData && body.playerFields?.length === 0) {
       throw invalidArgument('Agrega al menos un dato que se le pida al comprador.');
     }
 
-    // La tienda de FazerCards lista y busca sus categorías por el prefijo
-    // `fz-<familia>-`; con otro ID el juego existiría pero nadie lo vería.
+    // La tienda lista y busca las categorías de proveedor por el prefijo
+    // `fz-<familia>-` (FazerCards) o `co-<familia>-` (Central One); con otro ID
+    // el juego existiría pero nadie lo vería. `manual: true` hace que la
+    // sincronización de Central One no lo toque aunque coincida el ID.
     const slug = slugify(body.id || body.name);
-    const prefix = providerFamily ? `fz-${providerFamily}-` : '';
+    const prefix = providerFamily ? `${provider === 'centralone' ? 'co' : 'fz'}-${providerFamily}-` : '';
     const id = slug.startsWith(prefix) ? slug : `${prefix}${slug}`;
     const existing = await games().doc(id).get();
     if (existing.exists) throw failedPrecondition('Ya existe un juego con ese identificador.');
@@ -698,11 +903,20 @@ adminRouter.patch(
     assertValidPattern(body.playerIdPattern);
     assertValidPlayerFields(body.playerFields);
 
-    await catalog.getGame(id);
+    const current = await catalog.getGame(id);
+    // Encender o apagar a mano es una decisión del admin que manda sobre el
+    // motivo con que lo ocultó la sincronización: sin borrar `hiddenReason`,
+    // la próxima sync podría volver a mostrar un juego que el admin apagó.
+    const adminToggled = body.active !== undefined && body.active !== current.active;
     await games()
       .doc(id)
       .set(
-        { ...body, ...legacyIdFields(body.playerFields), updatedAt: now() },
+        {
+          ...body,
+          ...legacyIdFields(body.playerFields),
+          ...(adminToggled ? { hiddenReason: null } : {}),
+          updatedAt: now(),
+        },
         // `merge` fusiona mapas pero REEMPLAZA arrays, que es justo lo que hace
         // falta: quitar un campo del juego tiene que quitarlo de verdad.
         { merge: true }
@@ -783,13 +997,19 @@ adminRouter.get(
   })
 );
 
+/** Claves que pide Central One (`player_id`, `server_id`…), tal como las nombra su catálogo. */
+const targetFieldsSchema = z.array(z.string().trim().min(1).max(60)).max(10);
+
 const productSchema = z.object({
   gameId: z.string().min(1),
   sku: z.string().trim().min(2).max(40),
-  name: z.string().trim().min(2).max(80),
-  description: z.string().trim().max(400).optional(),
+  // Nombre y descripción de las ofertas de Central One salen tal cual del
+  // proveedor: con topes más cortos no se podían editar desde el panel.
+  name: z.string().trim().min(2).max(160),
+  description: z.string().trim().max(2000).optional(),
   fulfillment: z.enum(['auto', 'manual']),
-  kind: z.enum(['package', 'combo', 'special']),
+  kind: z.enum(['package', 'combo', 'special', 'level_up']),
+  provider: z.enum(['inefable', 'fazercards', 'centralone']).optional(),
   manualFlow: z.enum(['notify', 'whatsapp', 'phone']).optional(),
   amount: z.coerce.number().int().min(0),
   bonus: z.coerce.number().int().min(0),
@@ -807,15 +1027,26 @@ const productSchema = z.object({
           .union([z.coerce.number().int(), z.string().trim().min(1).max(100)])
           .nullable()
           .optional(),
+        provider: z.enum(['inefable', 'fazercards', 'centralone']).optional(),
+        // Claves de `target_payload` de Central One; `[]` = gift card.
+        targetFields: targetFieldsSchema.optional(),
       })
     )
     .max(10)
     .optional(),
+  targetFields: targetFieldsSchema.optional(),
+  // `false` explícito libera un precio fijado a mano (D6).
+  priceLocked: z.boolean().optional(),
+  // Ofertas de la sync de Central One: apagar/encender a mano de forma
+  // explícita, aunque `active` no cambie (una agotada que el admin quiere
+  // dejar apagada para siempre).
+  adminDisabled: z.boolean().optional(),
   imageUrl: z.string().trim().max(500).optional(),
   badge: z.string().trim().max(20).nullable().optional(),
   active: z.boolean().optional(),
   featured: z.boolean().optional(),
-  sortOrder: z.coerce.number().int().min(0).max(9999).optional(),
+  // La sync ordena las recargas por cantidad (22.500 Robux → 22500).
+  sortOrder: z.coerce.number().int().min(0).max(9_999_999).optional(),
   stock: z.coerce.number().int().min(0).nullable().optional(),
   deliveryEtaMinutes: z.coerce.number().int().min(1).max(1440).optional(),
 });
@@ -844,6 +1075,9 @@ adminRouter.post(
     const existing = await products().doc(id).get();
     if (existing.exists) throw failedPrecondition('Ya existe un producto con ese identificador.');
 
+    // `targetFields` vive también a nivel de producto (ver `Product.targetFields`).
+    const targetFields = body.targetFields ?? body.calls?.find((call) => call.targetFields)?.targetFields;
+
     const timestamp = now();
     await products().doc(id).set({
       gameId: body.gameId,
@@ -853,6 +1087,8 @@ adminRouter.post(
       fulfillment: body.fulfillment,
       manualFlow: body.manualFlow ?? 'notify',
       kind: body.kind,
+      ...(body.provider ? { provider: body.provider } : {}),
+      ...(targetFields !== undefined ? { targetFields } : {}),
       amount: body.amount,
       bonus: body.bonus,
       costUsd: round(body.costUsd, 4),
@@ -899,8 +1135,14 @@ adminRouter.patch(
     });
 
     const patch: Record<string, unknown> = { ...body, updatedAt: now() };
+    if (body.calls) patch.calls = preserveCallProviderData(body.calls, current.calls ?? []);
     if (body.costUsd !== undefined) patch.costUsd = round(body.costUsd, 4);
     if (body.priceUsd !== undefined) patch.priceUsd = round(body.priceUsd, 2);
+    // `priceLocked`/`adminDisabled` sólo los escribe la regla de abajo, nunca
+    // el cuerpo tal cual.
+    delete patch.priceLocked;
+    delete patch.adminDisabled;
+    Object.assign(patch, centralOneAdminDecisions(current, body));
 
     await products().doc(id).set(patch, { merge: true });
 
@@ -920,6 +1162,75 @@ adminRouter.patch(
     ok(res, { product: await catalog.getProduct(id) });
   })
 );
+
+/**
+ * El formulario del panel no conoce `provider` ni `targetFields` de las
+ * llamadas y `merge` REEMPLAZA arrays: sin esto, una edición de precio dejaría
+ * una oferta de Central One sin saber qué datos mandar. Se recuperan de la
+ * llamada guardada con el mismo `packageId` cuando el cuerpo no los trae.
+ */
+function preserveCallProviderData(
+  incoming: Array<Partial<DispatchCall> & { packageId: number | string; quantity: number }>,
+  existing: DispatchCall[]
+): DispatchCall[] {
+  const byPackage = new Map(existing.map((call) => [String(call.packageId), call]));
+  return incoming.map((call) => {
+    const previous = byPackage.get(String(call.packageId));
+    const merged: DispatchCall = { ...call } as DispatchCall;
+    if (merged.provider === undefined && previous?.provider !== undefined) merged.provider = previous.provider;
+    if (merged.targetFields === undefined && previous?.targetFields !== undefined) {
+      merged.targetFields = previous.targetFields;
+    }
+    if (merged.providerGameId === undefined && previous?.providerGameId !== undefined) {
+      merged.providerGameId = previous.providerGameId;
+    }
+    return merged;
+  });
+}
+
+/**
+ * Decisiones del admin sobre una oferta que mantiene la sincronización de
+ * Central One (D6). La sync recalcula `active` y `priceUsd` cada hora, así que
+ * escribirlos sin más se perdería en la siguiente pasada:
+ *  - Cambiar `active` fija `adminDisabled = !active`. Encender no fuerza la
+ *    venta: queda activa sólo si el proveedor la tiene (no retirada y con
+ *    stock); si no, se enciende sola cuando vuelva.
+ *  - Cambiar `priceUsd` fija `priceLocked`; `priceLocked: false` lo libera.
+ *
+ * Sólo cuentan los CAMBIOS: el formulario manda todos los campos en cada
+ * guardado, y repetir `active: false` de una oferta agotada no puede
+ * convertirse en «apagada por el admin». Para fijar esa decisión sobre una
+ * oferta que ya está apagada (agotada o pausada en Central One) el panel manda
+ * `adminDisabled` explícito, que manda sobre `active`.
+ */
+export function centralOneAdminDecisions(
+  current: Pick<
+    Awaited<ReturnType<typeof catalog.getProduct>>,
+    'provider' | 'providerSyncedAt' | 'active' | 'adminDisabled' | 'providerRemoved' | 'stock' | 'priceUsd'
+  >,
+  body: { active?: boolean; priceUsd?: number; priceLocked?: boolean; stock?: number | null; adminDisabled?: boolean }
+): Record<string, unknown> {
+  // Fuera de la sync, `adminDisabled`/`priceLocked` no significan nada.
+  if (current.provider !== 'centralone' || !current.providerSyncedAt) return {};
+
+  const decisions: Record<string, unknown> = {};
+  const stock = body.stock !== undefined ? body.stock : current.stock;
+  const providerAvailable = current.providerRemoved !== true && (stock === null || stock > 0);
+
+  if (body.adminDisabled !== undefined) {
+    decisions.adminDisabled = body.adminDisabled;
+    // Encender no fuerza la venta: queda activa sólo si el proveedor la tiene.
+    decisions.active = body.adminDisabled ? false : providerAvailable;
+  } else if (body.active !== undefined && body.active !== current.active) {
+    decisions.adminDisabled = !body.active;
+    if (body.active) decisions.active = providerAvailable;
+  }
+
+  const priceChanged = body.priceUsd !== undefined && round(body.priceUsd, 2) !== round(current.priceUsd, 2);
+  if (body.priceLocked === false) decisions.priceLocked = false;
+  else if (body.priceLocked === true || priceChanged) decisions.priceLocked = true;
+  return decisions;
+}
 
 adminRouter.delete(
   '/products/:id',

@@ -94,6 +94,10 @@ export const ACTIONS = {
   COUPON_UPDATED: 'coupon.updated',
   COUPON_DELETED: 'coupon.deleted',
   CATALOG_SEEDED: 'catalog.seeded',
+  /** Sync del catálogo de Central One pedida desde el panel (se encola). */
+  CENTRAL_ONE_SYNC_REQUESTED: 'centralone.sync.requested',
+  /** Aviso de prueba del webhook de Central One pedido desde el panel. */
+  CENTRAL_ONE_WEBHOOK_TESTED: 'centralone.webhook.tested',
   SETUP_ADMIN_GRANTED: 'setup.admin.granted',
   ADMIN_EMAIL_CHANGED: 'admin.email.changed',
 } as const;

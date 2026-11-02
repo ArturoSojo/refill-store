@@ -15,7 +15,7 @@
  */
 import { db, orders, games, products, now, minutesFromNow, providerOrders } from '../config/firebase';
 import { createHash } from 'node:crypto';
-import { log } from '../lib/logger';
+import { log, stripCodes } from '../lib/logger';
 import { notFound } from '../lib/errors';
 import { round } from '../lib/money';
 import * as inefable from './inefable';
@@ -39,6 +39,7 @@ import type {
   ManualFlow,
   Order,
   OrderStatus,
+  TimestampLike,
 } from '../types/models';
 
 const REVIEW_CUSTOMER_MESSAGE =
@@ -121,6 +122,346 @@ function providerOrderIndexId(provider: string, providerOrderId: string): string
   return createHash('sha256').update(`${provider}:${providerOrderId}`).digest('hex');
 }
 
+/**
+ * Indexa el pedido del proveedor para que su webhook resuelva en O(1).
+ *
+ * Nunca lanza: la recarga ya fue aceptada y una caída del índice no puede
+ * convertirla en fallo ni habilitar que se vuelva a enviar.
+ */
+async function indexProviderOrder(
+  provider: 'fazercards' | 'centralone',
+  providerOrderId: string,
+  orderId: string,
+  callIndex: number
+): Promise<void> {
+  await providerOrders()
+    .doc(providerOrderIndexId(provider, providerOrderId))
+    .set({ provider, providerOrderId, orderId, callIndex, createdAt: now() })
+    .catch((error) => {
+      log.error('No se pudo indexar la orden del proveedor para webhook', {
+        orderId,
+        provider,
+        providerOrderId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Escritura de `dispatch.calls`: compare-and-set por llamada y códigos aparte
+// ---------------------------------------------------------------------------
+
+/**
+ * Lo que cambia cuando alguien despacha, consulta o reintenta una llamada. Si
+ * la huella guardada ya no es la que se leyó, otra petición la tocó.
+ */
+function callFingerprint(call: DispatchCallResult | undefined): string {
+  if (!call) return '';
+  const state = call as CentralOneCallState;
+  return JSON.stringify([
+    call.status,
+    call.attempts ?? 0,
+    call.providerOrderId ?? null,
+    state.idempotencyKey ?? null,
+    state.keyClosed === true,
+    state.keyAttempts ?? 0,
+  ]);
+}
+
+/**
+ * Mezcla, llamada por llamada, lo que se va a escribir con lo guardado. Pura.
+ *
+ * El cron, el webhook y el reintento del panel leen la orden, hablan un rato
+ * con el proveedor (un POST puede tardar 25 s) y luego escriben el arreglo
+ * entero de llamadas. Si en medio otro escribió, esa copia vieja deshacía su
+ * trabajo: p. ej. el cron devolvía a `error` una llamada que el panel acababa
+ * de comprar con llave nueva, ese pedido quedaba huérfano y la orden podía
+ * terminar reembolsada con la recarga entregada. Aquí cada llamada se escribe
+ * sólo si lo guardado sigue como se leyó (`read`); si no, gana lo guardado y
+ * se conserva, al menos, el id de pedido que traía la versión descartada.
+ */
+export function mergeDispatchCalls(
+  read: DispatchCallResult[],
+  stored: DispatchCallResult[],
+  next: DispatchCallResult[]
+): { calls: DispatchCallResult[]; kept: number[] } {
+  const readByIndex = new Map(read.map((call) => [call.index, call]));
+  const storedByIndex = new Map(stored.map((call) => [call.index, call]));
+  const kept: number[] = [];
+  const calls = next.map((call) => {
+    const storedCall = storedByIndex.get(call.index);
+    if (!storedCall) return call;
+    if (callFingerprint(storedCall) === callFingerprint(readByIndex.get(call.index))) return call;
+    kept.push(call.index);
+    const storedState = storedCall as CentralOneCallState;
+    const nextState = call as CentralOneCallState;
+    const ids = new Set([
+      ...(storedState.previousProviderOrderIds ?? []),
+      ...(nextState.previousProviderOrderIds ?? []),
+      ...(call.providerOrderId ? [call.providerOrderId] : []),
+    ]);
+    if (storedCall.providerOrderId) ids.delete(storedCall.providerOrderId);
+    return ids.size > 0 ? ({ ...storedCall, previousProviderOrderIds: [...ids] } as DispatchCallResult) : storedCall;
+  });
+  for (const storedCall of stored) {
+    if (!next.some((call) => call.index === storedCall.index)) calls.push(storedCall);
+  }
+  calls.sort((a, b) => a.index - b.index);
+  return { calls, kept };
+}
+
+/**
+ * Códigos entregados por llamada, fuera del doc de la orden.
+ *
+ * El dueño puede leer `orders/{id}` entero (reglas de Firestore, para ver el
+ * estado en vivo). Con los códigos en `dispatch.calls[].deliveredCodes`, una
+ * gift card de varias unidades con una entregada y otra fallida dejaba leer el
+ * código entregado aunque luego se reembolsara la orden completa. Aquí sólo
+ * entra el Admin SDK; el cliente los recibe en `deliveredCodes` cuando la
+ * orden se completa, y el panel los lee por su API.
+ */
+export const orderDeliveryDoc = (orderId: string) => orders().doc(orderId).collection('private').doc('delivery');
+
+/** Separa los códigos de las llamadas para guardarlos aparte. Pura. */
+export function splitCallCodes(calls: DispatchCallResult[]): {
+  calls: DispatchCallResult[];
+  codes: Record<string, string[]>;
+} {
+  const codes: Record<string, string[]> = {};
+  const clean = calls.map((call) => {
+    if (call.deliveredCodes === undefined) return call;
+    const { deliveredCodes, ...rest } = call;
+    if (deliveredCodes && deliveredCodes.length > 0) codes[String(call.index)] = deliveredCodes;
+    return rest as DispatchCallResult;
+  });
+  return { calls: clean, codes };
+}
+
+/** Códigos por llamada guardados en `orders/{id}/private/delivery`. */
+function storedCallCodes(data: FirebaseFirestore.DocumentData | undefined): Record<string, string[]> {
+  const raw = (data?.callCodes ?? {}) as Record<string, unknown>;
+  const out: Record<string, string[]> = {};
+  for (const [index, codes] of Object.entries(raw)) {
+    if (Array.isArray(codes)) out[index] = codes.filter((code): code is string => typeof code === 'string');
+  }
+  return out;
+}
+
+/** Escribe `dispatch.calls` sin códigos y los códigos en el doc privado. */
+function writeCalls(
+  tx: FirebaseFirestore.Transaction,
+  orderId: string,
+  calls: DispatchCallResult[],
+  buildPatch: (cleanCalls: DispatchCallResult[]) => Record<string, unknown>
+): void {
+  const { calls: clean, codes } = splitCallCodes(calls);
+  tx.set(orders().doc(orderId), buildPatch(clean), { merge: true });
+  if (Object.keys(codes).length > 0) {
+    tx.set(orderDeliveryDoc(orderId), { callCodes: codes, updatedAt: now() }, { merge: true });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Central One: llave de idempotencia, ambigüedad, pausa por saldo y códigos
+// ---------------------------------------------------------------------------
+
+/**
+ * Seguimiento de Central One que viaja dentro de la llamada.
+ *
+ * Firestore guarda la llamada tal cual, así que estos campos se tipan aquí y
+ * no en el modelo compartido: sólo este módulo los escribe y los lee.
+ */
+type CentralOneCallState = DispatchCallResult & {
+  /** Llave del último `POST /orders` de esta llamada. */
+  idempotencyKey?: string | null;
+  /** Cuántos POST se hicieron con `idempotencyKey` (el cron se rinde al tercero sin confirmación). */
+  keyAttempts?: number;
+  /**
+   * Último motivo de Central One: `ambiguous`/`network_error`/`timeout`/
+   * `unconfirmed` (pudo entrar), `insufficient_balance` (pausa),
+   * `codes_pending` (entregado sin códigos aún) o el código de un fallo.
+   */
+  errorCode?: string | null;
+  /**
+   * Central One CONFIRMÓ que la llave actual no tiene un pedido vivo: lo
+   * rechazó en firme al crearlo, o `GET /orders/{id}` lo dio por cerrado sin
+   * entregar. Sólo entonces el próximo intento puede comprar con otra llave.
+   */
+  keyClosed?: boolean;
+  /** Desde cuándo está en pausa por falta de saldo en Central One. */
+  balanceBlockedAt?: TimestampLike | null;
+  /** Último aviso al equipo por falta de saldo (como mucho uno por hora). */
+  balanceAlertAt?: TimestampLike | null;
+  /** Por qué sigue en curso, en palabras para el panel. */
+  pendingReason?: string | null;
+  /**
+   * Pedidos de Central One de llaves ya rotadas. Un pedido «fallido» puede
+   * entregarse después (Central One lo documenta): sin guardarlos, su aviso
+   * tardío no se reconocía y un doble cobro o un reembolso con entrega pasaban
+   * sin que nadie se enterara.
+   */
+  previousProviderOrderIds?: string[];
+};
+
+/** POST con la misma llave que el cron hace antes de dar por incierto un pedido. */
+const CENTRAL_ONE_MAX_POSTS_PER_KEY = 3;
+/** Sin saldo se reintenta solo durante este tiempo antes de pasar a revisión. */
+const CENTRAL_ONE_BALANCE_GIVE_UP_MS = 24 * 60 * 60_000;
+/** Un aviso de saldo por llamada como mucho cada hora: el cron pasa cada 2 min. */
+const CENTRAL_ONE_BALANCE_ALERT_MS = 60 * 60_000;
+/** Motivos tras los que el pedido pudo quedar creado sin que sepamos su id. */
+const CENTRAL_ONE_MAY_EXIST_CODES = new Set([
+  'ambiguous',
+  'network_error',
+  'timeout',
+  'unconfirmed',
+  'ambiguous_unresolved',
+]);
+
+/** Llave base de una llamada: `RF-8K3M2Q-1`. */
+export function centralOneBaseKey(orderCode: string, index: number): string {
+  return `${orderCode}-${index + 1}`;
+}
+
+/**
+ * Llave del próximo `POST /orders` de una llamada. Función pura.
+ *
+ * Central One devuelve el pedido original (sin cobrar otra vez) cuando se
+ * repite la llave, así que repetirla es SIEMPRE seguro: es la respuesta a un
+ * timeout, un 5xx, un 429 o un 409 de llave. Sólo cuando Central One confirmó
+ * que esa llave no dejó un pedido vivo (`keyClosed`) hace falta una nueva,
+ * `-r{intento}`, o el reintento recibiría otra vez el pedido fallido.
+ * `attempt` es el número del intento que se va a hacer (ya sumado).
+ */
+export function nextCentralOneKey(
+  call: Pick<CentralOneCallState, 'index' | 'idempotencyKey' | 'keyClosed'>,
+  orderCode: string,
+  attempt: number
+): string {
+  const base = centralOneBaseKey(orderCode, call.index);
+  const current = call.idempotencyKey || base;
+  if (!call.keyClosed) return current;
+  return `${base}-r${Math.max(2, attempt)}`;
+}
+
+/**
+ * ¿Pudo quedar un pedido creado en Central One para esta llamada? Función pura.
+ *
+ * Con id de pedido, sí. Sin id, sólo si el último POST fue ambiguo (red, 5xx,
+ * 429, 409 de llave, aceptado sin id). Las llamadas anteriores a este
+ * seguimiento no traen `errorCode`: se deduce de su HTTP, porque entonces un
+ * 5xx se guardaba como `failed` y aun así pudo haber entrado.
+ */
+export function centralOneCallMayExist(
+  call: Pick<
+    CentralOneCallState,
+    'providerOrderId' | 'keyClosed' | 'errorCode' | 'attempts' | 'providerStatus' | 'httpStatus'
+  >
+): boolean {
+  if (call.providerOrderId) return true;
+  if (call.keyClosed) return false;
+  const code = (call.errorCode ?? '').toLowerCase();
+  if (code) return CENTRAL_ONE_MAY_EXIST_CODES.has(code);
+  if ((call.attempts ?? 0) <= 0) return false;
+  const status = (call.providerStatus ?? '').toLowerCase();
+  const http = call.httpStatus ?? null;
+  return (
+    status === 'network_error' ||
+    status === 'ambiguous' ||
+    http === 0 ||
+    http === 409 ||
+    http === 429 ||
+    (http !== null && http >= 500)
+  );
+}
+
+/** Mensaje de una llamada que pudo haber entrado y no se pudo confirmar. */
+function centralOneUncertainMessage(key: string): string {
+  return `El pedido pudo haber entrado en Central One (llave ${key}); no se compró otro. Revísalo en su portal antes de reintentar o reembolsar.`;
+}
+
+/**
+ * La llamada entrega códigos (gift card) y no puede cerrarse sin ellos.
+ * `targetFields: []` es la marca que deja la sincronización en las gift cards.
+ */
+function centralOneNeedsCodes(order: Order, call: DispatchCallResult): boolean {
+  return (
+    order.providerFamily === 'gift_card' ||
+    order.providerFamily === 'game_key' ||
+    (Array.isArray(call.targetFields) && call.targetFields.length === 0)
+  );
+}
+
+function millisOf(value: TimestampLike | null | undefined): number | null {
+  const candidate = value as { toMillis?: () => number } | null | undefined;
+  return candidate && typeof candidate.toMillis === 'function' ? candidate.toMillis() : null;
+}
+
+/** Saldo que Central One deja tras cobrar el pedido, si lo informa. */
+function centralOneBalanceAfter(raw: Record<string, unknown>): number | null {
+  const orderRaw = (raw?.order ?? null) as Record<string, any> | null;
+  return centralOne.parseAmount(orderRaw?.pricing?.balance_after ?? orderRaw?.balance_after);
+}
+
+/**
+ * Lee los códigos de un pedido que Central One dio por entregado.
+ *
+ * Una gift card no se cierra sin códigos: si `GET /orders/{id}/codes` falla
+ * (p. ej. la llave no tiene `codes:read`) o viene vacío, se devuelve `ok:false`
+ * y la llamada sigue en curso. En una recarga a cuenta los códigos son un
+ * extra: se guardan si los hay, pero no frenan la entrega. Los códigos nunca
+ * se loguean.
+ */
+async function readCentralOneCodes(
+  order: Order,
+  call: DispatchCallResult,
+  providerOrderId: string,
+  deliveredCount: number
+): Promise<{ ok: true; codes: string[] } | { ok: false; message: string }> {
+  const needsCodes = centralOneNeedsCodes(order, call);
+  if (!needsCodes && deliveredCount <= 0) return { ok: true, codes: [] };
+
+  const result = await centralOne.getOrderCodes(providerOrderId).catch(() => null);
+  const codes = result && result.ok ? result.codes : [];
+  if (codes.length > 0) return { ok: true, codes };
+  if (!needsCodes) return { ok: true, codes: [] };
+
+  log.warn('Central One entregó una gift card sin códigos legibles; sigue en curso', {
+    orderId: order.id,
+    providerOrderId,
+    code: result && !result.ok ? result.code : 'empty',
+  });
+  const reason =
+    result && !result.ok
+      ? result.message
+      : 'Central One entregó el pedido pero todavía no devolvió los códigos.';
+  return { ok: false, message: `${reason} Se vuelve a consultar sin comprar otro.` };
+}
+
+/**
+ * Deja constancia de que la llamada está en pausa por falta de saldo y avisa
+ * al equipo, como mucho una vez por hora: el cron la reintenta cada 2 minutos.
+ */
+async function noteCentralOneBalancePause(order: Order, call: CentralOneCallState): Promise<void> {
+  if (!millisOf(call.balanceBlockedAt)) call.balanceBlockedAt = now();
+  const lastAlert = millisOf(call.balanceAlertAt);
+  if (lastAlert !== null && Date.now() - lastAlert < CENTRAL_ONE_BALANCE_ALERT_MS) return;
+  call.balanceAlertAt = now();
+
+  await adminAlerts.alert({
+    kind: 'low_balance',
+    severity: 'critical',
+    title: `Saldo insuficiente en Central One · ${order.code}`,
+    body: [
+      `${describeOrder(order)} (${order.gameName}) está pagada y en pausa: Central One no tiene saldo.`,
+      'Recarga el saldo de Central One: la tienda la reintenta sola con la misma llave cada pocos minutos.',
+      'No se reembolsa por esto; si en 24 h sigue sin saldo, pasa a revisión manual.',
+    ].join('\n'),
+    link: `/admin/ordenes/${order.id}`,
+    data: { code: order.code, packageId: call.packageId, callIndex: call.index },
+  });
+}
+
 /** Construye el plan de llamadas a partir de la configuración del producto. */
 export function buildCallPlan(
   calls: Array<{
@@ -128,6 +469,7 @@ export function buildCallPlan(
     quantity: number;
     providerGameId?: number | string | null;
     provider?: 'inefable' | 'fazercards' | 'centralone';
+    targetFields?: string[];
   }>
 ): DispatchCallResult[] {
   const plan: DispatchCallResult[] = [];
@@ -143,7 +485,11 @@ export function buildCallPlan(
         // a dónde se envía una orden que ya se cotizó.
         providerGameId: call.providerGameId ?? null,
         provider: call.provider,
-        quantity: call.quantity || 1,
+        // Igual que el proveedor: los datos que pide la oferta quedan fijos.
+        ...(Array.isArray(call.targetFields) ? { targetFields: [...call.targetFields] } : {}),
+        // Cada entrada del plan es UNA unidad: `quantity: N` ya se expandió en
+        // N llamadas. Guardar N aquí hacía que Central One comprara N×N.
+        quantity: 1,
         index,
         status: 'pending',
         providerOrderId: null,
@@ -399,7 +745,12 @@ export async function dispatchOrder(
   if (expectedProductIds.length > calls.length) {
     for (let idx = calls.length; idx < expectedProductIds.length; idx++) {
       const rawPkgId = expectedProductIds[idx];
-      const pkgId = typeof rawPkgId === 'number' ? rawPkgId : Number(rawPkgId);
+      // Los paquetes de Inefable son numéricos; los de Central One son UUID y
+      // convertirlos a número los volvía `NaN`.
+      const pkgId =
+        typeof rawPkgId === 'number' || !Number.isFinite(Number(rawPkgId))
+          ? rawPkgId
+          : Number(rawPkgId);
       calls.push({
         packageId: pkgId,
         providerGameId,
@@ -515,75 +866,101 @@ export async function dispatchOrder(
       }
     }
 
-    
-    // Candado anti-doble cobro en reintentos (Central One):
+    // Candado anti-doble cobro en reintentos (Central One). Decide si el
+    // próximo POST va con la misma llave o con una nueva: sólo se rota cuando
+    // `GET /orders/{id}` CONFIRMA que el pedido anterior cerró sin entregar.
     if (callProvider === 'centralone' && (options.isRetry || call.attempts > 0 || call.status === 'error')) {
+      const state = call as CentralOneCallState;
       if (call.providerOrderId) {
-        try {
-          const existing = await centralOne.getOrder(call.providerOrderId);
-          if (existing.found) {
-            if (existing.isSuccess) {
-              log.info('Candado anti-doble cobro: la recarga ya figuraba completada en Central One', {
-                orderId,
-                externalOrderId,
-                providerOrderId: existing.orderId,
-                providerReference: existing.referenceCode,
-              });
+        const existing = await centralOne.getOrder(call.providerOrderId).catch(() => null);
 
-              call.status = 'success';
-              call.error = null;
-              call.completedAt = now();
-              call.providerOrderId = existing.orderId ?? call.providerOrderId;
-              call.providerReference = existing.referenceCode ?? call.providerReference;
-              call.providerStatus = existing.lineStatus || existing.orderStatus;
-              call.httpStatus = 200;
+        if (existing?.found && existing.isSuccess) {
+          const codes = await readCentralOneCodes(order, call, call.providerOrderId, existing.deliveredCount);
+          call.providerReference = existing.referenceCode ?? call.providerReference;
+          call.providerStatus = existing.lineStatus || existing.orderStatus;
+          call.providerResponse = existing.raw;
 
-              await addEvent({
-                orderId,
-                type: 'dispatch_call_ok',
-                message: `Recarga ${call.index + 1}/${calls.length} ya estaba completada en Central One (paquete ${call.packageId}).`,
-                data: {
-                  providerOrderId: call.providerOrderId,
-                },
-              });
+          if (codes.ok) {
+            log.info('Candado anti-doble cobro: la recarga ya figuraba completada en Central One', {
+              orderId,
+              externalOrderId,
+              providerOrderId: call.providerOrderId,
+              providerReference: existing.referenceCode,
+            });
+            if (codes.codes.length) call.deliveredCodes = codes.codes;
+            call.status = 'success';
+            call.error = null;
+            call.completedAt = now();
+            call.httpStatus = 200;
+            state.errorCode = null;
+            state.pendingReason = null;
 
-              continue;
-            }
-
-            if (existing.isPending) {
-              log.info('Candado anti-doble cobro: la recarga sigue en proceso en Central One', {
-                orderId,
-                externalOrderId,
-                providerOrderId: existing.orderId,
-              });
-
-              call.status = 'processing';
-              call.error = null;
-              call.providerOrderId = existing.orderId ?? call.providerOrderId;
-              call.providerReference = existing.referenceCode ?? call.providerReference;
-              call.providerStatus = existing.lineStatus || existing.orderStatus;
-              call.httpStatus = 202;
-
-              await addEvent({
-                orderId,
-                type: 'dispatch_call_processing',
-                message: `Central One sigue procesando la recarga ${call.index + 1}/${calls.length}.`,
-                data: {
-                  packageId: call.packageId,
-                  providerOrderId: call.providerOrderId,
-                  providerStatus: call.providerStatus,
-                },
-              });
-
-              continue;
-            }
+            await addEvent({
+              orderId,
+              type: 'dispatch_call_ok',
+              message: `Recarga ${call.index + 1}/${calls.length} ya estaba completada en Central One (paquete ${call.packageId}).`,
+              data: { providerOrderId: call.providerOrderId },
+            });
+            continue;
           }
-        } catch (err) {
-          log.warn('No se pudo verificar getOrder previo al reintento en Central One', {
+
+          // Entregada pero sin códigos: se espera, nunca se compra otra.
+          call.status = 'processing';
+          call.error = null;
+          call.httpStatus = 202;
+          state.errorCode = 'codes_pending';
+          state.pendingReason = codes.message;
+          await addEvent({
+            orderId,
+            type: 'dispatch_call_processing',
+            message: `Recarga ${call.index + 1}/${calls.length}: ${codes.message}`,
+            data: { packageId: call.packageId, providerOrderId: call.providerOrderId },
+          });
+          continue;
+        }
+
+        if (existing?.found && existing.isPending) {
+          log.info('Candado anti-doble cobro: la recarga sigue en proceso en Central One', {
             orderId,
             externalOrderId,
-            error: err instanceof Error ? err.message : String(err),
+            providerOrderId: call.providerOrderId,
           });
+
+          call.status = 'processing';
+          call.error = null;
+          call.providerReference = existing.referenceCode ?? call.providerReference;
+          call.providerStatus = existing.lineStatus || existing.orderStatus;
+          call.httpStatus = 202;
+
+          await addEvent({
+            orderId,
+            type: 'dispatch_call_processing',
+            message: `Central One sigue procesando la recarga ${call.index + 1}/${calls.length}.`,
+            data: {
+              packageId: call.packageId,
+              providerOrderId: call.providerOrderId,
+              providerStatus: call.providerStatus,
+            },
+          });
+          continue;
+        }
+
+        if (existing?.found && existing.isFailed) {
+          // Confirmado: el pedido de esta llave cerró sin entregar. Repetir la
+          // llave devolvería ese mismo pedido fallido; se compra con otra.
+          state.keyClosed = true;
+          state.errorCode = existing.failureCode ?? 'failed';
+        } else {
+          // No se pudo confirmar (sin llave, red, 404, 5xx). Comprar con otra
+          // llave podría cobrar dos veces; repetir la misma es seguro porque
+          // Central One devuelve el pedido original.
+          log.warn('No se pudo confirmar el pedido anterior en Central One; se reintenta con la misma llave', {
+            orderId,
+            externalOrderId,
+            providerOrderId: call.providerOrderId,
+            failureCode: existing?.failureCode ?? null,
+          });
+          state.keyClosed = false;
         }
       }
     }
@@ -621,7 +998,10 @@ export async function dispatchOrder(
 
       // El saldo del proveedor viaja en cada respuesta: es el momento más
       // barato para detectar que se está agotando.
-      void adminAlerts.checkProviderBalance(result.remainingBalance ?? null);
+      void adminAlerts.checkProviderBalance(
+        result.remainingBalance ?? null,
+        callProvider === 'centralone' ? 'Central One' : callProvider === 'fazercards' ? 'FazerCards' : 'Inefable'
+      );
 
       // Se registra la respuesta del proveedor pase lo que pase: es la única
       // pista para diagnosticar después por qué una entrega no salió.
@@ -631,7 +1011,9 @@ export async function dispatchOrder(
       call.playerName = result.playerName;
       call.providerReference = result.providerReference;
       call.httpStatus = result.httpStatus;
-      call.providerResponse = result.raw;
+      // Central One: los códigos viajan sólo en `deliveredCodes`, nunca en la
+      // respuesta guardada (el cliente puede leer su orden).
+      call.providerResponse = callProvider === 'centralone' ? stripCodes(result.raw) : result.raw;
       if ('codes' in result && Array.isArray(result.codes) && result.codes.length) {
         call.deliveredCodes = result.codes as string[];
       }
@@ -640,24 +1022,7 @@ export async function dispatchOrder(
       // indexa apenas responde para que el webhook resuelva en O(1), incluso
       // cuando haya muchas órdenes simultáneas.
       if ((callProvider === 'fazercards' || callProvider === 'centralone') && result.providerOrderId) {
-        await providerOrders()
-          .doc(providerOrderIndexId(callProvider, result.providerOrderId))
-          .set({
-            provider: callProvider,
-            providerOrderId: result.providerOrderId,
-            orderId,
-            callIndex: call.index,
-            createdAt: now(),
-          })
-          .catch((error) => {
-            // La recarga ya fue aceptada: una caída del índice no puede
-            // convertirla en fallo ni habilitar que se vuelva a enviar.
-            log.error('No se pudo indexar la orden de FazerCards para webhook', {
-              orderId,
-              providerOrderId: result.providerOrderId,
-              error: error instanceof Error ? error.message : String(error),
-            });
-          });
+        await indexProviderOrder(callProvider, result.providerOrderId, orderId, call.index);
       }
 
       if (result.success) {
@@ -686,7 +1051,12 @@ export async function dispatchOrder(
         await addEvent({
           orderId,
           type: 'dispatch_call_processing',
-          message: `El proveedor aceptó la recarga ${call.index + 1}/${calls.length} y la está procesando.`,
+          // Central One también deja en curso lo ambiguo y la pausa por saldo:
+          // el evento dice cuál de los casos es.
+          message:
+            callProvider === 'centralone' && result.message
+              ? `Recarga ${call.index + 1}/${calls.length}: ${result.message}`
+              : `El proveedor aceptó la recarga ${call.index + 1}/${calls.length} y la está procesando.`,
           data: {
             packageId: call.packageId,
             providerOrderId: result.providerOrderId,
@@ -741,6 +1111,9 @@ export async function dispatchOrder(
     failure,
     actorUid: options.actorUid ?? null,
     anyProcessing,
+    // Mientras se despachaba, el cron o el webhook pudieron cerrar alguna
+    // llamada: el cierre no pisa lo que cambiaron.
+    readCalls: order.dispatch.calls,
   });
 
   return {
@@ -756,13 +1129,8 @@ export async function dispatchOrder(
   };
 }
 
-/** Rutea la llamada FazerCards según la familia congelada en el juego. */
-
-async function dispatchCentralOneCall(
-  order: Order,
-  call: DispatchCallResult,
-  options: { isRetry?: boolean }
-): Promise<{
+/** Resultado de una llamada al proveedor, con la forma que aplica `dispatchOrder`. */
+interface CentralOneCallOutcome {
   success: boolean;
   processing?: boolean;
   providerOrderId: string | null;
@@ -773,30 +1141,176 @@ async function dispatchCentralOneCall(
   raw: Record<string, unknown>;
   httpStatus: number | null;
   message?: string;
-}> {
-  const isPreviouslyFailed =
-    call.providerStatus === 'failed' || call.providerStatus === 'cancelled';
-  const idempotencyKey = isPreviouslyFailed
-    ? `${order.code}-${call.index + 1}-r${call.attempts || 1}`
-    : `${order.code}-${call.index + 1}`;
+  codes?: string[];
+}
+
+/**
+ * Hace UN `POST /orders` de Central One para la llamada y lo interpreta.
+ *
+ * Además de devolver el resultado, deja en la llamada el seguimiento que
+ * necesitan el cron y los reintentos (`CentralOneCallState`): la llave usada,
+ * cuántas veces se usó, si quedó cerrada y el motivo. Reglas:
+ *
+ *  - Siempre `quantity: 1`: cada llamada del plan ya es una unidad.
+ *  - `target_payload` con exactamente `call.targetFields` (congelados en la
+ *    orden); sin lista, la heurística por juego de los productos sembrados.
+ *    Gift cards (`[]`): sin `target_payload`.
+ *  - Ambiguo (red, 5xx, 429, 409 de llave) → en curso con la MISMA llave.
+ *  - Sin saldo → en curso y en pausa, misma llave, aviso crítico. Nunca fallo:
+ *    un fallo pasaría a revisión y de ahí al reembolso automático.
+ *  - Gift card entregada sin códigos → en curso; nunca se completa sin ellos.
+ */
+async function dispatchCentralOneCall(
+  order: Order,
+  call: DispatchCallResult,
+  options: { isRetry?: boolean; actorUid?: string | null }
+): Promise<CentralOneCallOutcome> {
+  const state = call as CentralOneCallState;
+  const idempotencyKey = nextCentralOneKey(state, order.code, call.attempts);
+  const currentKey = state.idempotencyKey || centralOneBaseKey(order.code, call.index);
+  const sameKey = idempotencyKey === currentKey;
+
+  if (!sameKey) {
+    // Justo antes de comprar con llave nueva se relee la orden: mientras se
+    // consultaba el pedido anterior, el cron, el webhook u otro reintento pudo
+    // tocar esta llamada (comprar, adoptar un id, cerrarla). Comprar sobre esa
+    // copia vieja sería un segundo pedido. Si ya no está como se leyó, no se
+    // compra y la llamada se deja en curso para que manda lo guardado.
+    const fresh = await loadOrder(order.id).catch(() => null);
+    const stored = fresh?.dispatch?.calls?.find((item) => item.index === call.index) as
+      | CentralOneCallState
+      | undefined;
+    const rotationAllowed = Boolean(
+      fresh &&
+        fresh.status === 'dispatching' &&
+        !fresh.refundedAt &&
+        fresh.pricing?.walletRefunded !== true &&
+        stored &&
+        stored.status !== 'success' &&
+        stored.status !== 'processing' &&
+        (stored.idempotencyKey || centralOneBaseKey(order.code, call.index)) === currentKey &&
+        (stored.providerOrderId ?? null) === (call.providerOrderId ?? null)
+    );
+    if (!rotationAllowed) {
+      log.warn('Reintento de Central One sin compra: la llamada cambió mientras se consultaba', {
+        orderId: order.id,
+        callIndex: call.index,
+        status: fresh?.status ?? null,
+      });
+      return {
+        success: false,
+        processing: true,
+        providerOrderId: call.providerOrderId,
+        providerStatus: call.providerStatus,
+        providerReference: call.providerReference,
+        playerName: call.playerName,
+        raw: {},
+        httpStatus: null,
+        message: 'La llamada cambió mientras se reintentaba; no se compró otro pedido.',
+      };
+    }
+  }
+
+  // Una llave nueva estrena su cuenta de intentos; un reintento manual del
+  // panel también, para que el cron pueda volver a confirmarla.
+  if (!sameKey || options.actorUid) state.keyAttempts = 0;
+  // El pedido de una llave cerrada ya no es el de esta llamada, pero se
+  // recuerda: Central One puede entregarlo tarde (ver `previousProviderOrderIds`).
+  if (!sameKey && call.providerOrderId) {
+    const previous = new Set(state.previousProviderOrderIds ?? []);
+    previous.add(call.providerOrderId);
+    state.previousProviderOrderIds = [...previous];
+  }
+  const previousOrderId = sameKey ? call.providerOrderId : null;
+  state.idempotencyKey = idempotencyKey;
+  state.keyClosed = false;
+  state.keyAttempts = (state.keyAttempts ?? 0) + 1;
 
   const orderFields = order.playerFields ?? {};
-  const targetPayload = centralOne.buildCentralOneTargetPayload(
-    order.gameId || '',
-    order.playerId || '',
-    order.playerId2 || orderFields.server_id || orderFields.zone_id || (order as any).serverId || (order as any).zoneId,
-    orderFields
-  );
+  const targetPayload = Array.isArray(call.targetFields)
+    ? centralOne.buildTargetPayloadFromFields(call.targetFields, orderFields, {
+        playerId: order.playerId,
+        playerId2: order.playerId2,
+      })
+    : centralOne.buildCentralOneTargetPayload(
+        order.gameId || '',
+        order.playerId || '',
+        order.playerId2 || orderFields.server_id || orderFields.zone_id || (order as any).serverId || (order as any).zoneId,
+        orderFields
+      );
 
   const createResult = await centralOne.createOrder({
     catalogItemId: String(call.packageId),
-    quantity: call.quantity || 1,
+    quantity: 1,
     targetPayload,
     idempotencyKey,
     note: `Orden ${order.code} - ${order.gameName}`,
   });
+  const remainingBalance = centralOneBalanceAfter(createResult.raw);
 
   if (!createResult.success) {
+    const failureCode = (createResult.failureCode ?? '').toLowerCase();
+
+    if (failureCode === 'insufficient_balance') {
+      // No se creó nada: los POST rechazados por saldo no cuentan para el tope
+      // de intentos ambiguos de la llave.
+      state.keyAttempts = 0;
+      state.errorCode = 'insufficient_balance';
+      const message =
+        'Central One no tiene saldo suficiente: la recarga queda en pausa y se reintenta sola con la misma llave.';
+      state.pendingReason = message;
+      await noteCentralOneBalancePause(order, state);
+      return {
+        success: false,
+        processing: true,
+        providerOrderId: previousOrderId,
+        providerStatus: 'insufficient_balance',
+        providerReference: null,
+        playerName: null,
+        raw: createResult.raw,
+        httpStatus: createResult.httpStatus,
+        message,
+      };
+    }
+
+    if (centralOne.isAmbiguousCreateFailure(createResult)) {
+      state.errorCode = createResult.status === 'network_error' ? 'network_error' : 'ambiguous';
+      state.balanceBlockedAt = null;
+      const message =
+        'Central One no confirmó si el pedido entró; se confirmará con la misma llave sin comprar otro.';
+      state.pendingReason = message;
+      log.warn('POST /orders ambiguo en Central One; se mantiene la llave', {
+        orderId: order.id,
+        idempotencyKey,
+        httpStatus: createResult.httpStatus,
+        failureCode,
+        keyAttempts: state.keyAttempts,
+      });
+      return {
+        success: false,
+        processing: true,
+        // Si ya había pedido con esta llave, se conserva: es el que se consulta.
+        providerOrderId: previousOrderId,
+        providerStatus: createResult.status || 'ambiguous',
+        providerReference: null,
+        playerName: null,
+        raw: createResult.raw,
+        httpStatus: createResult.httpStatus,
+        message,
+      };
+    }
+
+    // Rechazo en firme: Central One no creó el pedido. `missing_config` ni
+    // siquiera salió, así que no gasta intento ni cierra la llave.
+    state.balanceBlockedAt = null;
+    state.pendingReason = null;
+    state.errorCode = failureCode || 'failed';
+    if (failureCode === 'missing_config') {
+      state.keyAttempts = Math.max(0, (state.keyAttempts ?? 1) - 1);
+    } else {
+      state.keyClosed = true;
+    }
+
     const isNotEligible =
       createResult.failureCode === 'not_eligible' ||
       createResult.failureAction === 'do_not_retry';
@@ -822,23 +1336,31 @@ async function dispatchCentralOneCall(
     };
   }
 
+  state.balanceBlockedAt = null;
   const orderId = createResult.orderId;
   const referenceCode = createResult.referenceCode;
 
-  // Si no devolvió orderId (caso anómalo), devolver en processing
+  // Aceptado sin identificador (caso anómalo): en curso, y el cron repite con
+  // la misma llave para recuperar el id sin comprar otro.
   if (!orderId) {
+    state.errorCode = 'unconfirmed';
+    state.pendingReason = 'Central One aceptó el pedido sin identificador; se confirma con la misma llave.';
     return {
       success: false,
       processing: true,
-      providerOrderId: null,
+      providerOrderId: previousOrderId,
       providerStatus: createResult.status,
       providerReference: referenceCode,
       playerName: null,
+      remainingBalance,
       raw: createResult.raw,
       httpStatus: createResult.httpStatus,
       message: 'Orden creada en Central One pero sin identificador de seguimiento.',
     };
   }
+
+  state.errorCode = null;
+  state.pendingReason = null;
 
   // Verificación rápida a los ~2.5 segundos (Regla 2 del manual)
   await new Promise((resolve) => setTimeout(resolve, 2500));
@@ -847,6 +1369,23 @@ async function dispatchCentralOneCall(
 
   if (orderDetail && orderDetail.found) {
     if (orderDetail.isSuccess) {
+      const codes = await readCentralOneCodes(order, call, orderId, orderDetail.deliveredCount);
+      if (!codes.ok) {
+        state.errorCode = 'codes_pending';
+        state.pendingReason = codes.message;
+        return {
+          success: false,
+          processing: true,
+          providerOrderId: orderId,
+          providerStatus: orderDetail.lineStatus || 'completed',
+          providerReference: referenceCode,
+          playerName: order.playerNickname || null,
+          remainingBalance,
+          raw: orderDetail.raw,
+          httpStatus: 202,
+          message: codes.message,
+        };
+      }
       return {
         success: true,
         processing: false,
@@ -854,13 +1393,18 @@ async function dispatchCentralOneCall(
         providerStatus: orderDetail.lineStatus || orderDetail.orderStatus || 'completed',
         providerReference: referenceCode,
         playerName: order.playerNickname || null,
+        remainingBalance,
         raw: orderDetail.raw,
         httpStatus: 200,
         message: 'Recarga completada exitosamente en Central One.',
+        codes: codes.codes,
       };
     }
 
     if (orderDetail.isFailed) {
+      // Confirmado por `GET /orders/{id}`: cerrado sin entregar.
+      state.keyClosed = true;
+      state.errorCode = orderDetail.failureCode ?? 'failed';
       return {
         success: false,
         processing: false,
@@ -868,6 +1412,7 @@ async function dispatchCentralOneCall(
         providerStatus: orderDetail.lineStatus || orderDetail.orderStatus || 'failed',
         providerReference: referenceCode,
         playerName: order.playerNickname || null,
+        remainingBalance,
         raw: orderDetail.raw,
         httpStatus: orderDetail.httpStatus || 400,
         message:
@@ -883,6 +1428,7 @@ async function dispatchCentralOneCall(
       providerStatus: orderDetail.lineStatus || orderDetail.orderStatus || 'processing',
       providerReference: referenceCode,
       playerName: order.playerNickname || null,
+      remainingBalance,
       raw: orderDetail.raw,
       httpStatus: 202,
       message: 'Orden en proceso en Central One; en cola de entrega.',
@@ -897,12 +1443,14 @@ async function dispatchCentralOneCall(
     providerStatus: createResult.status || 'confirmed',
     providerReference: referenceCode,
     playerName: order.playerNickname || null,
+    remainingBalance,
     raw: createResult.raw,
     httpStatus: 202,
     message: 'Orden aceptada en Central One; esperando confirmación de entrega.',
   };
 }
 
+/** Rutea la llamada FazerCards según la familia congelada en el juego. */
 async function dispatchFazerCall(
   order: Order,
   call: DispatchCallResult,
@@ -1088,47 +1636,83 @@ export async function finalizeDispatch(
   order: Order,
   calls: DispatchCallResult[],
   allSucceeded: boolean,
-  options: { failure?: string | null; actorUid?: string | null; anyProcessing?: boolean; allowRefundedOverride?: boolean } = {}
+  options: {
+    failure?: string | null;
+    actorUid?: string | null;
+    anyProcessing?: boolean;
+    allowRefundedOverride?: boolean;
+    /**
+     * Llamadas tal como se LEYERON antes de hablar con el proveedor. Con ellas
+     * el cierre es compare-and-set por llamada (`mergeDispatchCalls`): si otra
+     * petición cambió alguna mientras tanto, se conserva lo guardado y el
+     * estado de la orden se recalcula con el resultado de la mezcla.
+     */
+    readCalls?: DispatchCallResult[];
+  } = {}
 ): Promise<OrderStatus> {
   const orderId = order.id;
   const orderRef = orders().doc(orderId);
-  const rawFailure = options.failure ?? calls.find((call) => call.error)?.error ?? null;
-  const failure = rawFailure ? sanitizeProviderError(rawFailure) : null;
-  const anyProcessing = options.anyProcessing ?? calls.some((c) => c.status === 'processing');
-  const anySucceeded = calls.some((c) => c.status === 'success');
-  const esEntregaParcial = !allSucceeded && !anyProcessing && anySucceeded;
-  const nextStatus: OrderStatus = allSucceeded
-    ? 'completed'
-    : anyProcessing
-      ? 'dispatching'
-      : 'in_review';
-  const providerForEstado = calls.find((c) => c.provider)?.provider ?? order.provider ?? 'inefable';
-  const nextEstado = allSucceeded
-    ? 'COMPLETADO'
-    : anyProcessing
-      ? (providerForEstado === 'centralone'
-          ? 'DESPACHANDO_CENTRAL_ONE'
-          : providerForEstado === 'fazercards'
-            ? 'DESPACHANDO_FAZERCARDS'
-            : 'DESPACHANDO_INEFABLE')
-      : esEntregaParcial
-        ? 'ENTREGA_PARCIAL_COMBO'
-        : 'REVISION_MANUAL';
-  const subOrdenes = calls.map((c) => ({
-    product_id: c.packageId,
-    package_id: c.packageId,
-    exito: c.status === 'success',
-    order_id: c.providerOrderId ?? null,
-    status: c.providerStatus ?? c.status,
-    error: c.error ?? null,
-    httpStatus: c.httpStatus ?? null,
-    timestamp: new Date().toISOString(),
-  }));
+
+  const derive = (list: DispatchCallResult[], succeeded: boolean, anyProcessingHint?: boolean) => {
+    const rawFailure = options.failure ?? list.find((call) => call.error)?.error ?? null;
+    const failure = rawFailure ? sanitizeProviderError(rawFailure) : null;
+    const anyProcessing = anyProcessingHint ?? list.some((c) => c.status === 'processing');
+    const anySucceeded = list.some((c) => c.status === 'success');
+    const esEntregaParcial = !succeeded && !anyProcessing && anySucceeded;
+    const nextStatus: OrderStatus = succeeded ? 'completed' : anyProcessing ? 'dispatching' : 'in_review';
+    const providerForEstado = list.find((c) => c.provider)?.provider ?? order.provider ?? 'inefable';
+    const nextEstado = succeeded
+      ? 'COMPLETADO'
+      : anyProcessing
+        ? (providerForEstado === 'centralone'
+            ? 'DESPACHANDO_CENTRAL_ONE'
+            : providerForEstado === 'fazercards'
+              ? 'DESPACHANDO_FAZERCARDS'
+              : 'DESPACHANDO_INEFABLE')
+        : esEntregaParcial
+          ? 'ENTREGA_PARCIAL_COMBO'
+          : 'REVISION_MANUAL';
+    const subOrdenes = list.map((c) => ({
+      product_id: c.packageId,
+      package_id: c.packageId,
+      exito: c.status === 'success',
+      order_id: c.providerOrderId ?? null,
+      status: c.providerStatus ?? c.status,
+      error: c.error ?? null,
+      httpStatus: c.httpStatus ?? null,
+      timestamp: new Date().toISOString(),
+    }));
+    return { failure, anyProcessing, esEntregaParcial, nextStatus, nextEstado, subOrdenes };
+  };
+
+  const originalCalls = calls;
+  const originalAllSucceeded = allSucceeded;
+  let derived = derive(calls, allSucceeded, options.anyProcessing);
 
   const txOutcome = await db.runTransaction(async (tx) => {
+    // Una transacción puede repetirse: siempre se parte de lo que pidió quien llama.
+    calls = originalCalls;
+    allSucceeded = originalAllSucceeded;
+    derived = derive(calls, allSucceeded, options.anyProcessing);
+
     const snap = await tx.get(orderRef);
     if (!snap.exists) return { kind: 'missing' as const };
     const current = { id: snap.id, ...snap.data() } as Order;
+    const deliverySnap = await tx.get(orderDeliveryDoc(orderId));
+
+    if (options.readCalls) {
+      const merged = mergeDispatchCalls(options.readCalls, current.dispatch?.calls ?? [], originalCalls);
+      if (merged.kept.length > 0) {
+        log.warn('Otra petición cambió llamadas del despacho mientras se cerraba; se conserva lo guardado', {
+          orderId,
+          kept: merged.kept,
+        });
+        calls = merged.calls;
+        allSucceeded = calls.every((call) => call.status === 'success');
+        derived = derive(calls, allSucceeded);
+      }
+    }
+    const { failure, nextStatus, nextEstado, subOrdenes } = derived;
 
     const isCancelledOrRefunded =
       current.status === 'cancelled' ||
@@ -1154,21 +1738,27 @@ export async function finalizeDispatch(
       return { kind: 'unexpected_status' as const, current };
     }
 
+    // Códigos de todas las llamadas: los de esta pasada, los guardados aparte
+    // en pasadas anteriores y los de órdenes viejas que aún viven en la llamada.
+    const savedCodes = storedCallCodes(deliverySnap.data());
+    const legacyCodes = new Map(
+      (current.dispatch?.calls ?? []).map((call) => [call.index, call.deliveredCodes ?? []])
+    );
+    const allCodes = calls.flatMap((call) =>
+      call.deliveredCodes?.length
+        ? call.deliveredCodes
+        : savedCodes[String(call.index)]?.length
+          ? savedCodes[String(call.index)]
+          : legacyCodes.get(call.index) ?? []
+    );
+
     const timestamp = now();
     const isWhatsappOrigin = current.origen === 'WHATSAPP' || current.canal === 'WHATSAPP';
     const updateData: Record<string, unknown> = {
       status: nextStatus,
       estado: nextEstado,
       subOrdenes,
-      dispatch: {
-        calls,
-        startedAt: current.dispatch?.startedAt ?? order.dispatch?.startedAt ?? timestamp,
-        completedAt: allSucceeded ? timestamp : null,
-        lastError: allSucceeded ? null : failure,
-      },
-      deliveredCodes: allSucceeded
-        ? calls.flatMap((call) => call.deliveredCodes ?? [])
-        : current.deliveredCodes ?? order.deliveredCodes ?? [],
+      deliveredCodes: allSucceeded ? allCodes : current.deliveredCodes ?? order.deliveredCodes ?? [],
       updatedAt: timestamp,
     };
 
@@ -1192,9 +1782,19 @@ export async function finalizeDispatch(
       }
     }
 
-    tx.set(orderRef, updateData, { merge: true });
+    writeCalls(tx, orderId, calls, (cleanCalls) => ({
+      ...updateData,
+      dispatch: {
+        calls: cleanCalls,
+        startedAt: current.dispatch?.startedAt ?? order.dispatch?.startedAt ?? timestamp,
+        completedAt: allSucceeded ? timestamp : null,
+        lastError: allSucceeded ? null : failure,
+      },
+    }));
     return { kind: 'updated' as const, current, status: nextStatus };
   });
+
+  const { failure, anyProcessing, esEntregaParcial, nextStatus, nextEstado, subOrdenes } = derived;
 
   if (txOutcome.kind === 'missing') {
     return nextStatus;
@@ -1208,6 +1808,16 @@ export async function finalizeDispatch(
         status: txOutcome.current.status,
         refundedAt: txOutcome.current.refundedAt ?? null,
       });
+      // Con Central One el cliente puede quedarse con la recarga Y el
+      // reembolso: un log no lo ve nadie, el aviso sí.
+      for (const call of calls) {
+        if (call.status === 'success' && call.providerOrderId && (call.provider ?? order.provider) === 'centralone') {
+          await alertCentralOneLateDelivery(
+            { ...order, ...txOutcome.current, id: orderId } as Order,
+            call.providerOrderId
+          );
+        }
+      }
     } else {
       log.warn('Respuesta tardía de fallo del proveedor en orden ya cancelada (ignorada)', {
         orderId,
@@ -1251,10 +1861,19 @@ export async function finalizeDispatch(
   if (allSucceeded) {
     void sendOrderEmail('delivered', orderId);
 
+    // Una gift card no se acredita a ninguna cuenta: lo entregado es un código
+    // que el cliente ve en el detalle de su orden.
+    const entregaCodigos =
+      order.providerFamily === 'gift_card' ||
+      order.providerFamily === 'game_key' ||
+      calls.some((call) => (call.deliveredCodes?.length ?? 0) > 0);
+
     await addEvent({
       orderId,
       type: 'completed',
-      message: '¡Recarga entregada! Revisa tu cuenta del juego.',
+      message: entregaCodigos
+        ? '¡Código entregado! Lo encuentras en el detalle de tu orden.'
+        : '¡Recarga entregada! Revisa tu cuenta del juego.',
       status: 'completed',
     });
 
@@ -1262,8 +1881,10 @@ export async function finalizeDispatch(
       !isWhatsappGuest
         ? notifications.notify({
             uid: order.uid,
-            title: '¡Recarga entregada! 🎮',
-            body: `${describeOrder(order)} ya está en tu cuenta (ID ${order.playerId}).`,
+            title: entregaCodigos ? '¡Tu código está listo! 🎁' : '¡Recarga entregada! 🎮',
+            body: entregaCodigos
+              ? `${describeOrder(order)}: tu código ya está en el detalle de la orden.`
+              : `${describeOrder(order)} ya está en tu cuenta (ID ${order.playerId}).`,
             type: 'order',
             link: `/orden/${orderId}`,
           })
@@ -1512,6 +2133,368 @@ export async function resolveFazerProcessingOrder(providerOrderId: string): Prom
 }
 
 /**
+ * Avisa al equipo de un pedido de Central One entregado cuando la orden ya no
+ * lo esperaba (reemplazado por otro tras rotar la llave, o la orden ya está
+ * completada o reembolsada). Nunca cambia la orden ni cobra nada: decidir si
+ * se reclama a Central One o al cliente es de una persona. Un aviso por pedido
+ * (se anota en la orden).
+ */
+async function alertCentralOneLateDelivery(order: Order, providerOrderId: string): Promise<void> {
+  const ref = orders().doc(order.id);
+  const first = await db
+    .runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      const seen = (snap.data()?.centralOneLateDeliveries ?? []) as string[];
+      if (seen.includes(providerOrderId)) return false;
+      tx.set(ref, { centralOneLateDeliveries: [...seen, providerOrderId] }, { merge: true });
+      return true;
+    })
+    .catch(() => true);
+  if (!first) return;
+
+  const refunded =
+    order.status === 'refunded' ||
+    order.status === 'cancelled' ||
+    Boolean(order.refundedAt) ||
+    order.pricing?.walletRefunded === true;
+  const title = refunded
+    ? `Entrega tardía de Central One · ${order.code}`
+    : order.status === 'completed'
+      ? `Central One cobró dos veces · ${order.code}`
+      : `Entrega tardía de Central One · ${order.code}`;
+  const body = refunded
+    ? `Central One entregó el pedido ${providerOrderId} de la orden ${order.code}, que ya está ${order.status} (reembolsada). El cliente tiene la recarga y el reembolso: revísalo.`
+    : order.status === 'completed'
+      ? `Central One entregó el pedido ${providerOrderId} de la orden ${order.code}, que ya se completó con otro pedido. Reclama el duplicado en el portal de Central One; al cliente no se le cobra nada.`
+      : `Central One entregó el pedido ${providerOrderId} de la orden ${order.code} después de reintentarla con otra llave. Revisa en su portal si se cobró dos veces antes de reintentar o reembolsar.`;
+  log.error('Entrega tardía de Central One', {
+    orderId: order.id,
+    code: order.code,
+    status: order.status,
+    providerOrderId,
+  });
+  await adminAlerts.alert({
+    kind: 'dispatch_failed',
+    severity: 'critical',
+    title,
+    body,
+    link: `/admin/ordenes/${order.id}`,
+    data: { code: order.code, providerOrderId, status: order.status },
+  });
+}
+
+/**
+ * Consulta un pedido de Central One que la orden ya no espera y, si se
+ * entregó, avisa. Devuelve el resultado para la respuesta del webhook, o
+ * `null` si no hubo entrega (o no se pudo confirmar).
+ */
+async function checkCentralOneLateDelivery(order: Order, providerOrderId: string): Promise<string | null> {
+  const detail = await centralOne.getOrder(providerOrderId).catch(() => null);
+  if (!detail || !detail.found || !detail.isSuccess) return null;
+  await alertCentralOneLateDelivery(order, providerOrderId);
+  return 'entrega tardía avisada';
+}
+
+/**
+ * Para una llamada que se daría por fallida o no registrada: ¿algún pedido
+ * de una llave anterior sigue abierto, se entregó o no se pudo consultar?
+ * Devuelve el motivo para dejarla incierta (nunca se reembolsa sola) o `null`.
+ */
+async function supersededCentralOneOrdersBlock(order: Order, call: CentralOneCallState): Promise<string | null> {
+  for (const previousId of call.previousProviderOrderIds ?? []) {
+    const detail = await centralOne.getOrder(previousId).catch(() => null);
+    if (!detail || !detail.found) {
+      return `No se pudo consultar el pedido anterior ${previousId} en Central One; no se reembolsa hasta confirmarlo.`;
+    }
+    if (detail.isSuccess) {
+      await alertCentralOneLateDelivery(order, previousId);
+      return `Central One entregó el pedido anterior ${previousId} de esta recarga: no se reembolsa. Revisa su portal.`;
+    }
+    if (!detail.isFailed) {
+      return `El pedido anterior ${previousId} sigue abierto en Central One; no se reembolsa hasta que cierre.`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Resuelve un aviso del webhook de Central One.
+ *
+ * El aviso sólo dispara la consulta: la orden se localiza por el índice
+ * `providerOrders` (id del pedido de Central One) o, si el POST nunca llegó a
+ * responder y no hay índice, por el código de la orden que va en la
+ * `idempotency_key`. El estado real siempre sale de `GET /orders/{id}` dentro
+ * de `resolveOne`, nunca del cuerpo del aviso.
+ *
+ * Si la llamada aún no tiene id de pedido (el POST fue ambiguo) y el aviso
+ * cita la MISMA llave de esa llamada, se adopta el id que trae: la ruta ya
+ * verificó la firma y, aun así, sólo sirve para preguntarle a Central One.
+ */
+export async function resolveCentralOneWebhookOrder(input: {
+  providerOrderId?: string | null;
+  idempotencyKey?: string | null;
+}): Promise<{ matched: boolean; orderId?: string; result?: string }> {
+  const providerOrderId = input.providerOrderId?.trim() || null;
+  const idempotencyKey = input.idempotencyKey?.trim() || null;
+
+  let orderId: string | null = null;
+  if (providerOrderId) {
+    const index = await providerOrders()
+      .doc(providerOrderIndexId('centralone', providerOrderId))
+      .get();
+    orderId = (index.data()?.orderId as string | undefined) ?? null;
+  }
+  if (!orderId && idempotencyKey) {
+    const code = centralOne.orderCodeFromIdempotencyKey(idempotencyKey);
+    if (code) {
+      const snap = await orders().where('code', '==', code).limit(1).get();
+      if (!snap.empty) orderId = snap.docs[0].id;
+    }
+  }
+  if (!orderId) return { matched: false, result: 'orden no encontrada' };
+
+  const snap = await orders().doc(orderId).get();
+  if (!snap.exists) return { matched: false, result: 'orden no encontrada' };
+  let order = { id: snap.id, ...snap.data() } as Order;
+
+  const refunded =
+    order.status === 'cancelled' ||
+    order.status === 'refunded' ||
+    Boolean(order.refundedAt) ||
+    order.pricing?.walletRefunded === true;
+  const open = !refunded && ['dispatching', 'in_review'].includes(order.status);
+
+  // ¿El aviso habla de un pedido que la orden espera? El id actual de alguna
+  // llamada, o uno que se va a adoptar (POST ambiguo, misma llave). Cualquier
+  // otro —una llave ya rotada, o una orden ya cerrada— se consulta: si se
+  // entregó, es un doble cobro o una entrega sobre un reembolso y se avisa en
+  // vez de callarlo.
+  if (providerOrderId) {
+    const calls = (order.dispatch?.calls ?? []) as CentralOneCallState[];
+    const current = calls.find((call) => call.providerOrderId === providerOrderId);
+    const adoptable =
+      Boolean(idempotencyKey) &&
+      calls.some(
+        (call) =>
+          (call.provider ?? order.provider) === 'centralone' &&
+          !call.providerOrderId &&
+          (call.idempotencyKey || centralOneBaseKey(order.code, call.index)) === idempotencyKey
+      );
+    const expected =
+      (open && (current || adoptable)) || (order.status === 'completed' && !refunded && current?.status === 'success');
+    if (!expected) {
+      const late = await checkCentralOneLateDelivery(order, providerOrderId);
+      if (!open) return { matched: true, orderId, result: late ?? `la orden está en ${order.status}` };
+    }
+  }
+
+  if (refunded) {
+    log.error('entrega tardía en orden reembolsada: revisar manualmente', {
+      orderId: order.id,
+      code: order.code,
+      status: order.status,
+      providerOrderId,
+    });
+    return { matched: true, orderId, result: `la orden está en ${order.status}` };
+  }
+  if (!open) {
+    return { matched: true, orderId, result: `la orden está en ${order.status}` };
+  }
+
+  if (providerOrderId && idempotencyKey) {
+    const adopted = await adoptCentralOneOrderId(order, providerOrderId, idempotencyKey);
+    if (adopted) order = adopted;
+  }
+
+  const resuelta = await resolveOne(order);
+  return { matched: true, orderId, result: resuelta ? 'resuelta' : 'sigue en curso' };
+}
+
+/**
+ * Pone el id de pedido de un aviso en la llamada que lo esperaba (POST ambiguo,
+ * sin id). Sólo si la llave del aviso es exactamente la llave actual de esa
+ * llamada: un aviso de una llave ya rotada habla de un pedido anterior.
+ * Devuelve la orden actualizada, o `null` si no había nada que adoptar.
+ */
+async function adoptCentralOneOrderId(
+  order: Order,
+  providerOrderId: string,
+  idempotencyKey: string
+): Promise<Order | null> {
+  const ref = orders().doc(order.id);
+  const updated = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return null;
+    const current = { id: snap.id, ...snap.data() } as Order;
+    if (!['dispatching', 'in_review'].includes(current.status)) return null;
+
+    const calls = (current.dispatch?.calls ?? []).map((call) => ({ ...call })) as CentralOneCallState[];
+    const target = calls.find(
+      (call) =>
+        (call.provider ?? current.provider) === 'centralone' &&
+        !call.providerOrderId &&
+        (call.status === 'processing' || call.status === 'error') &&
+        (call.idempotencyKey || centralOneBaseKey(current.code, call.index)) === idempotencyKey
+    );
+    if (!target) return null;
+
+    target.providerOrderId = providerOrderId;
+    // Con id ya no hay que repetir el POST: se consulta el pedido.
+    if (target.status === 'error') target.status = 'processing';
+    target.error = null;
+    target.pendingReason = 'Central One avisó del pedido; se confirma con su API.';
+    tx.set(ref, { dispatch: { ...current.dispatch, calls }, updatedAt: now() }, { merge: true });
+    return { ...current, dispatch: { ...current.dispatch, calls } } as Order;
+  });
+
+  if (updated) {
+    const call = updated.dispatch.calls.find((item) => item.providerOrderId === providerOrderId);
+    await indexProviderOrder('centralone', providerOrderId, order.id, call?.index ?? 0);
+    log.info('Pedido de Central One adoptado desde el webhook', {
+      orderId: order.id,
+      providerOrderId,
+      idempotencyKey,
+    });
+  }
+  return updated;
+}
+
+/**
+ * Consulta y, si hace falta, reintenta UNA llamada de Central One del cron.
+ *
+ * Con id de pedido: `GET /orders/{id}` decide (y los códigos, si es gift
+ * card). Sin id y en curso: el POST anterior fue ambiguo o se pausó por saldo,
+ * así que se repite con la MISMA llave —nunca otra—. Devuelve `true` si la
+ * llamada cambió y hay que guardarla.
+ */
+async function resolveCentralOneCall(order: Order, call: DispatchCallResult): Promise<boolean> {
+  const state = call as CentralOneCallState;
+
+  if (!call.providerOrderId) {
+    // En revisión no se compra nada: sólo se repite lo que sigue en curso.
+    if (call.status !== 'processing') return false;
+    return retryCentralOneCall(order, state);
+  }
+
+  const detail = await centralOne.getOrder(call.providerOrderId).catch(() => null);
+  // Sin llave, red caída o 404: no se decide nada; se vuelve a consultar.
+  if (!detail || !detail.found) return false;
+
+  if (detail.isSuccess) {
+    const codes = await readCentralOneCodes(order, call, call.providerOrderId, detail.deliveredCount);
+    if (!codes.ok) {
+      // Entregada sin códigos legibles: sigue esperando. Una que ya está en
+      // revisión se queda ahí (la consulta de reembolso la reporta incierta).
+      if (call.status !== 'processing' || state.errorCode === 'codes_pending') return false;
+      call.providerStatus = detail.lineStatus || detail.orderStatus;
+      state.errorCode = 'codes_pending';
+      state.pendingReason = codes.message;
+      return true;
+    }
+    if (codes.codes.length) call.deliveredCodes = codes.codes;
+    call.status = 'success';
+    call.error = null;
+    call.completedAt = now();
+    call.providerStatus = detail.lineStatus || detail.orderStatus;
+    call.providerReference = detail.referenceCode ?? call.providerReference;
+    call.providerResponse = detail.raw;
+    state.errorCode = null;
+    state.pendingReason = null;
+    return true;
+  }
+
+  if (detail.isFailed && call.status === 'processing') {
+    call.status = 'error';
+    call.error = sanitizeProviderError(
+      detail.failureMessage || `El proveedor marcó la recarga como ${detail.lineStatus}.`
+    );
+    call.providerStatus = detail.lineStatus || detail.orderStatus;
+    call.providerResponse = detail.raw;
+    state.keyClosed = true;
+    state.errorCode = detail.failureCode ?? 'failed';
+    state.pendingReason = null;
+    return true;
+  }
+
+  // Sigue en curso: no se toca.
+  return false;
+}
+
+/**
+ * Repite el POST de una llamada de Central One en curso sin id de pedido.
+ *
+ * Siempre con la misma llave: si el pedido entró, Central One lo devuelve sin
+ * cobrar otra vez. Tras 3 POST ambiguos con esa llave se deja de intentar y
+ * pasa a revisión con un mensaje que impide reembolsarla a ciegas. La pausa
+ * por saldo no gasta esos intentos: se reintenta cada pasada hasta 24 h.
+ */
+async function retryCentralOneCall(order: Order, state: CentralOneCallState): Promise<boolean> {
+  const key = state.idempotencyKey || centralOneBaseKey(order.code, state.index);
+
+  if (state.errorCode === 'insufficient_balance') {
+    const since = millisOf(state.balanceBlockedAt);
+    if (since !== null && Date.now() - since >= CENTRAL_ONE_BALANCE_GIVE_UP_MS) {
+      state.status = 'error';
+      state.error = 'Central One siguió sin saldo durante 24 horas; la recarga no se compró.';
+      state.pendingReason = null;
+      return true;
+    }
+  } else if ((state.keyAttempts ?? 0) >= CENTRAL_ONE_MAX_POSTS_PER_KEY) {
+    state.status = 'error';
+    state.error = centralOneUncertainMessage(key);
+    state.errorCode = 'ambiguous_unresolved';
+    state.pendingReason = null;
+    return true;
+  }
+
+  state.attempts += 1;
+  const result = await dispatchCentralOneCall(order, state, { isRetry: true });
+
+  state.providerOrderId = result.providerOrderId;
+  state.providerStatus = result.providerStatus;
+  state.providerReference = result.providerReference ?? state.providerReference;
+  state.playerName = result.playerName ?? state.playerName;
+  state.httpStatus = result.httpStatus;
+  state.providerResponse = stripCodes(result.raw);
+  if (result.providerOrderId) {
+    await indexProviderOrder('centralone', result.providerOrderId, order.id, state.index);
+  }
+
+  if (result.success) {
+    if (result.codes?.length) state.deliveredCodes = result.codes;
+    state.status = 'success';
+    state.error = null;
+    state.completedAt = now();
+  } else if (result.processing) {
+    state.status = 'processing';
+    state.error = null;
+  } else {
+    state.status = 'error';
+    state.error = sanitizeProviderError(result.message, result.httpStatus);
+  }
+
+  await addEvent({
+    orderId: order.id,
+    type: result.success ? 'dispatch_call_ok' : result.processing ? 'dispatch_call_processing' : 'dispatch_call_error',
+    message: result.success
+      ? `Recarga ${state.index + 1} confirmada en Central One con la misma llave.`
+      : `Recarga ${state.index + 1}: ${result.processing ? result.message ?? 'sigue en curso.' : state.error}`,
+    data: {
+      packageId: state.packageId,
+      providerOrderId: result.providerOrderId,
+      idempotencyKey: state.idempotencyKey ?? null,
+      keyAttempts: state.keyAttempts ?? null,
+    },
+  });
+  return true;
+}
+
+/** Llamada en pausa por falta de saldo (tiene su propio plazo y su propio aviso). */
+function isBalancePaused(call: DispatchCallResult): boolean {
+  return call.status === 'processing' && (call as CentralOneCallState).errorCode === 'insufficient_balance';
+}
+
+/**
  * Consulta y cierra UNA orden con llamadas en curso.
  *
  * Devuelve `true` si quedó resuelta (entregada o fallida). El estado siempre
@@ -1528,11 +2511,24 @@ async function resolveOne(order: Order): Promise<boolean> {
     inicio && typeof inicio.toMillis === 'function' ? inicio.toMillis() : Date.now();
   const minutos = (Date.now() - iniciadaMs) / 60_000;
   let cambio = false;
+  // Una llamada que sale de la pausa por saldo empieza de nuevo su plazo: sin
+  // esto, una orden que esperó saldo 3 h se daba por perdida en la primera
+  // pasada en que Central One aún la estuviera procesando.
+  let reanudada = false;
 
   for (const call of calls) {
     if (!canCheckCall(call)) continue;
 
     const provider = call.provider ?? order.provider ?? 'inefable';
+    if (provider === 'centralone') {
+      // Central One tiene su propio camino: misma llave, pausa por saldo y
+      // códigos de gift cards.
+      const estabaEnPausa = isBalancePaused(call);
+      if (await resolveCentralOneCall(order, call)) cambio = true;
+      if (estabaEnPausa && !isBalancePaused(call)) reanudada = true;
+      continue;
+    }
+
     const externalOrderId = `${order.code}-${call.index + 1}`;
     const fazerResult =
       provider === 'fazercards' && call.providerOrderId
@@ -1540,44 +2536,31 @@ async function resolveOne(order: Order): Promise<boolean> {
         : null;
     const inefableResult =
       provider === 'inefable' ? await inefable.getOrderStatus(externalOrderId).catch(() => null) : null;
-    const centralOneResult =
-      provider === 'centralone' && call.providerOrderId
-        ? await centralOne.getOrder(call.providerOrderId).catch(() => null)
-        : null;
-    if (!fazerResult && !inefableResult && !centralOneResult) continue;
+    if (!fazerResult && !inefableResult) continue;
     if (inefableResult && !inefableResult.found) continue;
 
-    const providerStatus =
-      fazerResult?.providerStatus ??
-      (centralOneResult ? centralOneResult.lineStatus || centralOneResult.orderStatus : null) ??
-      inefableResult?.status ??
-      null;
+    const providerStatus = fazerResult?.providerStatus ?? inefableResult?.status ?? null;
     const normalizado = (providerStatus ?? '').toLowerCase();
     const requiresCode = order.providerFamily === 'gift_card' || order.providerFamily === 'game_key';
-    const success = centralOneResult
-      ? centralOneResult.isSuccess
-      : fazerResult
-        ? fazerResult.success && (!requiresCode || Boolean(fazerResult.codes?.length))
-        : inefable.isSuccessStatus(normalizado);
-    const failed = centralOneResult
-      ? centralOneResult.isFailed
-      : fazerResult
-        ? !fazerResult.success && !fazerResult.processing
-        : inefable.isFailureStatus(normalizado);
+    const success = fazerResult
+      ? fazerResult.success && (!requiresCode || Boolean(fazerResult.codes?.length))
+      : inefable.isSuccessStatus(normalizado);
+    const failed = fazerResult
+      ? !fazerResult.success && !fazerResult.processing
+      : inefable.isFailureStatus(normalizado);
     if (success) {
       if (fazerResult?.codes?.length) call.deliveredCodes = fazerResult.codes;
       call.status = 'success';
       call.error = null;
       call.completedAt = now();
       call.providerStatus = providerStatus;
-      call.providerOrderId = centralOneResult?.orderId ?? fazerResult?.providerOrderId ?? inefableResult?.providerOrderId ?? call.providerOrderId;
-      call.providerReference = centralOneResult?.referenceCode ?? fazerResult?.providerReference ?? inefableResult?.providerReference ?? call.providerReference;
+      call.providerOrderId = fazerResult?.providerOrderId ?? inefableResult?.providerOrderId ?? call.providerOrderId;
+      call.providerReference = fazerResult?.providerReference ?? inefableResult?.providerReference ?? call.providerReference;
       cambio = true;
     } else if (failed && call.status === 'processing') {
       call.status = 'error';
       call.error = sanitizeProviderError(
-        centralOneResult?.failureMessage ||
-          inefableResult?.error ||
+        inefableResult?.error ||
           fazerResult?.message ||
           `El proveedor marcó la recarga como ${providerStatus}.`
       );
@@ -1589,10 +2572,14 @@ async function resolveOne(order: Order): Promise<boolean> {
 
   const pendientes = calls.some((call) => call.status === 'processing');
 
+  // Lo que se leyó antes de consultar al proveedor: las escrituras de abajo
+  // son compare-and-set contra esto (ver `mergeDispatchCalls`).
+  const leidas = order.dispatch?.calls ?? [];
+
   if (cambio && !pendientes) {
     // Se reutiliza el cierre normal del despacho para no duplicar la lógica de
     // correos, comisiones, estadísticas y avisos.
-    await finalizeDispatch(order, calls, calls.every((call) => call.status === 'success'));
+    await finalizeDispatch(order, calls, calls.every((call) => call.status === 'success'), { readCalls: leidas });
     return true;
   }
 
@@ -1602,14 +2589,24 @@ async function resolveOne(order: Order): Promise<boolean> {
       if (!snap.exists) return;
       const current = snap.data() as Order;
       if (!['dispatching', 'in_review'].includes(current.status)) return;
-      tx.set(
-        orders().doc(order.id),
-        { dispatch: { ...current.dispatch, calls }, updatedAt: now() },
-        { merge: true }
-      );
+      const merged = mergeDispatchCalls(leidas, current.dispatch?.calls ?? [], calls);
+      if (merged.kept.length > 0) {
+        log.warn('Otra petición cambió llamadas mientras el cron consultaba; se conserva lo guardado', {
+          orderId: order.id,
+          kept: merged.kept,
+        });
+      }
+      writeCalls(tx, order.id, merged.calls, (cleanCalls) => ({
+        dispatch: { ...current.dispatch, calls: cleanCalls, ...(reanudada ? { startedAt: now() } : {}) },
+        updatedAt: now(),
+      }));
     });
     return false;
   }
+
+  // Una pausa por saldo tiene su propio plazo (24 h) y su propio aviso
+  // (uno por hora): ni se da por perdida a las 2 h ni se avisa cada pasada.
+  if (calls.some(isBalancePaused)) return false;
 
   // Sin novedad. Si lleva demasiado se avisa, y pasado el tope se cierra como
   // en revisión para que el equipo pueda atenderla a mano.
@@ -1620,7 +2617,7 @@ async function resolveOne(order: Order): Promise<boolean> {
         call.error = `El proveedor no resolvió la recarga en ${PROCESSING_GIVE_UP_MINUTES} minutos.`;
       }
     }
-    await finalizeDispatch(order, calls, false);
+    await finalizeDispatch(order, calls, false, { readCalls: leidas });
     return true;
   }
 
@@ -1837,12 +2834,57 @@ export async function checkOrderProviderStatus(
           });
         }
       }
-        } else if (provider === 'centralone') {
-      const coResult = call.providerOrderId
-        ? await centralOne.getOrder(call.providerOrderId).catch(() => null)
-        : null;
+    } else if (provider === 'centralone') {
+      const state = call as CentralOneCallState;
+      const key = state.idempotencyKey || centralOneBaseKey(order.code, call.index);
 
-      if (!coResult || !coResult.found || coResult.httpStatus === 404) {
+      if (!call.providerOrderId) {
+        // Sin id no hay a quién preguntar: decide lo que se sabe de la llamada.
+        // Un POST ambiguo pudo crear el pedido, así que nunca es «no registrada»
+        // (eso habilitaría el reembolso automático de algo quizá entregado).
+        if (call.status === 'processing') {
+          checks.push({
+            index: call.index,
+            packageId: call.packageId,
+            provider: 'centralone',
+            providerOrderId: null,
+            found: false,
+            status: 'processing',
+            rawStatus: state.errorCode ?? call.providerStatus ?? null,
+            message:
+              state.errorCode === 'insufficient_balance'
+                ? 'En pausa: Central One no tiene saldo. Se reintenta sola con la misma llave al recargar.'
+                : `Central One no confirmó si el pedido entró; se confirma con la misma llave (${key}) sin comprar otro.`,
+          });
+        } else if (centralOneCallMayExist(call)) {
+          checks.push({
+            index: call.index,
+            packageId: call.packageId,
+            provider: 'centralone',
+            providerOrderId: null,
+            found: false,
+            status: 'unknown',
+            rawStatus: state.errorCode ?? call.providerStatus ?? null,
+            message: centralOneUncertainMessage(key),
+          });
+        } else {
+          checks.push({
+            index: call.index,
+            packageId: call.packageId,
+            provider: 'centralone',
+            providerOrderId: null,
+            found: false,
+            status: 'not_found',
+            rawStatus: state.errorCode ?? call.providerStatus ?? null,
+            message: '⚪ No registrada en Central One: rechazó la compra o nunca se envió. Es seguro reintentar.',
+          });
+        }
+        continue;
+      }
+
+      const coResult = await centralOne.getOrder(call.providerOrderId).catch(() => null);
+
+      if (coResult && !coResult.found && coResult.httpStatus === 404 && coResult.failureCode === 'not_found') {
         if (call.status === 'processing') {
           call.status = 'error';
           call.error = 'No registrada en Central One (la orden no existe o no llegó a crearse).';
@@ -1858,11 +2900,28 @@ export async function checkOrderProviderStatus(
           rawStatus: null,
           message: '⚪ No registrada en Central One: La llamada nunca llegó a procesarse. Es seguro reintentar.',
         });
+      } else if (!coResult || !coResult.found) {
+        // Sin llave (`missing_config`), red caída o error del proveedor: NO
+        // es «no encontrada». Tratarlo así reembolsaba recargas entregadas.
+        checks.push({
+          index: call.index,
+          packageId: call.packageId,
+          provider: 'centralone',
+          providerOrderId: call.providerOrderId,
+          found: false,
+          status: 'unknown',
+          rawStatus: coResult?.failureCode ?? null,
+          message: `No se pudo consultar Central One (${coResult?.failureCode ?? 'sin respuesta'}); no se reembolsa hasta confirmar el pedido.`,
+        });
       } else {
         const pOrderId = coResult.orderId ?? call.providerOrderId;
         const pRef = coResult.referenceCode ?? call.providerReference;
+        const codes = coResult.isSuccess
+          ? await readCentralOneCodes(order, call, pOrderId, coResult.deliveredCount)
+          : null;
 
-        if (coResult.isSuccess) {
+        if (coResult.isSuccess && codes?.ok) {
+          if (codes.codes.length) call.deliveredCodes = codes.codes;
           call.status = 'success';
           call.error = null;
           call.completedAt = now();
@@ -1870,6 +2929,8 @@ export async function checkOrderProviderStatus(
           call.providerReference = pRef;
           call.providerStatus = coResult.lineStatus || coResult.orderStatus;
           call.httpStatus = 200;
+          state.errorCode = null;
+          state.pendingReason = null;
           callChanged = true;
 
           checks.push({
@@ -1881,6 +2942,19 @@ export async function checkOrderProviderStatus(
             status: 'completed',
             rawStatus: call.providerStatus,
             message: `Completada en Central One (Ref: ${pRef ?? pOrderId}).`,
+          });
+        } else if (coResult.isSuccess && codes && !codes.ok) {
+          // Entregada pero sin códigos: el dinero ya se gastó. En curso si lo
+          // estaba; si no, incierta para que nunca se reembolse sola.
+          checks.push({
+            index: call.index,
+            packageId: call.packageId,
+            provider: 'centralone',
+            providerOrderId: pOrderId,
+            found: true,
+            status: call.status === 'processing' ? 'processing' : 'unknown',
+            rawStatus: coResult.lineStatus || coResult.orderStatus,
+            message: codes.message,
           });
         } else if (coResult.isPending) {
           if (call.status !== 'processing') {
@@ -1910,6 +2984,11 @@ export async function checkOrderProviderStatus(
             call.providerStatus = coResult.lineStatus || coResult.orderStatus;
             callChanged = true;
           }
+          // Confirmado cerrado sin entregar. No marca `callChanged` a propósito:
+          // eso volvería a cerrar la orden y repetir el aviso; el reintento lo
+          // vuelve a confirmar con `GET /orders/{id}` antes de rotar la llave.
+          state.keyClosed = true;
+          state.errorCode = coResult.failureCode ?? 'failed';
           checks.push({
             index: call.index,
             packageId: call.packageId,
@@ -2014,12 +3093,35 @@ export async function checkOrderProviderStatus(
     }
   }
 
+  // Una llamada de Central One que se daría por fallida o no registrada pudo
+  // tener un pedido con una llave anterior que se entregó después o sigue
+  // abierto: entonces es incierta y la revisión vencida no la reembolsa.
+  for (const check of checks) {
+    if (check.provider !== 'centralone' || (check.status !== 'failed' && check.status !== 'not_found')) continue;
+    const call = calls.find((item) => item.index === check.index) as CentralOneCallState | undefined;
+    const block = call ? await supersededCentralOneOrdersBlock(order, call) : null;
+    if (block) {
+      check.status = 'unknown';
+      check.message = block;
+    }
+  }
+
   if (callChanged) {
-    await orderRef.update({
-      'dispatch.calls': calls,
-      updatedAt: now(),
+    // Compare-and-set por llamada: lo consultado no pisa lo que el cron o el
+    // webhook cambiaron mientras tanto.
+    const leidas = order.dispatch?.calls ?? [];
+    const merged = await db.runTransaction(async (tx) => {
+      const fresh = await tx.get(orderRef);
+      const stored = ((fresh.data() as Order | undefined)?.dispatch?.calls ?? []) as DispatchCallResult[];
+      const result = mergeDispatchCalls(leidas, stored, calls);
+      writeCalls(tx, orderId, result.calls, (cleanCalls) => ({
+        dispatch: { ...(fresh.data() as Order | undefined)?.dispatch, calls: cleanCalls },
+        updatedAt: now(),
+      }));
+      return result.calls;
     });
-    order.dispatch.calls = calls;
+    calls.splice(0, calls.length, ...merged.map((call) => ({ ...call })));
+    order.dispatch.calls = merged;
   }
 
   let summary = '';
@@ -2033,7 +3135,11 @@ export async function checkOrderProviderStatus(
   );
 
   if (allSucceeded) {
-    await finalizeDispatch(order, calls, true, { actorUid, allowRefundedOverride: true });
+    await finalizeDispatch(order, calls, true, {
+      actorUid,
+      allowRefundedOverride: true,
+      readCalls: order.dispatch.calls,
+    });
     summary = 'Todas las llamadas fueron confirmadas como completadas en el proveedor. La orden se completó exitosamente.';
 
     await addEvent({
@@ -2059,16 +3165,23 @@ export async function checkOrderProviderStatus(
     summary = `Llamada previa confirmada exitosa. Se continuó con el despacho de las recargas pendientes del combo: ${dispatchRes.message}`;
   } else if (anyProcessing) {
     if (order.status !== 'dispatching') {
+      const enCurso = calls.find((c) => c.status === 'processing');
+      const proveedorEnCurso = enCurso?.provider ?? order.provider ?? 'inefable';
       await orderRef.update({
         status: 'dispatching',
-        estado: 'DESPACHANDO_INEFABLE',
+        estado:
+          proveedorEnCurso === 'centralone'
+            ? 'DESPACHANDO_CENTRAL_ONE'
+            : proveedorEnCurso === 'fazercards'
+              ? 'DESPACHANDO_FAZERCARDS'
+              : 'DESPACHANDO_INEFABLE',
         updatedAt: now(),
       });
     }
     summary = 'Una o más llamadas continúan en proceso en el proveedor. La orden permanece en despacho.';
   } else {
     if (callChanged) {
-      await finalizeDispatch(order, calls, false, { actorUid });
+      await finalizeDispatch(order, calls, false, { actorUid, readCalls: order.dispatch.calls });
     }
     const hasNotFound = checks.some((c) => c.status === 'not_found');
     if (hasNotFound && !anySucceeded) {

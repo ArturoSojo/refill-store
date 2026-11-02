@@ -59,6 +59,27 @@ interface Contenido {
   asunto: string;
 }
 
+/**
+ * La orden entrega códigos (gift card) en vez de acreditar una cuenta.
+ *
+ * Decide el texto del correo de entrega: una gift card no tiene «cuenta
+ * recargada» ni hay que entrar al juego, y los códigos NO viajan por correo
+ * (un correo reenviado o leído por otro los regalaría): se ven en el detalle
+ * de la orden, con la sesión del cliente.
+ */
+export function deliversCodes(order: Pick<Order, 'providerFamily' | 'deliveredCodes'>): boolean {
+  return (
+    order.providerFamily === 'gift_card' ||
+    order.providerFamily === 'game_key' ||
+    (order.deliveredCodes?.length ?? 0) > 0
+  );
+}
+
+/** Enlace al detalle de la orden, donde el cliente ve sus códigos. */
+function enlaceOrden(order: Order): string {
+  return `https://recargasrefillstore.com/orden/${encodeURIComponent(order.id)}`;
+}
+
 function contenidoPara(kind: EmailKind, order: Order): Contenido {
   switch (kind) {
     case 'payment_verified':
@@ -72,6 +93,18 @@ function contenidoPara(kind: EmailKind, order: Order): Contenido {
           'Te avisamos apenas esté acreditada.',
       };
     case 'delivered':
+      if (deliversCodes(order)) {
+        return {
+          asunto: `Tu código está listo · Orden ${order.code}`,
+          titulo: '¡Tu código está listo!',
+          cinta: 'ENTREGADO',
+          cintaColor: '#0E7A4E',
+          mensaje:
+            `Ya tenemos ${escapeSafe(describeOrder(order))}. Por seguridad el código no va en este correo: ` +
+            `míralo en el <a href="${enlaceOrden(order)}" style="color:${MARCA};">detalle de tu orden</a> ` +
+            'con tu sesión iniciada. Guárdalo y no lo compartas con nadie.',
+        };
+      }
       return {
         asunto: `Tu recarga está lista · Orden ${order.code}`,
         titulo: '¡Tu recarga fue entregada!',
@@ -115,19 +148,23 @@ export function renderOrderEmail(
   const pricing = order.pricing;
 
   // Los datos de la cuenta, con la etiqueta real de cada juego. Las contraseñas
-  // no viajan por correo aunque el juego las pida.
-  const camposJugador = (
+  // no viajan por correo aunque el juego las pida. Una gift card no tiene
+  // cuenta recargada: no se lista ninguno.
+  const conCodigos = kind === 'delivered' && deliversCodes(order);
+  const camposBase =
     playerFields.length > 0
       ? playerFields
-      : [{ key: 'playerId', label: 'ID de jugador', sensitive: false } as PlayerField]
-  )
-    .filter((field) => !field.sensitive)
-    .map((field) => {
-      const value =
-        order.playerFields?.[field.key] ?? (field.key === 'playerId' ? order.playerId : '');
-      return value ? row(field.label, value) : '';
-    })
-    .join('');
+      : [{ key: 'playerId', label: 'ID de jugador', sensitive: false } as PlayerField];
+  const camposJugador = conCodigos
+    ? ''
+    : camposBase
+        .filter((field) => !field.sensitive)
+        .map((field) => {
+          const value =
+            order.playerFields?.[field.key] ?? (field.key === 'playerId' ? order.playerId : '');
+          return value ? row(field.label, value) : '';
+        })
+        .join('');
 
   const descuentos = [
     pricing.discountUsd > 0
@@ -154,7 +191,7 @@ export function renderOrderEmail(
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#0b0f19;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#e5e7eb">
   <!-- Resumen que algunos clientes muestran junto al asunto en la bandeja. -->
-  <div style="display:none;max-height:0;overflow:hidden;opacity:0;">${escape(c.mensaje.slice(0, 120))}</div>
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;">${escape(c.mensaje.replace(/<[^>]+>/g, '').slice(0, 120))}</div>
 
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0b0f19;padding:24px 12px;">
     <tr><td align="center">
@@ -235,7 +272,7 @@ export function renderOrderEmail(
     `Fecha: ${formatDate(order)}`,
     `Producto: ${order.gameName}`,
     `Paquete: ${describeOrder(order)}`,
-    `Cuenta recargada: ${order.playerId}`,
+    conCodigos ? `Ver código: ${enlaceOrden(order)}` : `Cuenta recargada: ${order.playerId}`,
     order.payment.reference ? `Referencia: ${order.payment.reference}` : '',
     `Total: ${totalBs} (${formatUsd(pricing.totalUsd)})`,
     '',

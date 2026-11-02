@@ -108,6 +108,14 @@ service cloud.firestore {
           (isSignedIn() && get(/databases/$(database)/documents/orders/$(orderId)).data.uid == request.auth.uid);
         allow write: if false;
       }
+
+      // Códigos entregados por llamada (gift cards): sólo el Admin SDK. El
+      // cliente los ve en `deliveredCodes` cuando la orden se completa; si
+      // vivieran en el doc de la orden, una entrega parcial luego reembolsada
+      // los dejaba a la vista.
+      match /private/{docId} {
+        allow read, write: if false;
+      }
     }
 
     // ---------- Soporte ----------
@@ -193,6 +201,17 @@ service cloud.firestore {
     }
 
     match /rateLimits/{docId} {
+      allow read, write: if false;
+    }
+
+    // Candado de avisos de webhook de proveedores (Central One). Sólo Admin SDK.
+    match /providerWebhookEvents/{eventId} {
+      allow read, write: if false;
+    }
+
+    // Cola e historial de sincronizaciones del catálogo. El panel los lee por la
+    // API (que ya exige admin), no directo de Firestore.
+    match /providerSync/{syncId} {
       allow read, write: if false;
     }
 
