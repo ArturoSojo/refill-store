@@ -378,24 +378,6 @@ const FREE_FIRE_PACKAGES: SeedProduct[] = [
  */
 const FREE_FIRE_COMBOS: SeedProduct[] = [
   {
-    id: 'ff-c-220',
-    gameId: 'free-fire',
-    sku: 'FF-C-220',
-    name: '200 + 20 Diamantes',
-    description: 'Combo de 220 diamantes (se acredita en 2 recargas seguidas).',
-    fulfillment: 'auto',
-    kind: 'combo',
-    amount: 200,
-    bonus: 20,
-    costUsd: 1.438,
-    // Regla estricta: llamadas separadas con quantity: 1 (Central One rechaza quantity > 1)
-    calls: [
-      { packageId: 6, quantity: 1 },
-      { packageId: 6, quantity: 1 },
-    ],
-    sortOrder: 15,
-  },
-  {
     id: 'ff-c-451',
     gameId: 'free-fire',
     sku: 'FF-C-451',

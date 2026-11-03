@@ -151,11 +151,11 @@ export function GamePage() {
   // cuelga de Free Fire) se compran de a una; las gift cards pueden ir varias y
   // los productos de Central One sembrados en juegos de Inefable conservan su
   // tope de siempre.
-  const selectedFamily = game?.providerFamily ?? 'topup';
+  // Las subidas de nivel no repetibles se limitan a 1 unidad por cuenta.
+  // Los paquetes regulares de moneda/diamantes admiten múltiples unidades
+  // (por ejemplo: escoger 2 unidades de 110💎 para recargar 220💎).
   const maxQuantity =
-    selectedFamily !== 'gift_card' &&
-    selectedFamily !== 'game_key' &&
-    (game?.provider === 'centralone' || selected?.centralOneExtra === true)
+    selected?.kind === 'level_up'
       ? 1
       : undefined;
 

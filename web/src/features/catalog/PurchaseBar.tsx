@@ -65,7 +65,9 @@ export function PurchaseBar({
                 cifras en bolívares no cabe junto al selector y el botón. */}
             <div className="flex flex-col gap-2.5 sm:flex-row sm:items-end sm:justify-between sm:gap-3">
               <div className="min-w-0">
-                <p className="truncate text-xs text-slate-400">{product.name}</p>
+                <p className="truncate text-xs text-slate-400">
+                  {quantity > 1 ? `${quantity}× ${product.name}` : product.name}
+                </p>
                 <div className="flex items-baseline gap-2">
                   <p className="whitespace-nowrap text-xl font-extrabold leading-tight tabular text-white">
                     {formatBs(totalBs ?? fallbackBs)}

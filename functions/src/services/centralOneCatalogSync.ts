@@ -1253,17 +1253,6 @@ export const BLOOD_STRIKE_COMBO_SPECS: CentralOneComboSpec[] = [
 
 export const FREE_FIRE_LATAM_COMBO_SPECS: CentralOneComboSpec[] = [
   {
-    idSuffix: 'c-220',
-    skuSuffix: 'C-220',
-    name: '200 + 20 Diamantes',
-    description: 'Combo de 220 diamantes (se acredita en 2 recargas seguidas).',
-    amount: 200,
-    bonus: 20,
-    sortOrder: 15,
-    badge: 'COMBO',
-    baseRequirements: [100, 100], // 2 llamadas separadas de 100 con quantity: 1
-  },
-  {
     idSuffix: 'c-451',
     skuSuffix: 'C-451',
     name: '410 + 41 Diamantes',

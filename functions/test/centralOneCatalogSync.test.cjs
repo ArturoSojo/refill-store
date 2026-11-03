@@ -873,18 +873,18 @@ test('planCentralOneCombos: Free Fire LATAM genera combos con regla estricta qua
   });
 
   // Genera los 7 combos de diamantes (220, 451, 682, 913, 1738, 3542, 8536)
-  assert.equal(result.combos.length, 7);
+  assert.equal(result.combos.length, 6);
 
-  // Verificación estricta del combo 200 + 20 Diamantes:
-  // Central One rechaza quantity > 1. Debe generar 2 llamadas SEPARADAS con quantity: 1 cada una
-  const c220 = result.combos.find((c) => c.id === 'co-topup-free-fire-latam--c-220');
-  assert.ok(c220);
-  assert.equal(c220.calls.length, 2);
-  assert.equal(c220.calls[0].packageId, 'ff-100');
-  assert.equal(c220.calls[0].quantity, 1);
-  assert.equal(c220.calls[1].packageId, 'ff-100');
-  assert.equal(c220.calls[1].quantity, 1);
-  assert.equal(c220.costUsd, 1.70); // 0.85 + 0.85
+  // Verificación estricta del primer combo (410 + 41 Diamantes):
+  // Central One rechaza quantity > 1. Debe generar llamadas SEPARADAS con quantity: 1 cada una
+  const c451 = result.combos.find((c) => c.id === 'co-topup-free-fire-latam--c-451');
+  assert.ok(c451);
+  assert.equal(c451.calls.length, 2);
+  assert.equal(c451.calls[0].packageId, 'ff-310');
+  assert.equal(c451.calls[0].quantity, 1);
+  assert.equal(c451.calls[1].packageId, 'ff-100');
+  assert.equal(c451.calls[1].quantity, 1);
+  assert.equal(c451.costUsd, 3.35); // 2.50 + 0.85
 
   // Verificación de combos superiores
   const c1738 = result.combos.find((c) => c.id === 'co-topup-free-fire-latam--c-1738');
@@ -915,32 +915,33 @@ test('planCentralOneCombos: propagación de stock y protección de precios perso
       { productId: 'ff-100', label: '110 Diamantes', kind: 'package', amount: 100, costUsd: 1.00, stock: null, providerAvailable: true },
       // 310 diamantes sin stock en Central One:
       { productId: 'ff-310', label: '341 Diamantes', kind: 'package', amount: 310, costUsd: 3.00, stock: 0, providerAvailable: false },
+      { productId: 'ff-520', label: '572 Diamantes', kind: 'package', amount: 520, costUsd: 4.00, stock: null, providerAvailable: true },
     ],
   };
 
   const existingMap = new Map([
-    // Combo 220 ya existe con precio fijado por el admin
+    // Combo 682 ya existe con precio fijado por el admin
     [
-      'co-topup-free-fire-latam--c-220',
-      { id: 'co-topup-free-fire-latam--c-220', priceUsd: 3.50, priceLocked: true, costUsd: 1.80 },
+      'co-topup-free-fire-latam--c-682',
+      { id: 'co-topup-free-fire-latam--c-682', priceUsd: 7.50, priceLocked: true, costUsd: 4.80 },
     ],
   ]);
 
   const result = sync.planCentralOneCombos({
     plan: freeFirePlan,
-    specs: sync.FREE_FIRE_LATAM_COMBO_SPECS.slice(0, 2), // 220 y 451
+    specs: sync.FREE_FIRE_LATAM_COMBO_SPECS.slice(0, 2), // 451 y 682
     targetGameId: freeFirePlan.id,
     existingProducts: existingMap,
     pricing: { marginPercent: 20, roundToUsd: 0.05 },
     timestamp: 'ts',
   });
 
-  // 1. Combo 220: respeta el precio fijado por el admin (3.50) porque costUsd (2.00) <= 3.50
-  const c220 = result.combos.find((c) => c.id === 'co-topup-free-fire-latam--c-220');
-  assert.ok(c220);
-  assert.equal(c220.costUsd, 2.00);
-  assert.equal(c220.priceUsd, 3.50);
-  assert.equal(c220.active, true);
+  // 1. Combo 682: respeta el precio fijado por el admin (7.50) porque costUsd (4.00 + 1.00 = 5.00) <= 7.50
+  const c682 = result.combos.find((c) => c.id === 'co-topup-free-fire-latam--c-682');
+  assert.ok(c682);
+  assert.equal(c682.costUsd, 5.00);
+  assert.equal(c682.priceUsd, 7.50);
+  assert.equal(c682.active, true);
 
   // 2. Combo 451: incluye ff-310 que no tiene stock -> combo marcado sin stock y active: false
   const c451 = result.combos.find((c) => c.id === 'co-topup-free-fire-latam--c-451');
@@ -951,20 +952,20 @@ test('planCentralOneCombos: propagación de stock y protección de precios perso
   // 3. Si el costo supera al precio fijado, se recalcula para no vender a pérdida
   const lossMap = new Map([
     [
-      'co-topup-free-fire-latam--c-220',
-      { id: 'co-topup-free-fire-latam--c-220', priceUsd: 1.50, priceLocked: true, costUsd: 1.20 },
+      'co-topup-free-fire-latam--c-682',
+      { id: 'co-topup-free-fire-latam--c-682', priceUsd: 4.00, priceLocked: true, costUsd: 3.50 },
     ],
   ]);
   const resultLoss = sync.planCentralOneCombos({
     plan: freeFirePlan,
-    specs: [sync.FREE_FIRE_LATAM_COMBO_SPECS[0]],
+    specs: [sync.FREE_FIRE_LATAM_COMBO_SPECS[1]], // c-682
     targetGameId: freeFirePlan.id,
     existingProducts: lossMap,
     pricing: { marginPercent: 20, roundToUsd: 0.05 },
     timestamp: 'ts',
   });
-  const c220Loss = resultLoss.combos[0];
-  assert.equal(c220Loss.costUsd, 2.00);
-  // Nuevo precio calculado con margen (costo 2.00 * 1.20 = 2.40) porque 2.00 > 1.50
-  assert.ok(c220Loss.priceUsd > 2.00);
+  const c682Loss = resultLoss.combos[0];
+  assert.equal(c682Loss.costUsd, 5.00);
+  // Nuevo precio calculado con margen (costo 5.00 * 1.20 = 6.00) porque 5.00 > 4.00
+  assert.ok(c682Loss.priceUsd > 5.00);
 });

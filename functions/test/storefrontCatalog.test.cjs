@@ -211,22 +211,20 @@ test('resolvePlayerFields: los juegos de Central One conservan sus campos del pr
 // Compra y validación
 // ---------------------------------------------------------------------------
 
-test('maxOrderQuantity: recargas de Central One de a una; gift cards y otros proveedores sin tope propio', () => {
+test('maxOrderQuantity: sólo pases y subidas de nivel no repetibles se limitan a 1; paquetes regulares y gift cards sin tope', () => {
   const coTopup = game({ id: 'co-topup-x', provider: 'centralone', providerFamily: 'topup' });
   const coGift = game({ id: 'co-gift_card-x', provider: 'centralone', providerFamily: 'gift_card' });
   const inefableFf = game({ id: 'free-fire', provider: 'inefable' });
-  assert.equal(catalog.maxOrderQuantity(product({ provider: 'centralone' }), coTopup), 1);
-  assert.equal(catalog.maxOrderQuantity(product({}), coTopup), 1);
+  // Paquetes regulares admiten múltiples unidades para permitir compras compuestas (ej: 2 de 110)
+  assert.equal(catalog.maxOrderQuantity(product({ provider: 'centralone' }), coTopup), null);
+  assert.equal(catalog.maxOrderQuantity(product({}), coTopup), null);
   assert.equal(catalog.maxOrderQuantity(product({ provider: 'centralone' }), coGift), null);
-  // Productos de Central One sembrados en juegos de Inefable (oro de
-  // `blood-strike`, `ff-co-nivel-*`): conservan el tope de siempre.
-  const bloodStrike = game({ id: 'blood-strike' });
   assert.equal(catalog.maxOrderQuantity(product({ provider: 'centralone' }), inefableFf), null);
-  assert.equal(catalog.maxOrderQuantity(product({ id: 'bs-g-105', provider: 'centralone' }), bloodStrike), null);
+  assert.equal(catalog.maxOrderQuantity(product({ provider: 'centralone', centralOneExtra: true }), inefableFf), null);
   assert.equal(catalog.maxOrderQuantity(product({}), inefableFf), null);
-  // Los extras que crea la sync en esos juegos sí van de a uno.
-  assert.equal(catalog.maxOrderQuantity(product({ provider: 'centralone', centralOneExtra: true }), inefableFf), 1);
-  assert.equal(catalog.maxOrderQuantity(product({}), game({ id: 'fz-topup-x', provider: 'fazercards', providerFamily: 'topup' })), null);
+  // Subidas de nivel no repetibles se limitan a 1 por orden
+  assert.equal(catalog.maxOrderQuantity(product({ kind: 'level_up' }), inefableFf), 1);
+  assert.equal(catalog.maxOrderQuantity(product({ kind: 'level_up' }), coTopup), 1);
 });
 
 test('pickCentralOneValidationTarget: usa la oferta elegida si sirve; si no, la primera activa del juego', () => {

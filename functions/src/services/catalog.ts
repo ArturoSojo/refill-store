@@ -431,7 +431,7 @@ export function assertPurchasable(product: Product, game: Game): void {
 export function maxOrderQuantity(product: Product, game: Game): number | null {
   const family = game.providerFamily ?? 'topup';
   if (family === 'gift_card' || family === 'game_key') return null;
-  if (game.provider === 'centralone' || product.centralOneExtra === true) return 1;
+  if (product.kind === 'level_up') return 1;
   return null;
 }
 
