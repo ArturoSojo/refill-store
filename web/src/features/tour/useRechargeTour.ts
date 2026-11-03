@@ -18,11 +18,11 @@ export type TourEvent =
   | 'payment-submitted';
 
 /** Pantalla donde vive cada paso: evita ofrecer «Atrás» hacia otra página. */
-export type TourRoute = 'any' | 'game' | 'checkout';
+export type TourRoute = 'any' | 'home' | 'game' | 'checkout';
 
 export type TourPrimaryAction =
   | 'advance'
-  | 'goGame'
+  | 'goStart'
   | 'verify'
   | 'continue'
   | 'focusReference'
@@ -39,6 +39,10 @@ export interface TourStep {
   advanceOn?: TourEvent;
   /** Si el elemento no existe en esta pantalla, el paso se salta solo. */
   optional?: boolean;
+  /** Espera antes de saltar un paso opcional (ms). Por defecto 1500. */
+  optionalWaitMs?: number;
+  /** Sin botón principal: el paso avanza sólo con la acción del cliente. */
+  hidePrimary?: boolean;
   /** Fuerza la tarjeta arriba para dejar libre un elemento inferior. */
   forceTop?: boolean;
   primaryLabel: string;
@@ -53,7 +57,28 @@ export const TOUR_STEPS: TourStep[] = [
     text: 'Usa la pantalla como siempre: te voy diciendo qué tocar y avanzo en cuanto lo hagas.',
     route: 'any',
     primaryLabel: 'Siguiente >',
-    primaryAction: 'goGame',
+    primaryAction: 'goStart',
+  },
+  {
+    id: 'catalog',
+    category: 'Juego / Gift card',
+    title: 'Elige tu Juego o Gift Card',
+    text: 'Toca el juego que quieres recargar o cambia a la pestaña "Gift cards" y selecciona la tarjeta que deseas comprar.',
+    target: 'catalog-selector',
+    route: 'home',
+    hidePrimary: true,
+    primaryLabel: '',
+    primaryAction: 'advance',
+  },
+  {
+    id: 'game-select',
+    category: 'Juego',
+    title: 'Elige el juego o región',
+    text: 'Aquí arriba puedes cambiar entre los juegos disponibles (o ir a Gift Cards en el menú superior). Si ya estás en el que quieres comprar, toca "Siguiente >" o elige otro.',
+    target: 'game-selector',
+    route: 'game',
+    primaryLabel: 'Siguiente >',
+    primaryAction: 'advance',
   },
   {
     id: 'player-id',
@@ -62,6 +87,8 @@ export const TOUR_STEPS: TourStep[] = [
     text: 'Es el número de tu cuenta, no tu apodo. Lo ves en tu perfil dentro del juego. Escríbelo aquí para continuar.',
     target: 'player-id-input',
     route: 'game',
+    optional: true,
+    optionalWaitMs: 600,
     primaryLabel: 'Siguiente >',
     primaryAction: 'advance',
   },
@@ -74,6 +101,7 @@ export const TOUR_STEPS: TourStep[] = [
     route: 'game',
     advanceOn: 'id-verified',
     optional: true,
+    optionalWaitMs: 600,
     primaryLabel: 'Verificar >',
     primaryAction: 'verify',
   },
@@ -85,6 +113,7 @@ export const TOUR_STEPS: TourStep[] = [
     target: 'verified-player-badge',
     route: 'game',
     optional: true,
+    optionalWaitMs: 600,
     primaryLabel: 'Siguiente >',
     primaryAction: 'advance',
   },
@@ -155,6 +184,8 @@ export const TOUR_STEPS: TourStep[] = [
   },
 ];
 
+export const stepIndex = (id: string) => TOUR_STEPS.findIndex((step) => step.id === id);
+
 export interface RechargeTourContextValue {
   active: boolean;
   index: number;
@@ -164,6 +195,8 @@ export interface RechargeTourContextValue {
   stop: (completed?: boolean) => void;
   next: () => void;
   back: () => void;
+  /** Salta directo a un paso. */
+  goTo: (index: number) => void;
   /** Avisa de una acción real del cliente; avanza si el paso actual la espera. */
   notify: (event: TourEvent) => void;
 }
@@ -177,9 +210,11 @@ export const RechargeTourContext = createContext<RechargeTourContextValue>({
   stop: noop,
   next: noop,
   back: noop,
+  goTo: noop,
   notify: noop,
 });
 
 export function useRechargeTour(): RechargeTourContextValue {
   return useContext(RechargeTourContext);
 }
+

@@ -72,7 +72,7 @@ function Header({ onOpenMenu }: { onOpenMenu: () => void }) {
           <button
             type="button"
             onClick={() => tour.start(0)}
-            className="flex h-9 items-center gap-1.5 rounded-xl border border-blue-500/40 bg-blue-500/10 px-2.5 text-xs font-bold text-blue-200 transition hover:bg-blue-500/20"
+            className="flex h-9 items-center gap-1.5 rounded-xl border border-neon-red/30 bg-neon-red/10 px-2.5 text-xs font-bold text-neon-crimson transition hover:bg-neon-red/20"
             aria-label="Enséñame a comprar, paso a paso"
             title="Enséñame a comprar, paso a paso"
           >

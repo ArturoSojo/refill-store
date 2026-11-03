@@ -8,15 +8,14 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { useCatalog } from '@/hooks/useCatalog';
-import { ROUTES } from '@/lib/constants';
+import { useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import {
   RechargeTourContext,
   TOUR_STEPS,
   useRechargeTour,
   TOUR_STORAGE_KEY,
+  stepIndex,
   type RechargeTourContextValue,
   type TourEvent,
 } from './useRechargeTour';
@@ -46,7 +45,12 @@ function findTarget(name?: string): HTMLElement | null {
 }
 
 function tourIsAllowedAt(pathname: string) {
-  return pathname === '/' || pathname.startsWith('/juego/') || pathname.startsWith('/comprar/');
+  return (
+    pathname === '/' ||
+    pathname.startsWith('/familia/') ||
+    pathname.startsWith('/juego/') ||
+    pathname.startsWith('/comprar/')
+  );
 }
 
 export function RechargeTourProvider({ children }: { children: ReactNode }) {
@@ -83,6 +87,11 @@ export function RechargeTourProvider({ children }: { children: ReactNode }) {
     setIndex((current) => Math.max(0, current - 1));
   }, []);
 
+  const goTo = useCallback((target: number) => {
+    direction.current = 1;
+    setIndex(target);
+  }, []);
+
   const notify = useCallback((event: TourEvent) => {
     setIndex((current) => {
       if (TOUR_STEPS[current]?.advanceOn !== event) return current;
@@ -101,9 +110,16 @@ export function RechargeTourProvider({ children }: { children: ReactNode }) {
     if (active && !tourIsAllowedAt(location.pathname)) setActive(false);
   }, [active, location.pathname]);
 
+  // Al elegir un juego o gift card en el catálogo, la guía salta a los pasos de
+  // ese producto (el selector de juego ya no hace falta).
+  useEffect(() => {
+    if (!active || TOUR_STEPS[index]?.id !== 'catalog') return;
+    if (location.pathname.startsWith('/juego/')) goTo(stepIndex('player-id'));
+  }, [active, index, location.pathname, goTo]);
+
   const value = useMemo<RechargeTourContextValue>(
-    () => ({ active, index, start, stop, next, back, notify }),
-    [active, index, start, stop, next, back, notify]
+    () => ({ active, index, start, stop, next, back, goTo, notify }),
+    [active, index, start, stop, next, back, goTo, notify]
   );
 
   const step = TOUR_STEPS[index];
@@ -117,10 +133,8 @@ export function RechargeTourProvider({ children }: { children: ReactNode }) {
 }
 
 function TourOverlay({ direction }: { direction: { current: 1 | -1 } }) {
-  const { index, next, back, stop } = useRechargeTour();
-  const navigate = useNavigate();
+  const { index, next, back, goTo, stop } = useRechargeTour();
   const location = useLocation();
-  const catalog = useCatalog();
   const step = TOUR_STEPS[index]!;
 
   const [box, setBox] = useState<Box | null>(null);
@@ -128,6 +142,11 @@ function TourOverlay({ direction }: { direction: { current: 1 | -1 } }) {
   const [viewportTop, setViewportTop] = useState(0);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [viewportHeight, setViewportHeight] = useState(() => window.innerHeight);
+  // Datos de la pantalla de compra para adaptar los textos al producto elegido.
+  const [pageInfo, setPageInfo] = useState<{ game: string | null; hasPlayerId: boolean }>({
+    game: null,
+    hasPlayerId: false,
+  });
 
   const scrolledFor = useRef<number | null>(null);
   const missingSince = useRef<number | null>(null);
@@ -148,6 +167,10 @@ function TourOverlay({ direction }: { direction: { current: 1 | -1 } }) {
       setKeyboardOpen(Boolean(vv && vv.height < window.innerHeight * 0.75));
       setViewportTop(vv?.offsetTop ?? 0);
       setViewportHeight(vv?.height ?? window.innerHeight);
+      const idBox = document.querySelector<HTMLElement>('[data-tour="player-id-input"]');
+      const game = idBox?.dataset.tourGame ?? null;
+      const hasPlayerId = Boolean(idBox);
+      setPageInfo((prev) => (prev.game === game && prev.hasPlayerId === hasPlayerId ? prev : { game, hasPlayerId }));
 
       if (el) {
         missingSince.current = null;
@@ -168,7 +191,7 @@ function TourOverlay({ direction }: { direction: { current: 1 | -1 } }) {
         if (step.target && step.optional) {
           const now = performance.now();
           missingSince.current ??= now;
-          if (now - missingSince.current > OPTIONAL_WAIT_MS) {
+          if (now - missingSince.current > (step.optionalWaitMs ?? OPTIONAL_WAIT_MS)) {
             missingSince.current = null;
             if (direction.current === 1) next();
             else if (index > 0) back();
@@ -181,27 +204,21 @@ function TourOverlay({ direction }: { direction: { current: 1 | -1 } }) {
 
     tick();
     return () => cancelAnimationFrame(frame);
-  }, [index, step.target, step.optional, direction, next, back]);
+  }, [index, step.target, step.optional, step.optionalWaitMs, direction, next, back]);
 
   const previous = TOUR_STEPS[index - 1];
   const canGoBack = Boolean(previous) && (previous!.route === 'any' || previous!.route === step.route);
 
-  const goToGame = () => {
-    if (location.pathname.startsWith('/juego/')) {
-      next();
-      return;
-    }
-    const games = (catalog.data?.games ?? []).filter((game) => (game.providerFamily ?? 'topup') === 'topup');
-    const preferred =
-      games.find((game) => /free[\s-]?fire/i.test(`${game.id} ${game.name}`)) ?? games[0];
-    if (preferred) navigate(ROUTES.game(preferred.id));
-    next();
+  // Nunca se fuerza un juego: desde el inicio se ilumina el catálogo y desde
+  // un juego, su selector, para que el cliente elija lo que quiere comprar.
+  const goToStart = () => {
+    goTo(stepIndex(location.pathname.startsWith('/juego/') ? 'game-select' : 'catalog'));
   };
 
   const onPrimary = () => {
     switch (step.primaryAction) {
-      case 'goGame':
-        goToGame();
+      case 'goStart':
+        goToStart();
         break;
       case 'verify': {
         if (findTarget('verified-player-badge')) {
@@ -231,6 +248,15 @@ function TourOverlay({ direction }: { direction: { current: 1 | -1 } }) {
         next();
     }
   };
+
+  // Textos que se adaptan al producto elegido (nunca un juego fijo).
+  let title = step.title;
+  let text = step.text;
+  if (step.id === 'player-id' && pageInfo.game) {
+    title = `Escribe aquí tu ID de ${pageInfo.game}`;
+  } else if (step.id === 'package' && !pageInfo.hasPlayerId) {
+    text = 'Elige el monto o paquete que quieres comprar. Si quieres varias unidades puedes sumar con [+].';
+  }
 
   if (dialogOpen) return null;
 
@@ -278,10 +304,10 @@ function TourOverlay({ direction }: { direction: { current: 1 | -1 } }) {
             <div key={i} className="fixed z-[9990]" style={style} aria-hidden />
           ))}
           <div
-            className="pointer-events-none fixed z-[9991] rounded-2xl border-2 border-blue-500"
+            className="pointer-events-none fixed z-[9991] rounded-2xl border-2 border-neon-red"
             style={{
               ...hole,
-              boxShadow: '0 0 0 9999px rgba(2, 6, 23, 0.78), 0 0 25px rgba(59, 130, 246, 0.5)',
+              boxShadow: '0 0 0 9999px rgba(2, 6, 23, 0.78), 0 0 28px rgba(240, 48, 48, 0.5)',
             }}
             aria-hidden
           />
@@ -303,14 +329,14 @@ function TourOverlay({ direction }: { direction: { current: 1 | -1 } }) {
         role="region"
         aria-label="Guía para recargar"
         className={cn(
-          'fixed inset-x-3 z-[9999] mx-auto max-w-md rounded-2xl border border-blue-500/40 bg-slate-900/95 p-4 shadow-2xl backdrop-blur-md',
+          'fixed inset-x-3 z-[9999] mx-auto max-w-md rounded-2xl border border-neon-red/40 bg-base-900/95 p-4 shadow-2xl backdrop-blur-md',
           !cardOnTop && 'bottom-4'
         )}
         style={cardOnTop ? { top: viewportTop + 12 } : undefined}
       >
         <div className="mb-2 flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="shrink-0 text-xs font-bold uppercase tracking-wider text-blue-400">
+            <span className="shrink-0 text-xs font-bold uppercase tracking-wider text-neon-crimson">
               {step.category}
             </span>
             <span className="flex items-center gap-1" aria-label={`Paso ${index + 1} de ${TOUR_STEPS.length}`}>
@@ -319,7 +345,7 @@ function TourOverlay({ direction }: { direction: { current: 1 | -1 } }) {
                   key={item.id}
                   className={cn(
                     'h-1.5 w-1.5 rounded-full',
-                    i === index ? 'bg-blue-400 shadow-[0_0_6px_rgba(96,165,250,0.9)]' : 'bg-slate-600'
+                    i === index ? 'bg-neon-red shadow-[0_0_6px_rgba(240,48,48,0.9)]' : 'bg-slate-600'
                   )}
                 />
               ))}
@@ -334,11 +360,11 @@ function TourOverlay({ direction }: { direction: { current: 1 | -1 } }) {
           </button>
         </div>
 
-        <h3 className="text-base font-bold text-white">{step.title}</h3>
+        <h3 className="text-base font-bold text-white">{title}</h3>
         <p className="mt-1 text-sm leading-relaxed text-slate-300">
           {step.target && !box && !step.optional
             ? 'Preparando esta pantalla… un momento.'
-            : step.text}
+            : text}
         </p>
 
         <div className="mt-3 flex items-center justify-between gap-2">
@@ -353,13 +379,13 @@ function TourOverlay({ direction }: { direction: { current: 1 | -1 } }) {
           ) : (
             <span />
           )}
-          <button
+          {!step.hidePrimary && <button
             type="button"
             onClick={onPrimary}
-            className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-lg shadow-blue-600/30 transition hover:bg-blue-500 active:scale-[0.98]"
+            className="rounded-xl bg-brand-gradient px-4 py-2 text-sm font-bold text-white shadow-glow transition hover:brightness-110 active:scale-[0.98]"
           >
             {step.primaryLabel}
-          </button>
+          </button>}
         </div>
       </div>
     </>

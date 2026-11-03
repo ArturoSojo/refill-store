@@ -40,7 +40,7 @@ import {
   gameFields,
 } from '@/features/catalog/PlayerFields';
 import { resolveFazerValidationCategory } from '@/features/catalog/validation';
-import { useRechargeTour } from '@/features/tour/useRechargeTour';
+import { stepIndex, useRechargeTour } from '@/features/tour/useRechargeTour';
 import { AnimatedBackground } from '@/components/common/Decor';
 import { Input } from '@/components/ui/Field';
 import { Modal, ConfirmDialog } from '@/components/ui/Modal';
@@ -441,15 +441,15 @@ export function GamePage() {
 
         <button
           type="button"
-          onClick={() => startTour(1)}
-          className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-blue-500/40 bg-blue-500/10 px-3.5 py-1.5 text-xs font-bold text-blue-200 transition hover:bg-blue-500/20"
+          onClick={() => startTour(stepIndex('game-select'))}
+          className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-neon-red/30 bg-neon-red/10 px-3.5 py-1.5 text-xs font-bold text-neon-crimson transition hover:bg-neon-red/20"
         >
           <span aria-hidden>🎓</span>
           ¿Primera vez? Enséñame a comprar paso a paso
         </button>
 
         {/* Paso 1 — juego */}
-        <section className="mb-6">
+        <section className="mb-6" data-tour="game-selector">
           <h2 className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400">
             <span className="flex h-5 w-5 items-center justify-center rounded-md bg-brand-gradient text-[10px] font-black text-white">
               1
@@ -475,6 +475,7 @@ export function GamePage() {
 
           <div
             data-tour="player-id-input"
+            data-tour-game={game.name}
             className="rounded-2xl border p-4 transition-colors"
             style={{
               borderColor: idIsValid ? accent : 'rgb(31 31 48)',

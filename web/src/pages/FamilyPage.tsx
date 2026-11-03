@@ -55,7 +55,7 @@ export function FamilyPage() {
   return (
     <div className="relative min-h-[60vh]">
       <AnimatedBackground className="h-72" />
-      <div className="relative mx-auto max-w-6xl px-4 pb-12 pt-5">
+      <div className="relative mx-auto max-w-6xl px-4 pb-12 pt-5" data-tour="catalog-selector">
         <Link to={ROUTES.home} className="mb-5 inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white">
           <ArrowLeft className="h-4 w-4" aria-hidden /> Inicio
         </Link>
