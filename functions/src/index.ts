@@ -4,6 +4,7 @@
  * Exporta:
  *   - `api`            → la API HTTP completa (Express).
  *   - `expireOrders`   → caduca órdenes impagas y limpia candados.
+ *   - `sendWinbackEmails` → invita por correo a quien lleva 5+ días sin recargar.
  *   - `refreshRate`    → refresca la tasa Bs/USD si el auto-refresco está activo.
  *   - `syncCentralOneCatalog` → encola cada hora una sync del catálogo de Central One.
  *   - `runCentralOneSync`     → ejecuta cada sync encolada en `providerSync/{id}`.
@@ -33,6 +34,7 @@ import {
 import { expireStaleOrders, refundStaleReviewOrders } from './services/orders';
 import { refreshAutoRate, alertStaleRate } from './services/rate';
 import { resolveProcessingOrders } from './services/dispatch';
+import { runWinbackEmails } from './services/winbackEmail';
 import { STORE_TIMEZONE } from './services/stats';
 import { cleanupRateLimits } from './triggers/maintenance';
 import type { ProviderSync, ProviderSyncTrigger } from './types/models';
@@ -100,6 +102,23 @@ export const refundReviewOrders = onSchedule(
     if (refunded > 0) {
       log.info('Barrido de órdenes en revisión vencidas completado', { refunded });
     }
+  }
+);
+
+/**
+ * Correo amable de «te extrañamos» para quien lleva 5 días o más sin recargar.
+ * Corre una vez al día, a media mañana (hora de la tienda); cada cliente recibe
+ * uno solo por periodo de inactividad.
+ */
+export const sendWinbackEmails = onSchedule(
+  {
+    schedule: 'every day 11:00',
+    timeZone: STORE_TIMEZONE,
+    timeoutSeconds: 300,
+    secrets: [GMAIL_APP_PASSWORD],
+  },
+  async () => {
+    await runWinbackEmails();
   }
 );
 
