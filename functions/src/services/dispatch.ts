@@ -996,12 +996,15 @@ export async function dispatchOrder(
         result.message = 'Compra aceptada; esperando los códigos digitales del proveedor.';
       }
 
-      // El saldo del proveedor viaja en cada respuesta: es el momento más
-      // barato para detectar que se está agotando.
-      void adminAlerts.checkProviderBalance(
-        result.remainingBalance ?? null,
-        callProvider === 'centralone' ? 'Central One' : callProvider === 'fazercards' ? 'FazerCards' : 'Inefable'
-      );
+      // El saldo del proveedor: para Central One se consulta su balance directamente si no viene en la respuesta.
+      if (callProvider === 'centralone') {
+        void adminAlerts.checkCentralOneBalance({ availableUsd: result.remainingBalance ?? null });
+      } else {
+        void adminAlerts.checkProviderBalance(
+          result.remainingBalance ?? null,
+          callProvider === 'fazercards' ? 'FazerCards' : 'Inefable'
+        );
+      }
 
       // Se registra la respuesta del proveedor pase lo que pase: es la única
       // pista para diagnosticar después por qué una entrega no salió.

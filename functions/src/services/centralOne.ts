@@ -754,6 +754,9 @@ async function coRequest<T = Record<string, any>>(
 // Cuenta y catálogo
 // ---------------------------------------------------------------------------
 
+/** Umbral de saldo bajo para alertas en Central One ($35.00 USD). */
+export const CENTRAL_ONE_LOW_BALANCE_THRESHOLD_USD = 35.0;
+
 /** `GET /balance`: saldo disponible y retenido por pedidos en curso. */
 export async function getBalance(): Promise<{ ok: true; balance: CoBalance } | CoFailure> {
   const result = await coRequest('GET', '/balance', { timeoutMs: 15_000, retries: 1 });

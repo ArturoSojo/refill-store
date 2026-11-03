@@ -223,8 +223,6 @@ const CENTRAL_ONE_BUDGET_MS = 8_000;
 const EVENT_TTL_MS = 7 * 86_400_000;
 /** `privateConfig/centralOne.lastWebhookAt` se escribe como mucho una vez por minuto. */
 const LAST_WEBHOOK_EVERY_MS = 60_000;
-/** Un `balance.low` por hora y por instancia basta: el resto es ruido en Telegram. */
-const BALANCE_ALERT_EVERY_MS = 60 * 60_000;
 /** Límite de valores de un `where(…, 'in', …)`. */
 const IN_CHUNK = 30;
 
@@ -255,7 +253,6 @@ export interface CoWebhookBody {
 }
 
 let lastWebhookStampMs = 0;
-let lastBalanceAlertMs = 0;
 
 /** Anota la hora del último aviso válido (la muestra el panel). Nunca lanza. */
 async function stampLastWebhook(): Promise<void> {
@@ -718,24 +715,19 @@ async function handleCentralOneEvent(event: string, body: CoWebhookBody): Promis
   }
 
   if (event === 'balance.low') {
-    if (Date.now() - lastBalanceAlertMs < BALANCE_ALERT_EVERY_MS) return 'saldo bajo (ya avisado)';
-    lastBalanceAlertMs = Date.now();
     const available = centralOne.parseAmount(body.balance?.available);
     const threshold = centralOne.parseAmount(body.balance?.threshold);
-    await adminAlerts.alert({
-      kind: 'low_balance',
-      severity: available !== null && available <= 0 ? 'critical' : 'warning',
-      title: 'Saldo bajo en Central One',
-      body:
-        available !== null
-          ? `Saldo disponible: $${available.toFixed(2)}${
-              threshold !== null ? ` (Central One avisa por debajo de $${threshold.toFixed(2)})` : ''
-            }. Recárgalo o las próximas recargas no saldrán.`
-          : 'Central One avisa que el saldo está bajo. Recárgalo o las próximas recargas no saldrán.',
-      link: '/admin/configuracion',
-      data: { provider: 'centralone', balanceUsd: available, threshold },
+    await adminAlerts.checkCentralOneBalance({
+      availableUsd: available,
+      thresholdUsd: threshold ?? undefined,
     });
     return 'saldo bajo';
+  }
+
+  if (event === 'deposit.approved' || event === 'balance.credited') {
+    const available = centralOne.parseAmount(body.balance?.available);
+    await adminAlerts.checkCentralOneBalance({ availableUsd: available });
+    return 'saldo actualizado';
   }
 
   return 'evento ignorado';

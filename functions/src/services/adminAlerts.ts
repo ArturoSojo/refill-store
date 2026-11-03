@@ -19,7 +19,8 @@
  * Ninguna función de este módulo lanza: un aviso perdido nunca debe tumbar una
  * compra que por lo demás salió bien.
  */
-import { adminAlerts, now } from '../config/firebase';
+import { adminAlerts, now, privateCentralOneConfigDoc } from '../config/firebase';
+import * as centralOne from './centralOne';
 import { TELEGRAM_BOT_TOKEN } from '../config/env';
 import { fetchJson } from '../lib/fetchJson';
 import { paginate, type Page } from '../lib/pagination';
@@ -214,10 +215,135 @@ export async function alert(input: AlertInput): Promise<void> {
  * fallar las siguientes. `providerName` va en el texto: con varios proveedores
  * el aviso tiene que decir qué cuenta recargar.
  */
+export const CENTRAL_ONE_LOW_BALANCE_THRESHOLD_USD = 35.0;
+
+export interface CentralOneBalanceCheckOptions {
+  availableUsd?: number | null;
+  heldUsd?: number | null;
+  thresholdUsd?: number;
+  forceAlert?: boolean;
+}
+
+/**
+ * Avisa por Telegram al equipo si el saldo disponible de Central One baja de $35.00 USD.
+ *
+ * Se ejecuta automáticamente tras cada despacho de Central One y con webhooks `balance.low`.
+ * Implementa control anti-spam / cooldown en Firestore (`privateConfig/centralOne`):
+ *  - Si `available < 35` y no se había alertado en este ciclo: envía la alerta a Telegram y marca `lowBalanceAlerted: true`.
+ *  - Si `available < 35` pero ya se había alertado: no envía spam repetido.
+ *  - Si `available >= 35`: rearma el estado (`lowBalanceAlerted: false`) para alertar cuando vuelva a bajar.
+ */
+export async function checkCentralOneBalance(
+  options: CentralOneBalanceCheckOptions = {}
+): Promise<{
+  alertSent: boolean;
+  rearmed: boolean;
+  availableUsd: number | null;
+  heldUsd: number | null;
+  threshold: number;
+}> {
+  const threshold = options.thresholdUsd ?? CENTRAL_ONE_LOW_BALANCE_THRESHOLD_USD;
+  let availableUsd = options.availableUsd ?? null;
+  let heldUsd = options.heldUsd ?? null;
+
+  if (availableUsd === null) {
+    try {
+      const res = await centralOne.getBalance();
+      if (!res.ok) {
+        log.warn('No se pudo consultar el saldo de Central One para la alerta', { error: res.message });
+        return { alertSent: false, rearmed: false, availableUsd: null, heldUsd: null, threshold };
+      }
+      availableUsd = res.balance.availableUsd;
+      heldUsd = res.balance.heldUsd;
+    } catch (err) {
+      log.warn('Fallo al obtener balance de Central One', { error: err instanceof Error ? err.message : String(err) });
+      return { alertSent: false, rearmed: false, availableUsd: null, heldUsd: null, threshold };
+    }
+  }
+  if (heldUsd === null) heldUsd = 0;
+
+  try {
+    const docRef = privateCentralOneConfigDoc();
+    const snap = await docRef.get();
+    const data = snap.exists ? snap.data() : null;
+    const wasAlerted = Boolean(data?.lowBalanceAlerted);
+
+    if (availableUsd < threshold) {
+      if (wasAlerted && !options.forceAlert) {
+        return { alertSent: false, rearmed: false, availableUsd, heldUsd, threshold };
+      }
+
+      await alert({
+        kind: 'low_balance',
+        severity: availableUsd <= 0 ? 'critical' : 'warning',
+        title: 'Saldo bajo en Central One',
+        body:
+          `⚠️ <b>Saldo bajo en Central One</b>\n` +
+          `• Proveedor: <b>Central One</b>\n` +
+          `• Saldo disponible: <b>${availableUsd.toFixed(2)} USD</b>\n` +
+          `• Saldo retenido: <b>${heldUsd.toFixed(2)} USD</b>\n` +
+          `• Umbral de alerta: <b>${threshold.toFixed(2)} USD</b>\n\n` +
+          `Por favor recarga la cuenta mayorista en Central One para evitar interrupciones en las recargas automáticas.`,
+        link: '/admin',
+        data: {
+          provider: 'centralone',
+          availableBalance: availableUsd,
+          heldBalance: heldUsd,
+          threshold,
+        },
+      });
+
+      await docRef.set(
+        {
+          lowBalanceAlerted: true,
+          lowBalanceAlertedAt: now(),
+          lowBalanceAvailableUsd: availableUsd,
+          lowBalanceHeldUsd: heldUsd,
+        },
+        { merge: true }
+      );
+
+      return { alertSent: true, rearmed: false, availableUsd, heldUsd, threshold };
+    } else {
+      if (wasAlerted) {
+        await docRef.set(
+          {
+            lowBalanceAlerted: false,
+            lowBalanceRearmedAt: now(),
+            lowBalanceAvailableUsd: availableUsd,
+          },
+          { merge: true }
+        );
+        return { alertSent: false, rearmed: true, availableUsd, heldUsd, threshold };
+      }
+      return { alertSent: false, rearmed: false, availableUsd, heldUsd, threshold };
+    }
+  } catch (err) {
+    log.warn('Fallo al procesar alerta de saldo bajo de Central One', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { alertSent: false, rearmed: false, availableUsd, heldUsd, threshold };
+  }
+}
+
+/**
+ * Avisa si el saldo del proveedor quedó por debajo del umbral.
+ *
+ * Se llama con el `remaining_balance` que devuelve cada despacho, así que el
+ * aviso llega en la misma compra que agotó el saldo y no cuando ya empezaron a
+ * fallar las siguientes. `providerName` va en el texto: con varios proveedores
+ * el aviso tiene que decir qué cuenta recargar.
+ */
 export async function checkProviderBalance(
   remainingBalance: number | null,
   providerName = 'Inefable'
 ): Promise<void> {
+  const norm = providerName.trim().toLowerCase();
+  if (norm === 'central one' || norm === 'centralone') {
+    await checkCentralOneBalance({ availableUsd: remainingBalance });
+    return;
+  }
+
   if (remainingBalance === null) return;
 
   try {
@@ -230,8 +356,8 @@ export async function checkProviderBalance(
       severity: remainingBalance <= 0 ? 'critical' : 'warning',
       title: `Saldo bajo en ${providerName}`,
       body:
-        `Quedan $${remainingBalance.toFixed(2)} en la cuenta de ${providerName} ` +
-        `(umbral: $${threshold.toFixed(2)}). Recárgala o las próximas recargas fallarán.`,
+        `Quedan ${remainingBalance.toFixed(2)} en la cuenta de ${providerName} ` +
+        `(umbral: ${threshold.toFixed(2)}). Recárgala o las próximas recargas fallarán.`,
       link: '/admin',
       data: { remainingBalance, threshold, provider: providerName },
     });

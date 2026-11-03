@@ -96,7 +96,33 @@ mockModule('../lib/services/dispatch.js', {
 });
 
 const alerts = [];
-mockModule('../lib/services/adminAlerts.js', { alert: async (input) => alerts.push(input) });
+let lowBalanceAlerted = false;
+mockModule('../lib/services/adminAlerts.js', {
+  alert: async (input) => alerts.push(input),
+  checkCentralOneBalance: async (options = {}) => {
+    const available = options.availableUsd ?? 0;
+    const threshold = options.thresholdUsd ?? 35;
+    if (available < threshold) {
+      if (!lowBalanceAlerted) {
+        lowBalanceAlerted = true;
+        alerts.push({
+          kind: 'low_balance',
+          severity: available <= 0 ? 'critical' : 'warning',
+          title: 'Saldo bajo en Central One',
+          body: `⚠️ Saldo bajo en Central One: $${available.toFixed(2)} USD (umbral ${threshold.toFixed(2)})`,
+        });
+        return { alertSent: true, rearmed: false, availableUsd: available, heldUsd: 0, threshold };
+      }
+      return { alertSent: false, rearmed: false, availableUsd: available, heldUsd: 0, threshold };
+    } else {
+      if (lowBalanceAlerted) {
+        lowBalanceAlerted = false;
+        return { alertSent: false, rearmed: true, availableUsd: available, heldUsd: 0, threshold };
+      }
+      return { alertSent: false, rearmed: false, availableUsd: available, heldUsd: 0, threshold };
+    }
+  },
+});
 mockModule('../lib/services/settings.js', {
   getConfig: async () => ({ pricing: { defaultMarginPercent: 20, roundToUsd: 0.05, roundToBs: 0.01 } }),
 });
@@ -125,6 +151,7 @@ function reset() {
   store.clear();
   resolverCalls.length = 0;
   alerts.length = 0;
+  lowBalanceAlerted = false;
   resolverImpl = async () => ({ matched: true, orderId: 'order-1', result: 'resuelta' });
 }
 
