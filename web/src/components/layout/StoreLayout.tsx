@@ -27,6 +27,7 @@ import { ROUTES } from '@/lib/constants';
 import { cn, initials, isImageUrl } from '@/lib/utils';
 import { captureCreatorCodeFromUrl } from '@/lib/creatorCode';
 import { StoreModals } from '@/components/common/StoreModals';
+import { FirstRechargePrompt } from '@/components/common/FirstRechargePrompt';
 import { RefillChatbot } from '@/features/chatbot';
 import { useRechargeTour } from '@/features/tour/useRechargeTour';
 import { useCatalog } from '@/hooks/useCatalog';
@@ -686,6 +687,7 @@ export function StoreLayout() {
       </main>
 
       <StoreModals />
+      <FirstRechargePrompt />
 
       <Footer />
       <BottomNav />
