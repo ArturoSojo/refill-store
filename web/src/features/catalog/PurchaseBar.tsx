@@ -57,6 +57,7 @@ export function PurchaseBar({
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: 100, opacity: 0 }}
           transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+          data-tour="purchase-bar"
           className="fixed inset-x-0 bottom-0 z-40 border-t border-base-600 bg-base-900/95 backdrop-blur-lg"
         >
           {/* pb extra en móvil para no quedar debajo de la navegación inferior */}
@@ -110,6 +111,7 @@ export function PurchaseBar({
 
                 <button
                   type="button"
+                  data-tour-action="continue"
                   onClick={onContinue}
                   disabled={disabled || loading}
                   title={disabled ? disabledReason : undefined}

@@ -40,6 +40,7 @@ import {
   gameFields,
 } from '@/features/catalog/PlayerFields';
 import { resolveFazerValidationCategory } from '@/features/catalog/validation';
+import { useRechargeTour } from '@/features/tour/useRechargeTour';
 import { AnimatedBackground } from '@/components/common/Decor';
 import { Input } from '@/components/ui/Field';
 import { Modal, ConfirmDialog } from '@/components/ui/Modal';
@@ -95,6 +96,7 @@ export function GamePage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { config } = useConfig();
+  const { start: startTour, notify: notifyTour } = useRechargeTour();
 
   const catalog = useGameCatalog(slug);
   const storefrontCatalog = useCatalog();
@@ -275,6 +277,15 @@ export function GamePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, selected?.id, quantity, couponCode, creatorCode, idIsValid, playerValues]);
 
+  // La guía interactiva avanza sola cuando el cliente hace la acción real.
+  useEffect(() => {
+    if (playerIdVerified) notifyTour('id-verified');
+  }, [playerIdVerified, notifyTour]);
+
+  useEffect(() => {
+    if (selected?.id) notifyTour('package-selected');
+  }, [selected?.id, notifyTour]);
+
   if (catalog.isLoading || storefrontCatalog.isLoading) return <FullPageLoader label="Cargando el catálogo…" />;
 
   if (catalog.error || !game) {
@@ -311,6 +322,8 @@ export function GamePage() {
 
   const startCheckout = () => {
     if (!selected) return;
+
+    notifyTour('checkout-started');
 
     // El checkout recibe todo hecho: no vuelve a pedir los datos del jugador.
     navigate(ROUTES.checkout(selected.id), {
@@ -426,6 +439,15 @@ export function GamePage() {
           Inicio
         </button>
 
+        <button
+          type="button"
+          onClick={() => startTour(1)}
+          className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-blue-500/40 bg-blue-500/10 px-3.5 py-1.5 text-xs font-bold text-blue-200 transition hover:bg-blue-500/20"
+        >
+          <span aria-hidden>🎓</span>
+          ¿Primera vez? Enséñame a comprar paso a paso
+        </button>
+
         {/* Paso 1 — juego */}
         <section className="mb-6">
           <h2 className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400">
@@ -452,6 +474,7 @@ export function GamePage() {
           </h2>
 
           <div
+            data-tour="player-id-input"
             className="rounded-2xl border p-4 transition-colors"
             style={{
               borderColor: idIsValid ? accent : 'rgb(31 31 48)',
@@ -477,6 +500,7 @@ export function GamePage() {
 
             {requiresFazerValidation && (
               <div className="mt-3 space-y-2">
+                <div data-tour="verify-id-button" className="w-fit">
                 <Button
                   variant={playerIdVerified ? 'success' : 'secondary'}
                   size="sm"
@@ -487,6 +511,7 @@ export function GamePage() {
                   {validatingPlayer ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <BadgeCheck className="h-4 w-4" aria-hidden />}
                   {validatingPlayer ? 'Verificando ID…' : playerIdVerified ? 'ID verificado' : 'Verificar ID'}
                 </Button>
+                </div>
                 {playerIdVerified && (
                   <p
                     className={cn(
@@ -494,6 +519,7 @@ export function GamePage() {
                       playerValidation?.playerName ? 'text-emerald-300' : 'text-amber-300'
                     )}
                     role="status"
+                    data-tour="verified-player-badge"
                   >
                     <BadgeCheck className="h-4 w-4 shrink-0" aria-hidden />
                     {playerValidation?.playerName ? (
@@ -563,7 +589,7 @@ export function GamePage() {
         {/* Códigos se movieron debajo de los paquetes */}
 
         {/* Paso 3 — paquete */}
-        <section>
+        <section data-tour="package-grid">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <h2 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400">
               <span className="flex h-5 w-5 items-center justify-center rounded-md bg-brand-gradient text-[10px] font-black text-white">

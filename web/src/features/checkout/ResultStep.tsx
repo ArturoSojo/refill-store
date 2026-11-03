@@ -54,6 +54,7 @@ export function ResultStep({ order, game, supportUrl }: ResultStepProps) {
         animate={{ opacity: 1, scale: 1 }}
         transition={{ type: 'spring', damping: 20, stiffness: 260 }}
         className="card text-center"
+        data-tour="order-status-section"
       >
         {/* Entrega completada: se celebra con el emblema de la marca en vez de
             un icono genérico. Es el momento de la compra que más se recuerda. */}

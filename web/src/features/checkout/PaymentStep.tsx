@@ -264,7 +264,7 @@ export function PaymentStep({
 
       {!coinsActive && (<>
       {/* 3. A dónde pagar */}
-      <div className="card">
+      <div className="card" data-tour="payment-bank-details">
         <div className="mb-3 flex items-center gap-2">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-neon-red/15 text-neon-red">
             <Landmark className="h-4 w-4" aria-hidden />
@@ -309,7 +309,7 @@ export function PaymentStep({
       </div>
 
       {/* 4. Referencia */}
-      <div className="card">
+      <div className="card" data-tour="payment-reference-form">
         <div className="mb-3 flex items-center gap-2">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-400">
             <Receipt className="h-4 w-4" aria-hidden />

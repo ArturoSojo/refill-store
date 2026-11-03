@@ -28,6 +28,7 @@ import { cn, initials, isImageUrl } from '@/lib/utils';
 import { captureCreatorCodeFromUrl } from '@/lib/creatorCode';
 import { StoreModals } from '@/components/common/StoreModals';
 import { RefillChatbot } from '@/features/chatbot';
+import { useRechargeTour } from '@/features/tour/useRechargeTour';
 import { useCatalog } from '@/hooks/useCatalog';
 import { formatBs, formatRefillCoins } from '@/lib/format';
 import { Button, ButtonLink } from '@/components/ui/Button';
@@ -60,6 +61,7 @@ function RateChip() {
 
 function Header({ onOpenMenu }: { onOpenMenu: () => void }) {
   const { user, me, isStaff } = useAuth();
+  const tour = useRechargeTour();
 
   return (
     <header className="sticky top-0 z-40 border-b border-base-600/70 bg-base-900/85 backdrop-blur-lg">
@@ -67,6 +69,17 @@ function Header({ onOpenMenu }: { onOpenMenu: () => void }) {
         <Logo />
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => tour.start(0)}
+            className="flex h-9 items-center gap-1.5 rounded-xl border border-blue-500/40 bg-blue-500/10 px-2.5 text-xs font-bold text-blue-200 transition hover:bg-blue-500/20"
+            aria-label="Enséñame a comprar, paso a paso"
+            title="Enséñame a comprar, paso a paso"
+          >
+            <span aria-hidden>🎓</span>
+            <span className="hidden md:inline">Cómo comprar</span>
+          </button>
+
           <RateChip />
 
           {user ? (
@@ -215,6 +228,8 @@ function AccountDrawer({ open, onClose }: { open: boolean; onClose: () => void }
   const { config } = useConfig();
   const { showWhatsapp, showTelegram } = getActiveSupportChannels(config);
 
+  const tour = useRechargeTour();
+
   if (!open) return null;
 
   const links = [
@@ -327,6 +342,17 @@ function AccountDrawer({ open, onClose }: { open: boolean; onClose: () => void }
         </nav>
 
         <div className="safe-bottom space-y-2 border-t border-base-600 p-3">
+          <Button
+            variant="secondary"
+            size="sm"
+            fullWidth
+            onClick={() => {
+              onClose();
+              tour.start(0);
+            }}
+          >
+            🎓 Enséñame a comprar, paso a paso
+          </Button>
           {showWhatsapp && config?.supportUrl && (
             <ButtonLink
               to={config.supportUrl}

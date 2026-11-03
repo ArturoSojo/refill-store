@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { StoreLayout } from '@/components/layout/StoreLayout';
 import { AdminLayout } from '@/components/layout/AdminLayout';
+import { RechargeTourProvider } from '@/features/tour/RechargeTour';
 import { RequireAdmin, RequireAuth, RequireStaff, ScrollToTop } from '@/components/common/Guards';
 
 import { HomePage } from '@/pages/HomePage';
@@ -42,6 +43,7 @@ import { AccountDeletionPage, PrivacyPolicyPage } from '@/pages/PrivacyPolicyPag
 export function App() {
   return (
     <BrowserRouter>
+      <RechargeTourProvider>
       <ScrollToTop />
 
       <Routes>
@@ -176,6 +178,7 @@ export function App() {
           <Route path="*" element={<Navigate to="/admin" replace />} />
         </Route>
       </Routes>
+      </RechargeTourProvider>
     </BrowserRouter>
   );
 }

@@ -23,6 +23,7 @@ import { ResultStep } from '@/features/checkout/ResultStep';
 import { OpenOrdersDialog } from '@/features/checkout/OpenOrdersDialog';
 import { FullPageLoader, ErrorState } from '@/components/ui/Feedback';
 import { ButtonLink } from '@/components/ui/Button';
+import { useRechargeTour } from '@/features/tour/useRechargeTour';
 import { ROUTES } from '@/lib/constants';
 import { readCreatorCode } from '@/lib/creatorCode';
 import { ApiError, isGatewayTimeout } from '@/lib/api';
@@ -51,6 +52,7 @@ export function CheckoutPage() {
   const [searchParams] = useSearchParams();
   const { user, me, signInWithGoogle } = useAuth();
   const { config } = useConfig();
+  const { notify: notifyTour } = useRechargeTour();
 
   const incoming = (location.state as CheckoutState | null) ?? null;
 
@@ -234,6 +236,11 @@ export function CheckoutPage() {
     handleCreateOrder();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasPlayerData, requiresPlayerData, user, product, game, step, orderData, resumeOrderId]);
+
+  // Pasar a «resultado» (referencia verificada, saldo, etc.) hace avanzar la guía.
+  useEffect(() => {
+    if (step === 'result') notifyTour('payment-submitted');
+  }, [step, notifyTour]);
 
   // El cargador sólo cuando aún no hay nada que mostrar. Tras crear la orden la
   // URL pasa a llevar `?orden=`, lo que dispara su consulta; sin el

@@ -470,7 +470,7 @@ export function PlayerIdStep({
       </div>
 
       {needsPhone && (
-        <div className="card border-amber-500/30 bg-amber-500/5">
+        <div className="card border-amber-500/30 bg-amber-500/5" data-tour="buyer-contact-section">
           <Input
             id="contacto-telefono"
             label="Tu número de WhatsApp o Telegram"
