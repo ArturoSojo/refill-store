@@ -24,3 +24,4 @@ test('el correo explica cómo dejar de recibirlo', () => {
   assert.match(mail.text, /Mi cuenta/);
   assert.match(mail.html, /\/cuenta/);
 });
+

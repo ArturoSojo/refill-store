@@ -1230,7 +1230,7 @@ async function dispatchCentralOneCall(
   state.keyAttempts = (state.keyAttempts ?? 0) + 1;
 
   const orderFields = order.playerFields ?? {};
-  let targetPayload = Array.isArray(call.targetFields)
+  const targetPayload = Array.isArray(call.targetFields)
     ? centralOne.buildTargetPayloadFromFields(call.targetFields, orderFields, {
         playerId: order.playerId,
         playerId2: order.playerId2,
@@ -1241,20 +1241,6 @@ async function dispatchCentralOneCall(
         order.playerId2 || orderFields.server_id || orderFields.zone_id || (order as any).serverId || (order as any).zoneId,
         orderFields
       );
-
-  // Para Free Fire (cualquier juego o tarjeta, incluso si el UUID proviene de Free Fire Global),
-  // se debe enviar siempre target_payload: { player_id: order.playerId }
-  const gameSlugCandidate = (order as { gameSlug?: string }).gameSlug;
-  if (
-    (order.gameId && /free-?fire/i.test(order.gameId)) ||
-    (order.gameName && /free-?fire/i.test(order.gameName)) ||
-    Boolean(gameSlugCandidate && /free-?fire/i.test(gameSlugCandidate))
-  ) {
-    const rawPlayerId = (order.playerId || orderFields.player_id || orderFields.game_user_id || '').trim();
-    if (rawPlayerId) {
-      targetPayload = { player_id: rawPlayerId };
-    }
-  }
 
   const createResult = await centralOne.createOrder({
     catalogItemId: String(call.packageId),

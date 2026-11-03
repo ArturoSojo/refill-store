@@ -244,21 +244,12 @@ export function classifyCentralOneKind(label: string, family: CoFamily = 'topup'
   return parseOfferAmount(name).amount === null ? 'special' : 'package';
 }
 
-export const ALL_FREE_FIRE_CARD_UUIDS = new Set<string>([
-  '47bba141-8980-47f7-b4bd-2e264c2d9930', // semanal_basica LATAM
-  '63540ac0-e4bf-4ce2-afcc-567fa305418b', // semanal_basica GLOBAL
-  'e30be2a9-6490-4a21-a160-780aa679804c', // semanal LATAM
-  '10b8f3ff-4fe4-452e-adc5-f765b6b1ff1a', // semanal GLOBAL
-  '6f98867c-a84e-418e-ab54-83f1da1fdee2', // mensual LATAM
-  'ed068136-f25b-4486-bdc3-f4654b725030', // mensual GLOBAL
-]);
-
 /**
  * Tarjeta o membresía semanal/mensual de Free Fire (incluida la «básica
- * semanal»).
+ * semanal»). Se crean apagadas (`adminDisabled`) en los tres Free Fire: el
+ * cliente decide cuándo venderlas.
  */
-export function isFreeFireCard(familyName: string, label: string, productId?: string): boolean {
-  if (productId && ALL_FREE_FIRE_CARD_UUIDS.has(productId)) return true;
+export function isFreeFireCard(familyName: string, label: string): boolean {
   return FREE_FIRE_NAME.test(familyName ?? '') && /\b(weekly|monthly|semanal|mensual)\b/i.test(label ?? '');
 }
 
@@ -704,7 +695,7 @@ export function mapCentralOneCatalog(
       }
 
       const rawLabel = centralOneOfferLabel(String(item.name ?? ''), familyName) || String(item.name ?? '');
-      const card = isFreeFireCard(familyName, `${item.name ?? ''} ${rawLabel}`, item.product_id);
+      const card = isFreeFireCard(familyName, `${item.name ?? ''} ${rawLabel}`);
       const label = FREE_FIRE_NAME.test(familyName) ? spanishFreeFireName(rawLabel) : rawLabel;
       const kind = classifyCentralOneKind(rawLabel, family);
       const parsed = parseOfferAmount(rawLabel);
@@ -1518,334 +1509,6 @@ export function planCentralOneCombos(input: CentralOneComboPlanInput): {
 }
 
 // ---------------------------------------------------------------------------
-// Enrutamiento Inteligente al Mejor Precio (Best-Price Routing) - Tarjetas Free Fire
-// ---------------------------------------------------------------------------
-
-export type FreeFireCardType = 'semanal_basica' | 'semanal' | 'mensual';
-
-export interface FreeFireCardRule {
-  type: FreeFireCardType;
-  name: string;
-  fixedProfitUsd: number;
-  latamUuid: string;
-  globalUuid: string;
-  latamSku: string;
-  globalSku: string;
-  defaultSortOrder: number;
-  imageUrl: string;
-}
-
-export const FREE_FIRE_CARD_RULES: Record<FreeFireCardType, FreeFireCardRule> = {
-  semanal_basica: {
-    type: 'semanal_basica',
-    name: 'Tarjeta Semanal Básica',
-    fixedProfitUsd: 0.2,
-    latamUuid: '47bba141-8980-47f7-b4bd-2e264c2d9930',
-    globalUuid: '63540ac0-e4bf-4ce2-afcc-567fa305418b',
-    latamSku: '1-FF-SEMANAL-BASICA',
-    globalSku: '06FC87EA90AF',
-    defaultSortOrder: 80,
-    imageUrl: '/products/tarjeta-semanal.svg',
-  },
-  semanal: {
-    type: 'semanal',
-    name: 'Tarjeta Semanal',
-    fixedProfitUsd: 0.6,
-    latamUuid: 'e30be2a9-6490-4a21-a160-780aa679804c',
-    globalUuid: '10b8f3ff-4fe4-452e-adc5-f765b6b1ff1a',
-    latamSku: '2-FF-SEMANAL',
-    globalSku: 'FEFFFE4BE74A',
-    defaultSortOrder: 85,
-    imageUrl: '/products/tarjeta-semanal.svg',
-  },
-  mensual: {
-    type: 'mensual',
-    name: 'Tarjeta Mensual',
-    fixedProfitUsd: 2.0,
-    latamUuid: '6f98867c-a84e-418e-ab54-83f1da1fdee2',
-    globalUuid: 'ed068136-f25b-4486-bdc3-f4654b725030',
-    latamSku: '3-FF-MENSUAL',
-    globalSku: '187CEE66CC42',
-    defaultSortOrder: 90,
-    imageUrl: '/products/tarjeta-mensual.svg',
-  },
-};
-
-export interface FreeFireCardTargetProduct {
-  docId: string;
-  gameId: string;
-  cardType: FreeFireCardType;
-  sku: string;
-}
-
-export const FREE_FIRE_CARD_TARGET_PRODUCTS: FreeFireCardTargetProduct[] = [
-  // 1. free-fire
-  { docId: 'ff-m-basica', gameId: 'free-fire', cardType: 'semanal_basica', sku: 'FF-M-BASICA' },
-  { docId: 'ff-m-tarjeta-semanal', gameId: 'free-fire', cardType: 'semanal', sku: 'FF-M-SEMANAL' },
-  { docId: 'ff-m-tarjeta-mensual', gameId: 'free-fire', cardType: 'mensual', sku: 'FF-M-MENSUAL' },
-
-  // 2. freefire-id
-  { docId: 'freefire-id--co-47bba141-8980-47f7-b4bd-2e264c2d9930', gameId: 'freefire-id', cardType: 'semanal_basica', sku: 'FF-ID-M-BASICA' },
-  { docId: 'freefire-id--co-e30be2a9-6490-4a21-a160-780aa679804c', gameId: 'freefire-id', cardType: 'semanal', sku: 'FF-ID-M-SEMANAL' },
-  { docId: 'freefire-id--co-6f98867c-a84e-418e-ab54-83f1da1fdee2', gameId: 'freefire-id', cardType: 'mensual', sku: 'FF-ID-M-MENSUAL' },
-
-  // 3. co-topup-free-fire-latam
-  { docId: 'co-topup-free-fire-latam--47bba141-8980-47f7-b4bd-2e264c2d9930', gameId: 'co-topup-free-fire-latam', cardType: 'semanal_basica', sku: 'CO-FF-LATAM-BASICA' },
-  { docId: 'co-topup-free-fire-latam--e30be2a9-6490-4a21-a160-780aa679804c', gameId: 'co-topup-free-fire-latam', cardType: 'semanal', sku: 'CO-FF-LATAM-SEMANAL' },
-  { docId: 'co-topup-free-fire-latam--6f98867c-a84e-418e-ab54-83f1da1fdee2', gameId: 'co-topup-free-fire-latam', cardType: 'mensual', sku: 'CO-FF-LATAM-MENSUAL' },
-
-  // 4. co-topup-free-fire-global
-  { docId: 'co-topup-free-fire-global--63540ac0-e4bf-4ce2-afcc-567fa305418b', gameId: 'co-topup-free-fire-global', cardType: 'semanal_basica', sku: 'CO-FF-GLOBAL-BASICA' },
-  { docId: 'co-topup-free-fire-global--10b8f3ff-4fe4-452e-adc5-f765b6b1ff1a', gameId: 'co-topup-free-fire-global', cardType: 'semanal', sku: 'CO-FF-GLOBAL-SEMANAL' },
-  { docId: 'co-topup-free-fire-global--ed068136-f25b-4486-bdc3-f4654b725030', gameId: 'co-topup-free-fire-global', cardType: 'mensual', sku: 'CO-FF-GLOBAL-MENSUAL' },
-];
-
-export const FREE_FIRE_CARD_DOC_IDS = new Set<string>(FREE_FIRE_CARD_TARGET_PRODUCTS.map((p) => p.docId));
-
-export function classifyFreeFireCardType(input: string): FreeFireCardType | null {
-  const clean = (input ?? '').trim().toLowerCase();
-  if (!clean) return null;
-
-  if (
-    clean === '47bba141-8980-47f7-b4bd-2e264c2d9930' ||
-    clean === '63540ac0-e4bf-4ce2-afcc-567fa305418b' ||
-    clean === '1-ff-semanal-basica' ||
-    clean === '06fc87ea90af' ||
-    clean.includes('ff-m-basica') ||
-    clean.includes('basica') ||
-    (/weekly|semanal/i.test(clean) && /lite|b[aá]sica/i.test(clean))
-  ) {
-    return 'semanal_basica';
-  }
-
-  if (
-    clean === '6f98867c-a84e-418e-ab54-83f1da1fdee2' ||
-    clean === 'ed068136-f25b-4486-bdc3-f4654b725030' ||
-    clean === '3-ff-mensual' ||
-    clean === '187cee66cc42' ||
-    clean.includes('tarjeta-mensual') ||
-    /monthly|mensual/i.test(clean)
-  ) {
-    return 'mensual';
-  }
-
-  if (
-    clean === 'e30be2a9-6490-4a21-a160-780aa679804c' ||
-    clean === '10b8f3ff-4fe4-452e-adc5-f765b6b1ff1a' ||
-    clean === '2-ff-semanal' ||
-    clean === 'fefffe4be74a' ||
-    clean.includes('tarjeta-semanal') ||
-    /weekly|semanal/i.test(clean)
-  ) {
-    return 'semanal';
-  }
-
-  return null;
-}
-
-export interface BestCardChoice {
-  type: FreeFireCardType;
-  winnerUuid: string;
-  winnerRegion: 'LATAM' | 'GLOBAL';
-  costUsd: number;
-  priceUsd: number;
-  inStock: boolean;
-  fixedProfitUsd: number;
-  latamOffer: { uuid: string; costUsd: number | null; inStock: boolean };
-  globalOffer: { uuid: string; costUsd: number | null; inStock: boolean };
-}
-
-function parseCardCandidate(
-  item: unknown
-): { uuid: string; costUsd: number; inStock: boolean; sku?: string } | null {
-  if (!item || typeof item !== 'object') return null;
-  const raw = item as Record<string, unknown>;
-  const uuid = text(raw.product_id ?? raw.productId);
-  if (!uuid) return null;
-
-  let costUsd: number | null = null;
-  if (typeof raw.costUsd === 'number' && Number.isFinite(raw.costUsd)) {
-    costUsd = raw.costUsd;
-  } else if (raw.reseller_price !== undefined && raw.reseller_price !== null) {
-    costUsd = centralOne.parseAmount(raw.reseller_price as string | number);
-  }
-  if (costUsd === null || costUsd <= 0) return null;
-
-  let inStock = true;
-  if (typeof raw.providerAvailable === 'boolean') {
-    inStock = raw.providerAvailable;
-  } else {
-    const status = raw.status === undefined ? 'active' : String(raw.status);
-    const inStockField = raw.in_stock !== false;
-    const availStock = typeof raw.available_stock === 'number' ? raw.available_stock : null;
-    inStock = status === 'active' && inStockField && (availStock === null || availStock > 0);
-  }
-
-  return {
-    uuid,
-    costUsd,
-    inStock,
-    sku: text(raw.sku) ?? undefined,
-  };
-}
-
-export function selectBestFreeFireCards(
-  items: Array<CoCatalogItem | Record<string, unknown>>
-): Record<FreeFireCardType, BestCardChoice> {
-  const itemMap = new Map<string, { uuid: string; costUsd: number; inStock: boolean; sku?: string }>();
-  const skuMap = new Map<string, { uuid: string; costUsd: number; inStock: boolean; sku?: string }>();
-
-  for (const item of Array.isArray(items) ? items : []) {
-    const parsed = parseCardCandidate(item);
-    if (parsed) {
-      itemMap.set(parsed.uuid, parsed);
-      if (parsed.sku) skuMap.set(parsed.sku, parsed);
-    }
-  }
-
-  const result: Partial<Record<FreeFireCardType, BestCardChoice>> = {};
-
-  for (const type of ['semanal_basica', 'semanal', 'mensual'] as FreeFireCardType[]) {
-    const rule = FREE_FIRE_CARD_RULES[type];
-    const latam = itemMap.get(rule.latamUuid) || skuMap.get(rule.latamSku) || {
-      uuid: rule.latamUuid,
-      costUsd: 0,
-      inStock: false,
-    };
-    const global = itemMap.get(rule.globalUuid) || skuMap.get(rule.globalSku) || {
-      uuid: rule.globalUuid,
-      costUsd: 0,
-      inStock: false,
-    };
-
-    let winnerRegion: 'LATAM' | 'GLOBAL' = 'LATAM';
-    let winner = latam;
-
-    if (latam.inStock && global.inStock) {
-      if (global.costUsd > 0 && (latam.costUsd <= 0 || global.costUsd < latam.costUsd)) {
-        winnerRegion = 'GLOBAL';
-        winner = global;
-      } else {
-        winnerRegion = 'LATAM';
-        winner = latam;
-      }
-    } else if (latam.inStock && !global.inStock) {
-      winnerRegion = 'LATAM';
-      winner = latam;
-    } else if (!latam.inStock && global.inStock) {
-      winnerRegion = 'GLOBAL';
-      winner = global;
-    } else {
-      if (global.costUsd > 0 && (latam.costUsd <= 0 || global.costUsd < latam.costUsd)) {
-        winnerRegion = 'GLOBAL';
-        winner = global;
-      } else {
-        winnerRegion = 'LATAM';
-        winner = latam;
-      }
-    }
-
-    const costUsd = winner.costUsd > 0 ? winner.costUsd : (winnerRegion === 'LATAM' ? latam.costUsd : global.costUsd);
-    const priceUsd = round(costUsd + rule.fixedProfitUsd, 2);
-
-    result[type] = {
-      type,
-      winnerUuid: winner.uuid,
-      winnerRegion,
-      costUsd,
-      priceUsd,
-      inStock: winner.inStock,
-      fixedProfitUsd: rule.fixedProfitUsd,
-      latamOffer: { uuid: rule.latamUuid, costUsd: latam.costUsd || null, inStock: latam.inStock },
-      globalOffer: { uuid: rule.globalUuid, costUsd: global.costUsd || null, inStock: global.inStock },
-    };
-  }
-
-  return result as Record<FreeFireCardType, BestCardChoice>;
-}
-
-export interface PlanFreeFireBestPriceCardsInput {
-  bestCards: Record<FreeFireCardType, BestCardChoice>;
-  existingProducts: ReadonlyMap<string, DocData> | Record<string, DocData | undefined>;
-  timestamp: unknown;
-}
-
-export function planFreeFireBestPriceCards(
-  input: PlanFreeFireBestPriceCardsInput
-): Map<string, DocData> {
-  const getExisting = (id: string): DocData | undefined => {
-    if (input.existingProducts instanceof Map) {
-      return input.existingProducts.get(id);
-    }
-    return (input.existingProducts as Record<string, DocData | undefined>)[id];
-  };
-
-  const out = new Map<string, DocData>();
-
-  for (const target of FREE_FIRE_CARD_TARGET_PRODUCTS) {
-    const choice = input.bestCards[target.cardType];
-    const rule = FREE_FIRE_CARD_RULES[target.cardType];
-    const current = getExisting(target.docId);
-
-    const calls: DispatchCall[] = [
-      {
-        packageId: choice.winnerUuid,
-        quantity: 1,
-        provider: 'centralone',
-        targetFields: ['player_id'],
-      },
-    ];
-
-    const adminDisabled = current?.adminDisabled === true;
-    const active = choice.inStock && !adminDisabled;
-    const stock = choice.inStock ? null : 0;
-
-    const data: DocData = {
-      id: target.docId,
-      gameId: target.gameId,
-      sku: (current?.sku as string | undefined) || target.sku,
-      name: (current?.name as string | undefined) || rule.name,
-      description:
-        (current?.description as string | undefined) ||
-        `${rule.name} para Free Fire. Se acredita directamente con tu ID.`,
-      fulfillment: 'auto',
-      manualFlow: 'notify',
-      kind: 'special',
-      amount: 1,
-      bonus: 0,
-      costUsd: choice.costUsd,
-      priceUsd: choice.priceUsd,
-      compareAtUsd: current?.compareAtUsd ?? null,
-      calls,
-      centralOneProductId: choice.winnerUuid,
-      targetFields: ['player_id'],
-      provider: 'centralone',
-      providerOfferId: choice.winnerUuid,
-      imageUrl: (current?.imageUrl as string | undefined) || rule.imageUrl,
-      badge: current?.badge ?? null,
-      active,
-      adminDisabled,
-      priceLocked: false,
-      featured: current?.featured ?? false,
-      sortOrder: typeof current?.sortOrder === 'number' ? current.sortOrder : rule.defaultSortOrder,
-      stock,
-      deliveryEtaMinutes: 2,
-      providerRemoved: false,
-      providerSyncedAt: input.timestamp,
-      updatedAt: input.timestamp,
-    };
-
-    if (!current) {
-      data.createdAt = input.timestamp;
-    }
-
-    out.set(target.docId, data);
-  }
-
-  return out;
-}
-
-// ---------------------------------------------------------------------------
 // Escritura por lotes
 // ---------------------------------------------------------------------------
 
@@ -2046,8 +1709,7 @@ function upsertGame(
   plan: CentralOneGamePlan,
   existingGame: DocData | undefined,
   existingProducts: Map<string, DocData>,
-  fazerGames: Map<string, Partial<Game>>,
-  plannedCards?: Map<string, DocData>
+  fazerGames: Map<string, Partial<Game>>
 ): void {
   const ts = ctx.timestamp;
   const presentation = existingGame ? null : pickFazerPresentation(plan, fazerGames);
@@ -2057,14 +1719,6 @@ function upsertGame(
 
   const sold: number[] = [];
   for (const offer of plan.offers) {
-    if (FREE_FIRE_CARD_DOC_IDS.has(offer.docId)) {
-      const cardData = plannedCards?.get(offer.docId);
-      if (cardData && cardData.active) {
-        sold.push(cardData.priceUsd as number);
-      }
-      continue;
-    }
-
     const current = existingProducts.get(offer.docId);
     const calls: DispatchCall[] = [
       { packageId: offer.productId, quantity: 1, provider: 'centralone', targetFields: [...offer.targetFields] },
@@ -2535,18 +2189,7 @@ export async function runCentralOneSync(opts: {
     }
 
     // --- Lectura de productos existentes (sólo los ids que importan) ---
-    const bestCards = selectBestFreeFireCards(catalog.items);
     const productIds = new Set<string>(mapping.inactiveProductIds);
-    for (const target of FREE_FIRE_CARD_TARGET_PRODUCTS) {
-      productIds.add(target.docId);
-    }
-    const OBSOLETE_FF_CARD_EXTRAS = [
-      'free-fire--co-47bba141-8980-47f7-b4bd-2e264c2d9930',
-      'free-fire--co-e30be2a9-6490-4a21-a160-780aa679804c',
-      'free-fire--co-6f98867c-a84e-418e-ab54-83f1da1fdee2',
-    ];
-    for (const id of OBSOLETE_FF_CARD_EXTRAS) productIds.add(id);
-
     for (const plan of mapping.games) {
       for (const offer of plan.offers) productIds.add(offer.docId);
       const isBS = /blood\s*strike/i.test(plan.familyName);
@@ -2568,11 +2211,6 @@ export async function runCentralOneSync(opts: {
     }
     const existingProducts = await readDocs(Array.from(productIds).map((id) => products().doc(id)));
     const linkedGameDocs = await readDocs(['blood-strike', 'free-fire', 'freefire-id'].map((id) => games().doc(id)));
-    const plannedCards = planFreeFireBestPriceCards({
-      bestCards,
-      existingProducts,
-      timestamp: ctx.timestamp,
-    });
 
     // --- Upsert ---
     const seenGames = new Set<string>();
@@ -2614,7 +2252,7 @@ export async function runCentralOneSync(opts: {
         summary.skipped.manual_game = (summary.skipped.manual_game ?? 0) + 1;
         continue;
       }
-      upsertGame(ctx, plan, coGames.get(plan.id), existingProducts, fazerGames, plannedCards);
+      upsertGame(ctx, plan, coGames.get(plan.id), existingProducts, fazerGames);
 
       // Sincronización de Combos para Central One (Blood Strike y Free Fire LATAM)
       const isBS = /blood\s*strike/i.test(plan.familyName);
@@ -2677,35 +2315,6 @@ export async function runCentralOneSync(opts: {
         }
       }
       await ctx.writer.maybeFlush();
-    }
-
-    // --- Sincronización de las 3 Tarjetas de Free Fire en los 4 juegos con Best-Price Routing y Margen Fijo ---
-    for (const card of plannedCards.values()) {
-      const cardId = card.id as string;
-      seenProducts.add(cardId);
-      const current = existingProducts.get(cardId);
-      if (!current) {
-        ctx.writer.set(products().doc(cardId), card, false);
-        ctx.summary.productsCreated += 1;
-      } else {
-        const patch = changedPatch(current, card);
-        if (Object.keys(patch).length > 0) {
-          ctx.writer.set(products().doc(cardId), { ...patch, providerSyncedAt: ctx.timestamp, updatedAt: ctx.timestamp });
-          ctx.summary.productsUpdated += 1;
-        }
-      }
-    }
-
-    for (const obsoleteId of OBSOLETE_FF_CARD_EXTRAS) {
-      const current = existingProducts.get(obsoleteId);
-      if (current && (current.active !== false || current.providerRemoved !== true)) {
-        ctx.writer.set(products().doc(obsoleteId), {
-          active: false,
-          adminDisabled: true,
-          providerRemoved: true,
-          updatedAt: ctx.timestamp,
-        });
-      }
     }
 
     // Ítems inactivos en Central One que ya se vendían: se apagan.
