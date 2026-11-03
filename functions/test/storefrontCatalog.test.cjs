@@ -211,20 +211,36 @@ test('resolvePlayerFields: los juegos de Central One conservan sus campos del pr
 // Compra y validación
 // ---------------------------------------------------------------------------
 
-test('maxOrderQuantity: sólo pases y subidas de nivel no repetibles se limitan a 1; paquetes regulares y gift cards sin tope', () => {
+test('maxOrderQuantity: sólo pases y subidas de nivel no repetibles se limitan a 1; paquetes regulares, monedas y tarjetas sin tope', () => {
   const coTopup = game({ id: 'co-topup-x', provider: 'centralone', providerFamily: 'topup' });
   const coGift = game({ id: 'co-gift_card-x', provider: 'centralone', providerFamily: 'gift_card' });
   const inefableFf = game({ id: 'free-fire', provider: 'inefable' });
-  // Paquetes regulares admiten múltiples unidades para permitir compras compuestas (ej: 2 de 110)
+  const bloodStrike = game({ id: 'blood-strike', provider: 'centralone', providerFamily: 'topup' });
+
+  // Paquetes regulares y monedas admiten múltiples unidades (ej: 2 de 110 diamantes o 100 gold)
+  assert.equal(catalog.maxOrderQuantity(product({ id: 'ff-d-110', name: '100 + 10 Diamantes', kind: 'package' }), inefableFf), null);
+  assert.equal(catalog.maxOrderQuantity(product({ id: 'bs-g-105', name: '100 + 5 Gold', kind: 'package' }), bloodStrike), null);
   assert.equal(catalog.maxOrderQuantity(product({ provider: 'centralone' }), coTopup), null);
   assert.equal(catalog.maxOrderQuantity(product({}), coTopup), null);
   assert.equal(catalog.maxOrderQuantity(product({ provider: 'centralone' }), coGift), null);
   assert.equal(catalog.maxOrderQuantity(product({ provider: 'centralone' }), inefableFf), null);
   assert.equal(catalog.maxOrderQuantity(product({ provider: 'centralone', centralOneExtra: true }), inefableFf), null);
-  assert.equal(catalog.maxOrderQuantity(product({}), inefableFf), null);
-  // Subidas de nivel no repetibles se limitan a 1 por orden
+
+  // Tarjetas semanales y mensuales son acumulables y NO se limitan a 1
+  assert.equal(catalog.maxOrderQuantity(product({ id: 'ff-m-tarjeta-semanal', name: 'Tarjeta Semanal', kind: 'special' }), inefableFf), null);
+  assert.equal(catalog.maxOrderQuantity(product({ id: 'ff-m-tarjeta-mensual', name: 'Tarjeta Mensual', kind: 'special' }), inefableFf), null);
+  assert.equal(catalog.maxOrderQuantity(product({ id: 'co-topup-ff--tarjeta-s', name: 'Tarjeta S. Básica', kind: 'special' }), coTopup), null);
+
+  // Pases de temporada únicos (ej. Pase Booyah Premium, Pase Premium de Blood Strike): exactamente 1 por orden
+  assert.equal(catalog.maxOrderQuantity(product({ id: 'ff-m-pase-booyah', name: 'Pase Booyah Premium', kind: 'special' }), inefableFf), 1);
+  assert.equal(catalog.maxOrderQuantity(product({ id: 'co-ff--pase-booyah', name: 'Pase Booyah', kind: 'special' }), coTopup), 1);
+  assert.equal(catalog.maxOrderQuantity(product({ id: 'bs-m-pase-premium', name: 'Pase Premium', kind: 'special' }), bloodStrike), 1);
+  assert.equal(catalog.maxOrderQuantity(product({ id: 'bs-m-pase-elite', name: 'Pase Elite', kind: 'special' }), bloodStrike), 1);
+
+  // Subidas de nivel no repetibles: exactamente 1 por orden
   assert.equal(catalog.maxOrderQuantity(product({ kind: 'level_up' }), inefableFf), 1);
   assert.equal(catalog.maxOrderQuantity(product({ kind: 'level_up' }), coTopup), 1);
+  assert.equal(catalog.maxOrderQuantity(product({ id: 'ff-co-nivel-10', name: 'Paquete Subida de Nivel 10', kind: 'level_up' }), inefableFf), 1);
 });
 
 test('pickCentralOneValidationTarget: usa la oferta elegida si sirve; si no, la primera activa del juego', () => {

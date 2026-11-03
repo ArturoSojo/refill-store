@@ -52,6 +52,43 @@ import type { PricePreview, PublicProduct } from '@/types/models';
 
 type Tab = 'auto' | 'manual' | 'level_up';
 
+/**
+ * Determina si un producto es un pase único de temporada o una subida de nivel
+ * no repetible (se limitan a 1 unidad por cuenta/temporada en la UI).
+ * Los paquetes de moneda (diamantes, oro) y las tarjetas semanales/mensuales
+ * permiten elegir hasta 10 unidades.
+ */
+function isNonRepeatablePass(product: { id: string; name?: string; kind?: string } | null | undefined): boolean {
+  if (!product) return false;
+  if (product.kind === 'level_up' || (product.kind as string) === 'pass') {
+    return true;
+  }
+
+  const id = product.id.toLowerCase();
+  const name = (product.name || '').toLowerCase();
+
+  // Las tarjetas semanales y mensuales son acumulables (extienden días de suscripción)
+  if (name.includes('tarjeta') || id.includes('tarjeta')) {
+    return false;
+  }
+  if (name.includes('semanal') || id.includes('semanal') || name.includes('mensual') || id.includes('mensual')) {
+    return false;
+  }
+
+  // Pases únicos por temporada (Pase Booyah, Pase Elite, Pase Premium, Battle Pass, etc.)
+  if (id.includes('booyah') || name.includes('booyah')) {
+    return true;
+  }
+  if (id.includes('pase') || name.includes('pase')) {
+    return true;
+  }
+  if (id.includes('battle-pass') || name.includes('battle pass') || id.includes('battle_pass')) {
+    return true;
+  }
+
+  return false;
+}
+
 export function GamePage() {
   const { slug } = useParams<{ slug: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -151,13 +188,18 @@ export function GamePage() {
   // cuelga de Free Fire) se compran de a una; las gift cards pueden ir varias y
   // los productos de Central One sembrados en juegos de Inefable conservan su
   // tope de siempre.
-  // Las subidas de nivel no repetibles se limitan a 1 unidad por cuenta.
-  // Los paquetes regulares de moneda/diamantes admiten múltiples unidades
-  // (por ejemplo: escoger 2 unidades de 110💎 para recargar 220💎).
-  const maxQuantity =
-    selected?.kind === 'level_up'
-      ? 1
-      : undefined;
+  // Misma regla que catalog.maxOrderQuantity en el servidor:
+  // Los pases de temporada (ej. Pase Booyah) y las subidas de nivel se limitan
+  // a 1 unidad por cuenta (el juego rechaza compras repetidas con not_eligible).
+  // Los paquetes regulares de moneda/diamantes y tarjetas semanales/mensuales
+  // admiten múltiples unidades (ej: escoger 2 unidades de 110💎 para recargar 220💎).
+  const maxQuantity = isNonRepeatablePass(selected) ? 1 : undefined;
+
+  useEffect(() => {
+    if (maxQuantity !== undefined && quantity > maxQuantity) {
+      setQuantity(maxQuantity);
+    }
+  }, [maxQuantity, quantity]);
 
   useDocumentTitle(game ? `Recargar ${game.name}` : 'Recargar');
 

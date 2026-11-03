@@ -428,10 +428,52 @@ export function assertPurchasable(product: Product, game: Game): void {
  * vendían de a varias unidades —cada una sale con su llave y `quantity: 1`—
  * y no deben cambiar con la migración.
  */
+/**
+ * Determina si un producto es un pase único de temporada o una subida de nivel
+ * no repetible (se limitan a 1 unidad por orden porque una segunda unidad al mismo
+ * jugador fallaría en el proveedor con `not_eligible` o cobraría doble).
+ *
+ * Los paquetes de moneda (diamantes, oro) y las tarjetas acumulables
+ * (semanales, mensuales) permiten hasta 10 unidades por orden.
+ */
+export function isNonRepeatablePass(product: {
+  id: string;
+  name?: string;
+  kind?: string;
+}): boolean {
+  if (product.kind === 'level_up' || (product.kind as string) === 'pass') {
+    return true;
+  }
+
+  const id = product.id.toLowerCase();
+  const name = (product.name || '').toLowerCase();
+
+  // Las tarjetas semanales y mensuales son acumulables (extienden días de suscripción)
+  if (name.includes('tarjeta') || id.includes('tarjeta')) {
+    return false;
+  }
+  if (name.includes('semanal') || id.includes('semanal') || name.includes('mensual') || id.includes('mensual')) {
+    return false;
+  }
+
+  // Pases únicos por temporada (Pase Booyah, Pase Elite, Pase Premium, Battle Pass, etc.)
+  if (id.includes('booyah') || name.includes('booyah')) {
+    return true;
+  }
+  if (id.includes('pase') || name.includes('pase')) {
+    return true;
+  }
+  if (id.includes('battle-pass') || name.includes('battle pass') || id.includes('battle_pass')) {
+    return true;
+  }
+
+  return false;
+}
+
 export function maxOrderQuantity(product: Product, game: Game): number | null {
   const family = game.providerFamily ?? 'topup';
   if (family === 'gift_card' || family === 'game_key') return null;
-  if (product.kind === 'level_up') return 1;
+  if (isNonRepeatablePass(product)) return 1;
   return null;
 }
 
