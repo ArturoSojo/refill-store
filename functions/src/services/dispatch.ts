@@ -998,11 +998,23 @@ export async function dispatchOrder(
 
       // El saldo del proveedor: para Central One se consulta su balance directamente si no viene en la respuesta.
       if (callProvider === 'centralone') {
-        void adminAlerts.checkCentralOneBalance({ availableUsd: result.remainingBalance ?? null });
+        try {
+          await adminAlerts.checkCentralOneBalance({
+            availableUsd: result.remainingBalance ?? null,
+            orderCode: order.code,
+            fromDispatch: true,
+          });
+        } catch (err) {
+          log.warn('Fallo al comprobar saldo de Central One tras despacho', {
+            orderCode: order.code,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
       } else {
         void adminAlerts.checkProviderBalance(
           result.remainingBalance ?? null,
-          callProvider === 'fazercards' ? 'FazerCards' : 'Inefable'
+          callProvider === 'fazercards' ? 'FazerCards' : 'Inefable',
+          order.code
         );
       }
 
@@ -2468,6 +2480,15 @@ async function retryCentralOneCall(order: Order, state: CentralOneCallState): Pr
     state.status = 'success';
     state.error = null;
     state.completedAt = now();
+    try {
+      await adminAlerts.checkCentralOneBalance({
+        availableUsd: result.remainingBalance ?? null,
+        orderCode: order.code,
+        fromDispatch: true,
+      });
+    } catch {
+      // Alerta no bloquea el despacho
+    }
   } else if (result.processing) {
     state.status = 'processing';
     state.error = null;

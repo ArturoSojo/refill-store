@@ -222,15 +222,18 @@ export interface CentralOneBalanceCheckOptions {
   heldUsd?: number | null;
   thresholdUsd?: number;
   forceAlert?: boolean;
+  orderCode?: string;
+  fromDispatch?: boolean;
 }
 
 /**
- * Avisa por Telegram al equipo si el saldo disponible de Central One baja de $35.00 USD.
+ * Avisa por Telegram al equipo si el saldo disponible de Central One está por debajo de $35.00 USD.
  *
  * Se ejecuta automáticamente tras cada despacho de Central One y con webhooks `balance.low`.
- * Implementa control anti-spam / cooldown en Firestore (`privateConfig/centralOne`):
- *  - Si `available < 35` y no se había alertado en este ciclo: envía la alerta a Telegram y marca `lowBalanceAlerted: true`.
- *  - Si `available < 35` pero ya se había alertado: no envía spam repetido.
+ * Si se despacha una recarga y el saldo queda por debajo de $35 USD, avisa en cada despacho
+ * (ej. si baja a $34 avisa, luego a $29 vuelve a avisar, y así sucesivamente).
+ *
+ *  - Si `available < 35`: envía la alerta a Telegram tras cada despacho o descenso de saldo.
  *  - Si `available >= 35`: rearma el estado (`lowBalanceAlerted: false`) para alertar cuando vuelva a bajar.
  */
 export async function checkCentralOneBalance(
@@ -267,11 +270,23 @@ export async function checkCentralOneBalance(
     const snap = await docRef.get();
     const data = snap.exists ? snap.data() : null;
     const wasAlerted = Boolean(data?.lowBalanceAlerted);
+    const lastAlertedBalance =
+      typeof data?.lowBalanceAvailableUsd === 'number' ? (data.lowBalanceAvailableUsd as number) : null;
 
     if (availableUsd < threshold) {
-      if (wasAlerted && !options.forceAlert) {
+      // Avisa si:
+      // 1) Es la primera vez que baja del umbral (!wasAlerted).
+      // 2) Proviene de un despacho de recarga (options.fromDispatch).
+      // 3) Se solicita forzar la alerta (options.forceAlert).
+      // 4) El saldo disponible bajó aún más respecto a la última alerta registrada (isBalanceDrop).
+      const isBalanceDrop = lastAlertedBalance !== null && availableUsd < lastAlertedBalance;
+      const shouldAlert = !wasAlerted || options.fromDispatch || options.forceAlert || isBalanceDrop;
+
+      if (!shouldAlert) {
         return { alertSent: false, rearmed: false, availableUsd, heldUsd, threshold };
       }
+
+      const orderLine = options.orderCode ? `• Tras recarga: <b>Orden ${options.orderCode}</b>\n` : '';
 
       await alert({
         kind: 'low_balance',
@@ -282,14 +297,17 @@ export async function checkCentralOneBalance(
           `• Proveedor: <b>Central One</b>\n` +
           `• Saldo disponible: <b>${availableUsd.toFixed(2)} USD</b>\n` +
           `• Saldo retenido: <b>${heldUsd.toFixed(2)} USD</b>\n` +
-          `• Umbral de alerta: <b>${threshold.toFixed(2)} USD</b>\n\n` +
-          `Por favor recarga la cuenta mayorista en Central One para evitar interrupciones en las recargas automáticas.`,
+          `• Umbral de alerta: <b>${threshold.toFixed(2)} USD</b>\n` +
+          orderLine +
+          `\nPor favor recarga la cuenta mayorista en Central One para evitar interrupciones en las recargas automáticas.`,
         link: '/admin',
         data: {
           provider: 'centralone',
           availableBalance: availableUsd,
           heldBalance: heldUsd,
           threshold,
+          orderCode: options.orderCode ?? null,
+          fromDispatch: Boolean(options.fromDispatch),
         },
       });
 
@@ -299,6 +317,7 @@ export async function checkCentralOneBalance(
           lowBalanceAlertedAt: now(),
           lowBalanceAvailableUsd: availableUsd,
           lowBalanceHeldUsd: heldUsd,
+          lastAlertOrderCode: options.orderCode ?? null,
         },
         { merge: true }
       );
@@ -336,11 +355,12 @@ export async function checkCentralOneBalance(
  */
 export async function checkProviderBalance(
   remainingBalance: number | null,
-  providerName = 'Inefable'
+  providerName = 'Inefable',
+  orderCode?: string
 ): Promise<void> {
   const norm = providerName.trim().toLowerCase();
   if (norm === 'central one' || norm === 'centralone') {
-    await checkCentralOneBalance({ availableUsd: remainingBalance });
+    await checkCentralOneBalance({ availableUsd: remainingBalance, orderCode, fromDispatch: true });
     return;
   }
 
