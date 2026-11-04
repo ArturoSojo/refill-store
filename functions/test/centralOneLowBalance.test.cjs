@@ -27,13 +27,40 @@ const memoryDoc = {
   },
 };
 
-// Override privateCentralOneConfigDoc to point to memoryDoc
-const origPrivateCentralOneConfigDoc = firebaseConfig.privateCentralOneConfigDoc;
+// In-memory adminAlerts collection mock to prevent tests from writing to production Firestore
+const memoryAlerts = [];
+const mockAlertsCollection = {
+  async add(doc) {
+    memoryAlerts.push(doc);
+    return { id: `mock-alert-${memoryAlerts.length}` };
+  },
+  doc() {
+    return {
+      async set() { return {}; },
+      async get() { return { exists: false, data: () => ({}) }; },
+    };
+  },
+  where() {
+    return {
+      count: () => ({ async get() { return { data: () => ({ count: memoryAlerts.length }) }; } }),
+      async get() {
+        return {
+          size: memoryAlerts.length,
+          docs: memoryAlerts.map((d, i) => ({ id: `mock-${i}`, data: () => d })),
+        };
+      },
+    };
+  },
+};
+
+// Override configs to point to memory
 firebaseConfig.privateCentralOneConfigDoc = () => memoryDoc;
+firebaseConfig.adminAlerts = () => mockAlertsCollection;
 
 test('Central One Low Balance Alert tras cada despacho (Umbral < $35.00 USD)', async (t) => {
   // Reset memory
   memoryDoc.data = {};
+  memoryAlerts.length = 0;
 
   // 1. Cuando se despacha y available_balance baja a 34.00 (< 35), se dispara la alerta a Telegram
   const result1 = await adminAlerts.checkCentralOneBalance({
@@ -115,4 +142,7 @@ test('Central One Low Balance Alert tras cada despacho (Umbral < $35.00 USD)', a
   await adminAlerts.checkProviderBalance(30.00, 'Central One', 'RF-DESP05');
   assert.equal(memoryDoc.data.lowBalanceAlerted, true, 'checkProviderBalance debe haber delegado a Central One');
   assert.equal(memoryDoc.data.lowBalanceAvailableUsd, 30.00);
+
+  // Verificar que las alertas se acumularon en memoria y no en Firestore
+  assert.equal(memoryAlerts.length, 5, 'Deben haberse generado 5 alertas en el mock en memoria');
 });
