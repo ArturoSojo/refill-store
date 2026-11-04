@@ -624,3 +624,72 @@ test('6) Combos: si el paquete #1 falla y el bot solo envía 1 suborden, el paqu
   assert.equal(updatedOrder.dispatch.calls[1].status, 'pending');
   assert.equal(updatedOrder.dispatch.calls[1].attempts, 0);
 });
+
+test('7) WhatsApp manual / zero-cost order asigna 20% ganancia neta fija y 80% costo proveedor (ej. Roblox 80 Robux)', async () => {
+  store.clear();
+
+  const robuxPayload = {
+    referencia: '1989697542',
+    code: 'WA-697542',
+    canal: 'WHATSAPP',
+    clienteContacto: '+584225155102',
+    juego: 'Roblox',
+    paqueteNombre: '80 Robux',
+    playerId: 'the_snov',
+    montoBs: 1218,
+    tasaBcv: 974.4,
+    montoUsd: 1.25,
+    costoProveedorUsd: 0,
+    tipoDespacho: 'MANUAL',
+    estado: 'COMPLETADO',
+    subOrdenes: [],
+  };
+
+  await syncWhatsappOrder(robuxPayload);
+
+  const order = (await mockDb.collection('orders').doc('wa_1989697542').get()).data();
+  assert.equal(order.status, 'completed');
+  assert.equal(order.montoUsd, 1.25);
+  assert.equal(order.gananciaNetaUsd, 0.25, 'Debe tener 20% de ganancia neta ($0.25)');
+  assert.equal(order.costoProveedorUsd, 1.0, 'Debe tener 80% de costo ($1.00)');
+  assert.equal(order.pricing.profitUsd, 0.25);
+  assert.equal(order.pricing.costUsd, 1.0);
+});
+
+test('8) WhatsApp manual Roblox/TikTok usa costo de tabla oficial (no el 20% fijo)', async () => {
+  const cases = [
+    { ref: '2000000001', juego: 'Roblox', paquete: '80 Robux', montoUsd: 1.28, costo: 1.0, ganancia: 0.28 },
+    { ref: '2000000002', juego: 'Roblox', paquete: '40 Robux', montoUsd: 0.73, costo: 0.5, ganancia: 0.23 },
+    { ref: '2000000003', juego: 'Roblox', paquete: 'Plus 1000', montoUsd: 16.83, costo: 12.99, ganancia: 3.84 },
+    { ref: '2000000004', juego: 'Roblox', paquete: 'Plus 500', montoUsd: 11.22, costo: 8.99, ganancia: 2.23 },
+    { ref: '2000000005', juego: 'Roblox', paquete: 'Roblox Plus', montoUsd: 6.12, costo: 4.99, ganancia: 1.13 },
+    { ref: '2000000006', juego: 'Tik Tok', paquete: '700 monedas', montoUsd: 9.28, costo: 7.28, ganancia: 2.0 },
+    { ref: '2000000007', juego: 'Otro Juego', paquete: 'Paquete X', montoUsd: 10, costo: 8, ganancia: 2 },
+  ];
+  for (const c of cases) {
+    store.clear();
+    await syncWhatsappOrder({
+      referencia: c.ref,
+      code: 'WA-' + c.ref.slice(-6),
+      canal: 'WHATSAPP',
+      clienteContacto: '+584225155102',
+      juego: c.juego,
+      paqueteNombre: c.paquete,
+      playerId: 'tester',
+      montoBs: round2(c.montoUsd * 970),
+      tasaBcv: 970,
+      montoUsd: c.montoUsd,
+      costoProveedorUsd: 0,
+      tipoDespacho: 'MANUAL',
+      estado: 'COMPLETADO',
+      subOrdenes: [],
+    });
+    const order = (await mockDb.collection('orders').doc('wa_' + c.ref).get()).data();
+    assert.equal(order.costoProveedorUsd, c.costo, c.paquete + ' costo');
+    assert.equal(order.gananciaNetaUsd, c.ganancia, c.paquete + ' ganancia');
+  }
+});
+
+function round2(n) {
+  return Math.round(n * 100) / 100;
+}

@@ -29,6 +29,7 @@ import { failedPrecondition, invalidArgument, unauthenticated } from '../lib/err
 import { normalizeReference, slugify } from '../lib/ids';
 import { log } from '../lib/logger';
 import { round } from '../lib/money';
+import { resolveManualCatalogCost } from './manualCatalogCosts';
 import * as tiers from '../lib/tiers';
 import * as stats from './stats';
 import { activeLadder } from './users';
@@ -492,13 +493,46 @@ export async function syncWhatsappOrder(rawInput: unknown): Promise<SyncWhatsapp
       }
     }
 
-    const finalCostoProveedorUsd = round(
-      costoProveedorUsd > 0
-        ? costoProveedorUsd
-        : (existing?.costoProveedorUsd ?? costoProveedorUsd),
-      4
+    const subOrdenesTotalCosto = mergedSubOrdenes.reduce(
+      (sum, s) => sum + (typeof s.costo === 'number' && Number.isFinite(s.costo) ? s.costo : 0),
+      0
     );
-    const finalGananciaNetaUsd = round(montoUsd - finalCostoProveedorUsd, 4);
+
+    let finalCostoProveedorUsd = 0;
+    let finalGananciaNetaUsd = 0;
+    const manualCatalog = resolveManualCatalogCost({
+      juego: input.juego,
+      paqueteNombre: input.paqueteNombre,
+      montoUsd,
+    });
+
+    if (costoProveedorUsd > 0) {
+      finalCostoProveedorUsd = round(costoProveedorUsd, 4);
+      finalGananciaNetaUsd = round(montoUsd - finalCostoProveedorUsd, 4);
+    } else if (subOrdenesTotalCosto > 0) {
+      finalCostoProveedorUsd = round(subOrdenesTotalCosto, 4);
+      finalGananciaNetaUsd = round(montoUsd - finalCostoProveedorUsd, 4);
+    } else if (typeof existing?.costoProveedorUsd === 'number' && existing.costoProveedorUsd > 0) {
+      finalCostoProveedorUsd = round(existing.costoProveedorUsd, 4);
+      finalGananciaNetaUsd = round(montoUsd - finalCostoProveedorUsd, 4);
+    } else if (
+      typeof input.gananciaNetaUsd === 'number' &&
+      input.gananciaNetaUsd > 0 &&
+      input.gananciaNetaUsd < montoUsd
+    ) {
+      finalGananciaNetaUsd = round(input.gananciaNetaUsd, 4);
+      finalCostoProveedorUsd = round(montoUsd - finalGananciaNetaUsd, 4);
+    } else if (manualCatalog) {
+      // Costo real de tabla (Roblox / TikTok) cuando no hay costo de API.
+      finalCostoProveedorUsd = round(manualCatalog.costUsd, 4);
+      finalGananciaNetaUsd = round(montoUsd - finalCostoProveedorUsd, 4);
+    } else {
+      // Regla de ganancia neta fija de 20% para WhatsApp cuando no hay costo de API registrado
+      // (ej. recargas manuales, Roblox, TikTok, pases de batalla):
+      // Ganancia = 20% de montoUsd, Costo = 80% de montoUsd.
+      finalGananciaNetaUsd = round(montoUsd * 0.20, 4);
+      finalCostoProveedorUsd = round(montoUsd - finalGananciaNetaUsd, 4);
+    }
 
     const providerError =
       nextStatus === 'completed'
