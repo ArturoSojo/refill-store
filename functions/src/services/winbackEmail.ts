@@ -175,7 +175,7 @@ export async function runWinbackEmails(): Promise<WinbackResult> {
       } else {
         result.failed += 1;
         // Sin credenciales o con el correo apagado, insistir con el resto es inútil.
-        if (sent.reason?.includes('GMAIL_APP_PASSWORD') || sent.reason?.includes('desactivado')) break;
+        if (sent.reason?.includes('RESEND_API_KEY') || sent.reason?.includes('GMAIL_APP_PASSWORD') || sent.reason?.includes('desactivado')) break;
       }
     }
 

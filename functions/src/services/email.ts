@@ -1,22 +1,14 @@
 /**
- * Envío de correo al cliente.
- *
- * Sale por el SMTP de la propia cuenta de Gmail de la tienda. Con esta escala
- * —el día más movido fueron 21 órdenes— el tope de 500 correos diarios de Gmail
- * sobra, y es la única forma de tener buena entrega sin dominio propio: el
- * correo se origina de verdad en Google, con su firma DKIM. Un tercero enviando
- * «en nombre de» una dirección `@gmail.com` rompe la alineación DMARC y acaba
- * en Spam.
+ * Envío de correo al cliente vía Resend SMTP (`smtp.resend.com`).
  *
  * Todo el trato con `nodemailer` vive AQUÍ. El resto del código llama a `send()`
- * y no sabe por dónde sale; cuando haya dominio propio y convenga pasar a Brevo
- * o Resend, se cambia este archivo y nada más.
+ * y no sabe por dónde sale.
  *
  * Ninguna función lanza: que un correo no salga no puede tumbar una compra que
  * por lo demás terminó bien.
  */
 import nodemailer, { type Transporter } from 'nodemailer';
-import { GMAIL_APP_PASSWORD } from '../config/env';
+import { RESEND_API_KEY } from '../config/env';
 import { log } from '../lib/logger';
 import { getConfig } from './settings';
 import type { AppConfig } from '../types/models';
@@ -27,7 +19,7 @@ export interface EmailMessage {
   html: string;
   /** Versión en texto plano. Su ausencia penaliza en los filtros de spam. */
   text: string;
-  /** Dirección a la que llegan las respuestas (ej. ventas@recargasrefillstore.com o soporte@recargasrefillstore.com) */
+  /** Dirección a la que llegan las respuestas (por defecto soporte@recargasrefillstore.com). */
   replyTo?: string;
 }
 
@@ -37,33 +29,40 @@ export interface EmailMessage {
  * Crear uno por correo abriría una conexión TLS nueva cada vez; reutilizarlo
  * aprovecha que las instancias de Cloud Functions se reciclan.
  */
-let cached: { transporter: Transporter; user: string } | null = null;
+let cached: { transporter: Transporter; pass: string } | null = null;
 
-const DEFAULT_SMTP_USER = 'soporterefillstore@gmail.com';
-const DEFAULT_REPLY_TO = 'ventas@recargasrefillstore.com';
+const DEFAULT_FROM = 'Refill Store <ventas@recargasrefillstore.com>';
+const DEFAULT_REPLY_TO = 'soporte@recargasrefillstore.com';
 
-function getTransporter(user: string): Transporter | null {
-  const pass = GMAIL_APP_PASSWORD.value();
+function getResendApiKey(): string {
+  try {
+    const val = RESEND_API_KEY.value();
+    if (val && val.trim().length > 0) return val.trim();
+  } catch {
+    // Fallback a process.env en caso de entorno local
+  }
+  return (process.env.RESEND_API_KEY ?? '').trim();
+}
+
+function getTransporter(): Transporter | null {
+  const pass = getResendApiKey();
   if (!pass) return null;
 
-  // Gmail SMTP directo exige autenticar con la cuenta real de Gmail
-  const smtpUser = user && user.toLowerCase().endsWith('@gmail.com') ? user : DEFAULT_SMTP_USER;
-
-  if (cached && cached.user === smtpUser) return cached.transporter;
+  if (cached && cached.pass === pass) return cached.transporter;
 
   const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
+    host: 'smtp.resend.com',
     port: 465,
     secure: true,
-    auth: { user: smtpUser, pass },
+    auth: { user: 'resend', pass },
   });
 
-  cached = { transporter, user: smtpUser };
+  cached = { transporter, pass };
   return transporter;
 }
 
 export function isEmailConfigured(): boolean {
-  return Boolean(GMAIL_APP_PASSWORD.value());
+  return Boolean(getResendApiKey());
 }
 
 export interface SendResult {
@@ -89,17 +88,13 @@ export async function send(
   }
   if (!message.to) return { sent: false, reason: 'el destinatario no tiene correo' };
 
-  const from = config.email?.fromAddress && config.email.fromAddress.toLowerCase().endsWith('@gmail.com')
-    ? config.email.fromAddress
-    : DEFAULT_SMTP_USER;
-  const replyTo = message.replyTo || config.email?.replyTo || DEFAULT_REPLY_TO;
-  const transporter = getTransporter(from);
-  if (!transporter) return { sent: false, reason: 'falta GMAIL_APP_PASSWORD o el remitente' };
+  const transporter = getTransporter();
+  if (!transporter) return { sent: false, reason: 'falta RESEND_API_KEY' };
 
   try {
     await transporter.sendMail({
-      from: `"${config.email.fromName || config.storeName || 'Refill Store'}" <${from}>`,
-      replyTo,
+      from: DEFAULT_FROM,
+      replyTo: DEFAULT_REPLY_TO,
       to: message.to,
       subject: message.subject,
       text: message.text,
@@ -133,16 +128,12 @@ function maskEmail(email: string): string {
   return `${user.slice(0, 2)}***@${domain}`;
 }
 
-/** Comprueba que Gmail acepte las credenciales, para el panel. */
+/** Comprueba que Resend acepte las credenciales, para el panel. */
 export async function verifyConnection(): Promise<{ ok: boolean; message: string | null }> {
-  const config = await getConfig();
-  const from = config.email?.fromAddress && config.email.fromAddress.toLowerCase().endsWith('@gmail.com')
-    ? config.email.fromAddress
-    : DEFAULT_SMTP_USER;
-  const transporter = getTransporter(from);
+  const transporter = getTransporter();
 
   if (!transporter) {
-    return { ok: false, message: 'Falta el secreto GMAIL_APP_PASSWORD o la cuenta remitente.' };
+    return { ok: false, message: 'Falta el secreto RESEND_API_KEY.' };
   }
 
   try {
@@ -154,8 +145,8 @@ export async function verifyConnection(): Promise<{ ok: boolean; message: string
       ok: false,
       message:
         error instanceof Error
-          ? `Gmail rechazó la conexión: ${error.message}`
-          : 'Gmail rechazó la conexión.',
+          ? `Resend rechazó la conexión: ${error.message}`
+          : 'Resend rechazó la conexión.',
     };
   }
 }

@@ -21,6 +21,7 @@ import {
   INEFABLE_API_KEY,
   PABILO_API_KEY,
   REGION,
+  RESEND_API_KEY,
   TELEGRAM_BOT_TOKEN,
 } from './config/env';
 import { createApp } from './app';
@@ -94,6 +95,7 @@ export const refundReviewOrders = onSchedule(
       FAZERCARDS_API_KEY,
       CENTRAL_ONE_API_KEY,
       TELEGRAM_BOT_TOKEN,
+      RESEND_API_KEY,
       GMAIL_APP_PASSWORD,
     ],
   },
@@ -115,7 +117,7 @@ export const sendWinbackEmails = onSchedule(
     schedule: 'every day 11:00',
     timeZone: STORE_TIMEZONE,
     timeoutSeconds: 300,
-    secrets: [GMAIL_APP_PASSWORD],
+    secrets: [RESEND_API_KEY, GMAIL_APP_PASSWORD],
   },
   async () => {
     await runWinbackEmails();
@@ -141,6 +143,7 @@ export const resolveDispatches = onSchedule(
       FAZERCARDS_API_KEY,
       CENTRAL_ONE_API_KEY,
       TELEGRAM_BOT_TOKEN,
+      RESEND_API_KEY,
       GMAIL_APP_PASSWORD,
     ],
   },

@@ -701,7 +701,7 @@ export function AdminSettings() {
       <Card>
         <CardHeader
           title="Correos al cliente"
-          description="Comprobante de cada compra, enviado desde el Gmail de la tienda"
+          description="Comprobante de cada compra, enviado mediante Resend SMTP (recargasrefillstore.com)"
           icon={<Mail className="h-4 w-4" aria-hidden />}
           action={
             <div className="flex items-center gap-2">
@@ -763,11 +763,11 @@ export function AdminSettings() {
 
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <Input
-            label="Cuenta que envía (Gmail SMTP)"
+            label="Cuenta que envía (From)"
             defaultValue={config.email?.fromAddress ?? ''}
             onChange={(event) => patch('email', { fromAddress: event.target.value.trim() })}
-            placeholder="Soporterefillstore@gmail.com"
-            hint="Cuenta Gmail emisora directa. Su contraseña de aplicación va en GMAIL_APP_PASSWORD."
+            placeholder="ventas@recargasrefillstore.com"
+            hint="Remitente vía Resend SMTP (smtp.resend.com). Su API Key va en RESEND_API_KEY."
             disabled={!isAdmin}
           />
           <Input
@@ -779,11 +779,11 @@ export function AdminSettings() {
             disabled={!isAdmin}
           />
           <Input
-            label="Responder a facturas (Reply-To)"
+            label="Responder a (Reply-To)"
             defaultValue={config.email?.replyTo ?? ''}
             onChange={(event) => patch('email', { replyTo: event.target.value.trim() })}
-            placeholder="ventas@recargasrefillstore.com"
-            hint="A dónde llegan las respuestas a facturas y compras (ventas@recargasrefillstore.com)."
+            placeholder="soporte@recargasrefillstore.com"
+            hint="A dónde llegan las respuestas y reclamos del cliente (soporte@recargasrefillstore.com)."
             disabled={!isAdmin}
             containerClassName="sm:col-span-2"
           />

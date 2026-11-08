@@ -72,11 +72,14 @@ export const TELEGRAM_BOT_TOKEN = defineSecret('TELEGRAM_BOT_TOKEN');
 export const TELEGRAM_SUPPORT_BOT_TOKEN = defineSecret('TELEGRAM_SUPPORT_BOT_TOKEN');
 
 /**
- * Contraseña de aplicación de Gmail para enviar los correos al cliente.
+ * API Key de Resend para enviar correos transaccionales vía SMTP (`smtp.resend.com`).
  *
- * No es la contraseña de la cuenta: se genera aparte en la seguridad de Google
- * y exige verificación en dos pasos. La cuenta remitente se configura en el
- * panel (`email.fromAddress`).
+ *   firebase functions:secrets:set RESEND_API_KEY
+ */
+export const RESEND_API_KEY = defineSecret('RESEND_API_KEY');
+
+/**
+ * Contraseña de aplicación de Gmail (legado).
  *
  *   firebase functions:secrets:set GMAIL_APP_PASSWORD
  */
@@ -120,6 +123,7 @@ export const API_SECRETS = [
   CENTRAL_ONE_WEBHOOK_SECRET,
   SETUP_TOKEN,
   TELEGRAM_BOT_TOKEN,
+  RESEND_API_KEY,
   GMAIL_APP_PASSWORD,
   INEFABLE_WEBHOOK_SECRET,
   INEFABLE_WEBHOOK_TOKEN,

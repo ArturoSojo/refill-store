@@ -4,7 +4,7 @@ import { getConfig } from './settings';
 import { send } from './email';
 
 const MAIN_ORIGIN = 'https://recargasrefillstore.com';
-const SALES_EMAIL = 'ventas@recargasrefillstore.com';
+const SUPPORT_EMAIL = 'soporte@recargasrefillstore.com';
 
 function escapeHtml(value: string): string {
   return value
@@ -18,7 +18,7 @@ function escapeHtml(value: string): string {
 function render(email: string, name: string | null | undefined, config: AppConfig) {
   const brand = escapeHtml(config.storeName || 'Refill Store');
   const safeName = escapeHtml(name?.trim() || 'Jugador');
-  const safeSales = escapeHtml(SALES_EMAIL);
+  const safeSupport = escapeHtml(SUPPORT_EMAIL);
   const subject = `¡Te damos la bienvenida a ${config.storeName || 'Refill Store'}!`;
 
   const text = [
@@ -34,7 +34,7 @@ function render(email: string, name: string | null | undefined, config: AppConfi
     'Entra a la tienda y haz tu primera recarga:',
     MAIN_ORIGIN,
     '',
-    `Si tienes alguna duda o necesitas ayuda, escríbenos a ${SALES_EMAIL}.`,
+    `Si tienes alguna duda o necesitas ayuda, escríbenos a ${SUPPORT_EMAIL}.`,
     '',
     `Equipo de ${config.storeName || 'Refill Store'}`,
   ].join('\n');
@@ -73,7 +73,7 @@ function render(email: string, name: string | null | undefined, config: AppConfi
           </table>
 
           <p style="margin:32px 0;text-align:center"><a href="${MAIN_ORIGIN}" style="display:inline-block;padding:14px 32px;border-radius:8px;background:#e2373b;color:#fff;text-decoration:none;font-weight:600;font-size:16px">Empezar a recargar</a></p>
-          <p style="font-size:13px;line-height:1.6;color:#9ca3af">Si necesitas ayuda con alguna orden o tienes preguntas sobre cómo recargar, puedes escribirnos a <a href="mailto:${safeSales}" style="color:#ef4444">${safeSales}</a>.</p>
+          <p style="font-size:13px;line-height:1.6;color:#9ca3af">Si necesitas ayuda con alguna orden o tienes preguntas sobre cómo recargar, puedes escribirnos a <a href="mailto:${safeSupport}" style="color:#ef4444">${safeSupport}</a>.</p>
         </td></tr>
         <tr><td style="padding:20px 28px;background:#111827;text-align:center;border-top:1px solid #374151">
           <p style="margin:0;font-size:12px;color:#9ca3af">Refill Store · Plataforma de recargas automáticas</p>
@@ -97,7 +97,7 @@ export async function sendWelcomeEmail(email: string, name?: string | null): Pro
     if (config.email?.enabled === false) return;
 
     const rendered = render(email, name, config);
-    const result = await send({ to: email, ...rendered, replyTo: SALES_EMAIL });
+    const result = await send({ to: email, ...rendered, replyTo: SUPPORT_EMAIL });
     if (!result.sent) {
       log.warn('No se pudo entregar correo de bienvenida', { email, reason: result.reason });
     } else {
