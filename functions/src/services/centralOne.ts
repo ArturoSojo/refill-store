@@ -503,11 +503,21 @@ export function buildTargetPayloadFromFields(
   fallback: { playerId?: string | null; playerId2?: string | null }
 ): Record<string, string> {
   const payload: Record<string, string> = {};
+  const isIdKey = (k: string) => k === 'player_id' || k === 'game_user_id' || k === 'user_id';
+
   targetFields.forEach((key, index) => {
-    const own = values?.[key];
-    const fromFallback =
-      index === 0 ? fallback.playerId : index === 1 ? fallback.playerId2 : null;
-    const raw = own !== undefined && own !== null && String(own).trim() !== '' ? own : fromFallback;
+    let raw: string | null | undefined = values?.[key];
+    if (raw === undefined || raw === null || String(raw).trim() === '') {
+      if (isIdKey(key)) {
+        raw = fallback.playerId ?? values?.game_user_id ?? values?.player_id ?? values?.playerId ?? null;
+      } else if (index === 0) {
+        raw = fallback.playerId;
+      } else if (index === 1) {
+        raw = fallback.playerId2;
+      } else {
+        raw = null;
+      }
+    }
     const value = raw === undefined || raw === null ? '' : String(raw).trim();
     if (value) payload[key] = value;
   });

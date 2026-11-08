@@ -475,7 +475,7 @@ export function GamePage() {
               2
             </span>
             {fields.length > 1
-              ? `${fields.map((field) => field.label).join(' + ')}`
+              ? `${Array.from(new Set(fields.map((field) => field.label.trim()))).join(' + ')}`
               : primaryField.label}
           </h2>
 

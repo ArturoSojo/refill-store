@@ -174,7 +174,24 @@ export async function syncFazerCatalog(input: {
         return;
       }
       const meta = familyMeta(family);
-      const playerFields = family === 'topup' ? fieldsFromProvider(detail.fields) : [];
+      const isBs = id.includes('blood-strike') || (category.name || '').toLowerCase().includes('blood strike');
+      const playerFields = family === 'topup'
+        ? isBs
+          ? [
+              {
+                key: 'player_id',
+                label: 'ID de jugador',
+                pattern: '^\\d{1,30}$',
+                help: 'El ID de Blood Strike tiene entre 8 y 12 dígitos, sólo números.',
+                placeholder: 'Ej: 3363122817',
+                type: 'text',
+                providerField: 'player_id',
+                required: true,
+                sensitive: false,
+              },
+            ]
+          : fieldsFromProvider(detail.fields)
+        : [];
       const minPriceUsd = Math.min(
         ...detail.offers.map((offer) => applyMargin(offer.priceUsd, config.pricing.defaultMarginPercent, config.pricing.roundToUsd))
       );

@@ -22,18 +22,55 @@ export function gameFields(game: Game | null | undefined): PlayerField[] {
   if (!game) return [DEFAULT_PLAYER_FIELD];
 
   const declared = Array.isArray(game.playerFields) ? game.playerFields : [];
+
+  const isBs =
+    game.id === 'blood-strike' ||
+    game.id?.includes('blood-strike') ||
+    game.id?.includes('bloodstrike') ||
+    game.name?.toLowerCase().includes('blood strike') ||
+    game.shortName?.toLowerCase().includes('blood strike');
+
+  if (isBs) {
+    const first = declared[0];
+    return [
+      {
+        key: first?.key || 'game_user_id',
+        label: first?.label || 'ID de jugador',
+        pattern: first?.pattern || '^\\d{1,30}$',
+        help: first?.help || 'El ID de Blood Strike tiene entre 8 y 12 dígitos, sólo números.',
+        placeholder: first?.placeholder || 'Ej: 3363122817',
+        type: 'text',
+        providerField: 'player_id',
+        required: true,
+        sensitive: false,
+      },
+    ];
+  }
+
+  // Deduplicar campos si vienen dos campos con la misma etiqueta de ID de jugador
+  // para evitar renderizar un segundo input duplicado con MapPin
+  const seenId = new Set<string>();
+  const sanitizedDeclared: PlayerField[] = [];
+  for (const f of declared) {
+    const norm = (f.label || '').trim().toLowerCase();
+    const isIdLabel = norm.includes('id de jugador') || norm === 'player id';
+    if (isIdLabel && seenId.has('id')) continue;
+    if (isIdLabel) seenId.add('id');
+    sanitizedDeclared.push(f);
+  }
+
   // Los juegos de Central One traen sus campos de `target_schema` (claves,
   // etiquetas y listas de servidores reales): forzar aquí el par User ID /
   // Zone ID de MLBB los pisaría con claves que el proveedor no pide.
   const validation =
-    game.provider === 'centralone' && declared.length > 0 ? null : resolveFazerValidationCategory(game);
+    game.provider === 'centralone' && sanitizedDeclared.length > 0 ? null : resolveFazerValidationCategory(game);
   if (
     validation?.categoryId === 'mobile_legends' ||
     validation?.categoryId === 'magic_chess_gogo_global' ||
     validation?.categoryId === 'magic_chess_gogo_ru'
   ) {
-    const first = declared[0];
-    const second = declared[1];
+    const first = sanitizedDeclared[0];
+    const second = sanitizedDeclared[1];
     return [
       {
         key: first?.key || 'player_id',
@@ -57,11 +94,11 @@ export function gameFields(game: Game | null | undefined): PlayerField[] {
         required: true,
         sensitive: false,
       },
-      ...declared.slice(2),
+      ...sanitizedDeclared.slice(2),
     ];
   }
 
-  if (declared.length > 0) return declared;
+  if (sanitizedDeclared.length > 0) return sanitizedDeclared;
 
   return [
     {

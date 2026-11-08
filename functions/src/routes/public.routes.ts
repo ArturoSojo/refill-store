@@ -484,6 +484,7 @@ publicRouter.post(
     const playerId = (
       body.playerId ||
       rawFields.player_id ||
+      rawFields.game_user_id ||
       rawFields.playerId ||
       rawFields.userId ||
       rawFields.user_id ||

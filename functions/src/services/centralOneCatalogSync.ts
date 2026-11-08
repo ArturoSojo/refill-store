@@ -388,6 +388,19 @@ function defaultPattern(key: string, options: PlayerFieldOption[]): string {
   return lower.includes('id') && !lower.includes('riot') ? '^\\d{1,30}$' : '^.{1,120}$';
 }
 
+export function isBloodStrike(idOrName?: string | null): boolean {
+  if (!idOrName) return false;
+  const s = idOrName.toLowerCase();
+  return (
+    s === 'blood-strike' ||
+    s === 'bloodstrike' ||
+    s.includes('blood-strike') ||
+    s.includes('bloodstrike') ||
+    s.includes('blood_strike') ||
+    /blood\s*strike/i.test(s)
+  );
+}
+
 /**
  * Campos del comprador de un juego de Central One.
  *
@@ -405,8 +418,25 @@ function defaultPattern(key: string, options: PlayerFieldOption[]): string {
 export function buildCentralOnePlayerFields(
   specs: CentralOneFieldSpec[],
   existing: PlayerField[] = [],
-  knownProviderKeys: Iterable<string> = []
+  knownProviderKeys: Iterable<string> = [],
+  gameId?: string
 ): PlayerField[] {
+  if (isBloodStrike(gameId)) {
+    const previous = existing[0];
+    return [
+      {
+        key: 'game_user_id',
+        label: previous?.label || 'ID de jugador',
+        pattern: previous?.pattern || '^\\d{1,30}$',
+        help: previous?.help || 'Revisa este dato antes de pagar: una entrega al identificador equivocado no se puede recuperar.',
+        placeholder: previous?.placeholder || 'Ej: 3363122817',
+        type: 'text',
+        providerField: 'player_id',
+        required: true,
+        sensitive: false,
+      },
+    ];
+  }
   const previousByKey = new Map(existing.map((field) => [field.key, field]));
   const providerKeys = new Set<string>();
   const fields: PlayerField[] = [];
@@ -657,6 +687,7 @@ export function mapCentralOneCatalog(
     const id = coGameId(family, familyId, region);
     const familyName = text(group.items[0].product_family_name) ?? familyId;
     const isFreeFireLatam = family === 'topup' && FREE_FIRE_NAME.test(familyName) && region === 'LATAM';
+    const isBloodStrikeGame = family === 'topup' && isBloodStrike(`${id} ${familyId} ${familyName}`);
     const multiRegion = (regionsByFamily.get(`${family}|${familyId}`)?.size ?? 1) > 1;
     const name = isFreeFireLatam
       ? 'Free Fire'
@@ -679,17 +710,24 @@ export function mapCentralOneCatalog(
       const targetFields = family === 'topup' ? targetFieldsOf(item) : [];
       if (family === 'topup') {
         signatures.add(targetFields.join(','));
-        const schema = Array.isArray(item.target_schema) ? item.target_schema : [];
-        // Orden de `target_schema`, restringido a lo que de verdad se manda.
-        const ordered = [
-          ...schema.map((spec) => text(spec?.key)).filter((key): key is string => !!key && targetFields.includes(key)),
-          ...targetFields,
-        ];
-        for (const key of ordered) {
-          if (specKeys.has(key)) continue;
-          specKeys.add(key);
-          const spec = schema.find((candidate) => text(candidate?.key) === key);
-          specs.push({ key, label: spec?.label ?? null, type: spec?.type ?? 'text', options: spec?.options ?? null });
+        if (isBloodStrikeGame) {
+          if (!specKeys.has('game_user_id')) {
+            specKeys.add('game_user_id');
+            specs.push({ key: 'game_user_id', label: 'ID de jugador', type: 'text', options: null });
+          }
+        } else {
+          const schema = Array.isArray(item.target_schema) ? item.target_schema : [];
+          // Orden de `target_schema`, restringido a lo que de verdad se manda.
+          const ordered = [
+            ...schema.map((spec) => text(spec?.key)).filter((key): key is string => !!key && targetFields.includes(key)),
+            ...targetFields,
+          ];
+          for (const key of ordered) {
+            if (specKeys.has(key)) continue;
+            specKeys.add(key);
+            const spec = schema.find((candidate) => text(candidate?.key) === key);
+            specs.push({ key, label: spec?.label ?? null, type: spec?.type ?? 'text', options: spec?.options ?? null });
+          }
         }
         if (covered.has(item.product_id)) validates = true;
       }
@@ -739,7 +777,7 @@ export function mapCentralOneCatalog(
       name,
       apiGameId: `co-${familyId}-${region}`,
       isFreeFireLatam,
-      playerFields: family === 'topup' ? buildCentralOnePlayerFields(specs, previousFields, knownProviderKeys) : [],
+      playerFields: family === 'topup' ? buildCentralOnePlayerFields(specs, previousFields, knownProviderKeys, id) : [],
       targetFields: family === 'topup' ? specs.map((spec) => spec.key) : [],
       validatesPlayerId: family === 'topup' && validates,
       currency: currencyFor(family, familyName, offers.map((offer) => offer.label)),
@@ -1805,6 +1843,13 @@ function upsertGame(
     if (active) sold.push(priceUsd);
   }
 
+  const isBs = isBloodStrike(`${plan.id} ${plan.name}`);
+  const finalPlayerFields = isBs
+    ? (Array.isArray(existingGame?.playerFields) && existingGame.playerFields.length === 1
+        ? existingGame.playerFields
+        : plan.playerFields.slice(0, 1))
+    : plan.playerFields;
+
   const providerControlled: DocData = {
     provider: 'centralone',
     providerFamily: plan.family,
@@ -1813,7 +1858,7 @@ function upsertGame(
     requiresPlayerData: plan.family === 'topup',
     region: plan.region,
     platform: null,
-    playerFields: plan.playerFields,
+    playerFields: finalPlayerFields,
     validatesPlayerId: plan.validatesPlayerId,
     productCount: sold.length,
     minPriceUsd: sold.length > 0 ? round(Math.min(...sold), 2) : null,

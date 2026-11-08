@@ -542,6 +542,30 @@ export function resolvePlayerFields(game: Game): PlayerField[] {
   if (game.requiresPlayerData === false) return [];
   const declared = Array.isArray(game.playerFields) ? game.playerFields : [];
 
+  const isBs =
+    game.id === 'blood-strike' ||
+    game.id?.includes('blood-strike') ||
+    game.id?.includes('bloodstrike') ||
+    game.name?.toLowerCase().includes('blood strike') ||
+    game.shortName?.toLowerCase().includes('blood strike');
+
+  if (isBs) {
+    const first = declared[0];
+    return [
+      {
+        key: first?.key || 'game_user_id',
+        label: first?.label || 'ID de jugador',
+        pattern: first?.pattern || '^\\d{1,30}$',
+        help: first?.help || 'El ID de Blood Strike tiene entre 8 y 12 dígitos, sólo números.',
+        placeholder: first?.placeholder || 'Ej: 3363122817',
+        type: first?.type || 'text',
+        providerField: 'player_id',
+        required: true,
+        sensitive: false,
+      },
+    ];
+  }
+
   // Los juegos de Central One ya traen sus campos del `target_schema` del
   // proveedor (claves, etiquetas, opciones de servidor): forzar aquí el molde
   // «User ID / Zone ID» de MLBB pisaría lo que pide el producto real.
