@@ -108,7 +108,15 @@ export async function sendPasswordReset(email: string, client: 'app' | 'web', or
   const config = await getConfig();
   const continueTo = continueUrl(client, origin);
   const link = await customActionLink(email, continueTo);
-  const result = await send({ to: email, ...render(email, link, config) }, { essential: true });
+  const result = await send(
+    {
+      to: email,
+      from: `Refill Store <${SUPPORT_EMAIL}>`,
+      replyTo: SUPPORT_EMAIL,
+      ...render(email, link, config),
+    },
+    { essential: true }
+  );
   if (!result.sent) {
     log.warn('No se pudo entregar correo de restablecimiento', { reason: result.reason });
   }

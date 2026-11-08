@@ -19,6 +19,8 @@ export interface EmailMessage {
   html: string;
   /** Versión en texto plano. Su ausencia penaliza en los filtros de spam. */
   text: string;
+  /** Remitente personalizado (por defecto Refill Store <ventas@recargasrefillstore.com>). */
+  from?: string;
   /** Dirección a la que llegan las respuestas (por defecto soporte@recargasrefillstore.com). */
   replyTo?: string;
 }
@@ -93,8 +95,8 @@ export async function send(
 
   try {
     await transporter.sendMail({
-      from: DEFAULT_FROM,
-      replyTo: DEFAULT_REPLY_TO,
+      from: message.from || DEFAULT_FROM,
+      replyTo: message.replyTo || DEFAULT_REPLY_TO,
       to: message.to,
       subject: message.subject,
       text: message.text,
