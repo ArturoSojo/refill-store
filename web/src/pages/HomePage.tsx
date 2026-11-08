@@ -25,6 +25,7 @@ import { ROUTES } from '@/lib/constants';
 import { formatBs, formatRelative } from '@/lib/format';
 import { shortOrderItem } from '@/lib/orderItem';
 import { hexToRgb } from '@/lib/utils';
+import { resolveRegionInfo } from '@/lib/regions';
 import type { Game } from '@/types/models';
 
 /** Tarjeta grande de juego, con la portada o un degradado del color propio. */
@@ -41,6 +42,7 @@ export function GameTile({
 }) {
   const accent = game.accentColor || '#F03030';
   const accentSecondary = game.accentColorSecondary || '#3018F0';
+  const regionInfo = resolveRegionInfo(game.regionCode || game.region, game.name, game.shortName);
   const deliveryLabel = game.providerFamily === 'gift_card'
     ? 'Código digital'
     : game.providerFamily === 'game_key'
@@ -80,6 +82,17 @@ export function GameTile({
           />
           <div className="absolute inset-0 bg-gradient-to-t from-base-800 via-base-800/30 to-transparent" />
 
+          {/* Badge de Región (Esquina superior izquierda) */}
+          <span
+            className={`absolute left-2.5 top-2.5 z-10 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold shadow-md backdrop-blur-sm border ${
+              regionInfo.isRegionRestricted
+                ? 'bg-amber-950/95 text-amber-300 border-amber-500/50'
+                : 'bg-emerald-950/90 text-emerald-300 border-emerald-500/40'
+            }`}
+          >
+            {regionInfo.regionBadge}
+          </span>
+
           {!game.coverUrl && (
             <span
               className="absolute inset-0 flex items-center justify-center text-6xl opacity-90 drop-shadow-2xl transition-transform duration-500 group-hover:scale-110"
@@ -89,7 +102,7 @@ export function GameTile({
             </span>
           )}
 
-          <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-black/55 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white backdrop-blur">
+          <span className="absolute right-2.5 top-2.5 z-10 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white backdrop-blur border border-white/10">
             {game.providerFamily === 'gift_card' ? (
               <Gift className="h-3 w-3 text-emerald-300" aria-hidden />
             ) : game.providerFamily === 'game_key' ? (
@@ -101,22 +114,27 @@ export function GameTile({
           </span>
         </div>
 
-        <div className="flex items-center justify-between gap-3 p-4">
-          <div className="min-w-0">
-            <h3 className="truncate text-lg font-black text-white">{game.name}</h3>
-            <p className="mt-0.5 truncate text-xs text-slate-400">
+        <div className="flex items-center justify-between gap-2.5 p-3.5 sm:p-4">
+          <div className="min-w-0 flex-1">
+            <h3
+              className="line-clamp-2 min-h-[2.5rem] text-sm sm:text-base font-black leading-snug text-white"
+              title={game.name}
+            >
+              {game.name}
+            </h3>
+            <p className="mt-1 truncate text-xs text-slate-400">
               {packageCount} paquetes
               {minPriceBs !== undefined && (
                 <>
                   <span className="text-slate-700"> · </span>
-                  desde <span className="tabular text-slate-300">{formatBs(minPriceBs)}</span>
+                  desde <span className="tabular font-semibold text-slate-300">{formatBs(minPriceBs)}</span>
                 </>
               )}
             </p>
           </div>
 
           <span
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-transform duration-200 group-hover:translate-x-1"
+            className="flex h-9 w-9 sm:h-10 sm:w-10 shrink-0 items-center justify-center rounded-xl transition-transform duration-200 group-hover:translate-x-1"
             style={{ backgroundColor: `rgba(${hexToRgb(accent)}, 0.18)`, color: accent }}
           >
             <ChevronRight className="h-5 w-5" aria-hidden />

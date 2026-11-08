@@ -35,7 +35,7 @@ export function GameCard({ game, productCount, minPriceUsd }: GameCardProps) {
 
         {/* Badge de Región */}
         <span
-          className={`absolute left-3 top-3 z-10 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-extrabold shadow-md backdrop-blur border ${
+          className={`absolute left-2.5 top-2.5 z-10 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold shadow-md backdrop-blur-sm border ${
             regionInfo.isRegionRestricted
               ? 'bg-amber-950/95 text-amber-300 border-amber-500/50'
               : 'bg-emerald-950/90 text-emerald-300 border-emerald-500/40'
@@ -53,7 +53,7 @@ export function GameCard({ game, productCount, minPriceUsd }: GameCardProps) {
           />
         )}
 
-        <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-black/50 px-2.5 py-1 text-xs font-semibold text-white backdrop-blur">
+        <span className="absolute right-2.5 top-2.5 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white backdrop-blur border border-white/10">
           <Zap className="h-3 w-3" aria-hidden />
           Entrega inmediata
         </span>
