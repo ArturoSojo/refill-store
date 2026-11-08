@@ -33,7 +33,9 @@ export interface EmailMessage {
  */
 let cached: { transporter: Transporter; pass: string } | null = null;
 
-const DEFAULT_FROM = 'Refill Store <ventas@recargasrefillstore.com>';
+export const SALES_FROM = 'Refill Store <ventas@recargasrefillstore.com>';
+export const SUPPORT_FROM = 'Refill Store <soporte@recargasrefillstore.com>';
+const DEFAULT_FROM = SUPPORT_FROM;
 const DEFAULT_REPLY_TO = 'soporte@recargasrefillstore.com';
 
 function getResendApiKey(): string {

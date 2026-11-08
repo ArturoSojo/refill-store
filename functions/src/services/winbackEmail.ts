@@ -11,7 +11,7 @@ import { users, now, Timestamp } from '../config/firebase';
 import { log } from '../lib/logger';
 import type { AppConfig, UserProfile } from '../types/models';
 import { getConfig } from './settings';
-import { send } from './email';
+import { SALES_FROM, send } from './email';
 
 const MAIN_ORIGIN = 'https://recargasrefillstore.com';
 const SUPPORT_EMAIL = 'soporte@recargasrefillstore.com';
@@ -167,7 +167,7 @@ export async function runWinbackEmails(): Promise<WinbackResult> {
 
       const daysAway = Math.max(WINBACK_AFTER_DAYS, Math.floor((nowMs - lastOrderMs!) / DAY_MS));
       const rendered = renderWinbackEmail(profile.displayName, daysAway, config);
-      const sent = await send({ to: profile.email!, ...rendered });
+      const sent = await send({ to: profile.email!, from: SALES_FROM, ...rendered });
 
       if (sent.sent) {
         await doc.ref.set({ winbackSentAt: now() }, { merge: true });

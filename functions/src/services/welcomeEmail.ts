@@ -1,7 +1,7 @@
 import { log } from '../lib/logger';
 import type { AppConfig } from '../types/models';
 import { getConfig } from './settings';
-import { send } from './email';
+import { SUPPORT_FROM, send } from './email';
 
 const MAIN_ORIGIN = 'https://recargasrefillstore.com';
 const SUPPORT_EMAIL = 'soporte@recargasrefillstore.com';
@@ -97,7 +97,7 @@ export async function sendWelcomeEmail(email: string, name?: string | null): Pro
     if (config.email?.enabled === false) return;
 
     const rendered = render(email, name, config);
-    const result = await send({ to: email, ...rendered, replyTo: SUPPORT_EMAIL });
+    const result = await send({ to: email, from: SUPPORT_FROM, replyTo: SUPPORT_EMAIL, ...rendered });
     if (!result.sent) {
       log.warn('No se pudo entregar correo de bienvenida', { email, reason: result.reason });
     } else {

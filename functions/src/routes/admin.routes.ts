@@ -1754,8 +1754,14 @@ adminRouter.post(
       game ? catalog.resolvePlayerFields(game) : []
     );
 
+    const from =
+      body.kind === 'payment_verified' || body.kind === 'delivered'
+        ? emailService.SALES_FROM
+        : emailService.SUPPORT_FROM;
+
     const result = await emailService.send({
       to: actor.email,
+      from,
       subject: `[PRUEBA] ${rendered.subject}`,
       html: rendered.html,
       text: rendered.text,
