@@ -277,9 +277,13 @@ export function GamePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, selected?.id, quantity, couponCode, creatorCode, idIsValid, playerValues]);
 
-  // La guía interactiva avanza sola cuando el cliente hace la acción real.
+  // La guía interactiva avanza sola tras 800ms cuando el cliente verifica su ID.
   useEffect(() => {
-    if (playerIdVerified) notifyTour('id-verified');
+    if (!playerIdVerified) return undefined;
+    const timer = window.setTimeout(() => {
+      notifyTour('id-verified');
+    }, 800);
+    return () => window.clearTimeout(timer);
   }, [playerIdVerified, notifyTour]);
 
   useEffect(() => {
@@ -430,26 +434,28 @@ export function GamePage() {
       <AnimatedBackground className="h-[420px]" />
 
       <div className="relative mx-auto max-w-3xl px-4 pt-4">
-        <button
-          type="button"
-          onClick={() => navigate(ROUTES.home)}
-          className="mb-4 inline-flex items-center gap-1 text-sm text-slate-400 transition hover:text-white"
-        >
-          <ChevronLeft className="h-4 w-4" aria-hidden />
-          Inicio
-        </button>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={() => navigate(ROUTES.home)}
+            className="inline-flex items-center gap-1 text-sm text-slate-400 transition hover:text-white"
+          >
+            <ChevronLeft className="h-4 w-4" aria-hidden />
+            Inicio
+          </button>
 
-        <button
-          type="button"
-          onClick={() => startTour(stepIndex('game-select'))}
-          className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-neon-red/30 bg-neon-red/10 px-3.5 py-1.5 text-xs font-bold text-neon-crimson transition hover:bg-neon-red/20"
-        >
-          <span aria-hidden>🎓</span>
-          ¿Primera vez? Enséñame a comprar paso a paso
-        </button>
+          <button
+            type="button"
+            onClick={() => startTour(stepIndex('game-select'))}
+            className="inline-flex items-center gap-1.5 rounded-full border border-neon-red/30 bg-neon-red/10 px-3.5 py-1.5 text-xs font-bold text-neon-crimson transition hover:bg-neon-red/20"
+          >
+            <span aria-hidden>🎓</span>
+            ¿Primera vez? Enséñame a comprar paso a paso
+          </button>
+        </div>
 
         {/* Paso 1 — juego */}
-        <section className="mb-6" data-tour="game-selector">
+        <section className="mx-1 mb-6" data-tour="game-selector">
           <h2 className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400">
             <span className="flex h-5 w-5 items-center justify-center rounded-md bg-brand-gradient text-[10px] font-black text-white">
               1
@@ -476,7 +482,11 @@ export function GamePage() {
           <div
             data-tour="player-id-input"
             data-tour-game={game.name}
-            className="rounded-2xl border p-4 transition-colors"
+            data-tour-id-valid={idIsValid ? 'true' : 'false'}
+            data-tour-verifying={validatingPlayer ? 'true' : 'false'}
+            data-tour-verified={playerIdVerified ? 'true' : 'false'}
+            data-tour-nickname={playerValidation?.playerName ?? ''}
+            className="mx-1 rounded-2xl border p-4 transition-colors"
             style={{
               borderColor: idIsValid ? accent : 'rgb(31 31 48)',
               background: `linear-gradient(180deg, rgba(${hexToRgb(accent)}, 0.06), transparent)`,
@@ -590,7 +600,7 @@ export function GamePage() {
         {/* Códigos se movieron debajo de los paquetes */}
 
         {/* Paso 3 — paquete */}
-        <section data-tour="package-grid">
+        <section className="mx-1" data-tour="package-grid">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <h2 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400">
               <span className="flex h-5 w-5 items-center justify-center rounded-md bg-brand-gradient text-[10px] font-black text-white">

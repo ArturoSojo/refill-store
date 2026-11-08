@@ -5,6 +5,7 @@ import { ChatWindow } from './ChatWindow';
 import { useRefillChatBot } from './useRefillChatBot';
 import { useSupportChatBot } from './useSupportChatBot';
 import { useDualBotConfig } from './useChatbotConfig';
+import { useRechargeTour } from '@/features/tour/useRechargeTour';
 
 export function RefillChatbot() {
   const [open, setOpen] = useState(false);
@@ -12,11 +13,12 @@ export function RefillChatbot() {
   const supportBot = useSupportChatBot();
   const { pathname } = useLocation();
   const dualConfig = useDualBotConfig();
+  const { active: isTutorialActive } = useRechargeTour();
 
   const isRefillEnabled = dualConfig.chatbot.enabled;
   const isSupportEnabled = dualConfig.supportBot.enabled;
 
-  if (pathname.startsWith('/comprar') || (!isRefillEnabled && !isSupportEnabled)) return null;
+  if (isTutorialActive || pathname.startsWith('/comprar') || (!isRefillEnabled && !isSupportEnabled)) return null;
 
   const openChat = () => {
     setOpen(true);
@@ -25,10 +27,10 @@ export function RefillChatbot() {
   };
 
   return open ? (
-    <ChatWindow 
-      refillBot={refillBot} 
-      supportBot={supportBot} 
-      onClose={() => setOpen(false)} 
+    <ChatWindow
+      refillBot={refillBot}
+      supportBot={supportBot}
+      onClose={() => setOpen(false)}
     />
   ) : (
     <ChatFloatingButton onClick={openChat} />

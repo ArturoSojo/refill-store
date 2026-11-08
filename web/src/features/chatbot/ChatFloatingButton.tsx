@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { MessageCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useDualBotConfig } from './useChatbotConfig';
+import { useRechargeTour } from '@/features/tour/useRechargeTour';
+import { cn } from '@/lib/utils';
 
 interface ChatFloatingButtonProps {
   onClick: () => void;
@@ -13,6 +15,7 @@ interface ChatFloatingButtonProps {
  */
 export function ChatFloatingButton({ onClick }: ChatFloatingButtonProps) {
   const dualConfig = useDualBotConfig();
+  const { active: isTutorialActive } = useRechargeTour();
   const profile = dualConfig.chatbot.enabled ? dualConfig.chatbot : dualConfig.supportBot;
   
   const [windowSize, setWindowSize] = useState({ width: window.innerWidth, height: window.innerHeight });
@@ -36,7 +39,10 @@ export function ChatFloatingButton({ onClick }: ChatFloatingButtonProps) {
       }}
       // z-40 allows modals (z-50) and ChatWindow (z-[60]) to cover it, but floats over standard elements.
       // We set bottom-24 (6rem) for desktop to ensure it's above WhatsApp button if present.
-      className="fixed right-4 bottom-[calc(6rem+env(safe-area-inset-bottom))] z-40 flex cursor-grab flex-col items-end gap-2.5 active:cursor-grabbing md:bottom-24 md:right-6"
+      className={cn(
+        'fixed right-4 bottom-[calc(6rem+env(safe-area-inset-bottom))] z-40 flex cursor-grab flex-col items-end gap-2.5 active:cursor-grabbing md:bottom-24 md:right-6',
+        isTutorialActive && 'pointer-events-none hidden opacity-0'
+      )}
     >
       {/* Píldora invitacional */}
       <div

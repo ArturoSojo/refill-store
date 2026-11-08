@@ -314,7 +314,7 @@ export function HomePage() {
       <ActiveOrdersStrip />
 
       <span id="catalogo" className="sr-only" aria-hidden />
-        <div id="juegos" data-tour="catalog-selector" className="scroll-mt-20 space-y-10 rounded-3xl transition-all duration-500">
+        <div id="juegos" data-tour="catalog-selector" className="mx-1 scroll-mt-20 space-y-10 rounded-3xl transition-all duration-500">
         {isLoading ? (
           // Sin esqueleto de game keys: con Central One esa sección casi nunca existe.
           (['topup', 'gift_card'] as const).map((family) => (
