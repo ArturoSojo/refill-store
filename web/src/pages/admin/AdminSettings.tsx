@@ -766,7 +766,7 @@ export function AdminSettings() {
             label="Cuenta que envía"
             defaultValue={config.email?.fromAddress ?? ''}
             onChange={(event) => patch('email', { fromAddress: event.target.value.trim() })}
-            placeholder="Soporterefillstore@gmail.com"
+            placeholder="soporte@recargasrefillstore.com"
             hint="Su contraseña de aplicación va en el secreto GMAIL_APP_PASSWORD."
             disabled={!isAdmin}
           />
@@ -1241,6 +1241,7 @@ export function AdminSettings() {
           <Input
             label="Correo de contacto"
             defaultValue={config.contact.email}
+            placeholder="soporte@recargasrefillstore.com"
             onChange={(event) => patch('contact', { email: event.target.value })}
             disabled={!isAdmin}
           />

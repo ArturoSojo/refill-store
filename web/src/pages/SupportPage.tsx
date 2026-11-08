@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ChevronLeft, LifeBuoy, MessageCircle, Plus, Send } from 'lucide-react';
+import { ChevronLeft, LifeBuoy, Mail, MessageCircle, Plus, Send } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
   useTickets,
@@ -126,6 +126,27 @@ export function SupportPage() {
               </div>
             </Card>
           )}
+
+          <Card className="border-slate-700/50 bg-base-800/50 sm:col-span-2">
+            <div className="flex items-start gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-neon-red/15 text-neon-crimson">
+                <Mail className="h-5 w-5" aria-hidden />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-white">Correo de Atención al Cliente</p>
+                <p className="mt-0.5 text-xs text-slate-400">
+                  Para reclamos formales, consultas comerciales o asistencia detallada.
+                </p>
+                <a
+                  href={`mailto:${config?.contact?.email || 'soporte@recargasrefillstore.com'}`}
+                  className="mt-2.5 inline-flex items-center gap-1.5 text-xs font-bold text-neon-crimson hover:underline"
+                >
+                  <Mail className="h-3.5 w-3.5" aria-hidden />
+                  {config?.contact?.email || 'soporte@recargasrefillstore.com'}
+                </a>
+              </div>
+            </div>
+          </Card>
         </div>
       )}
 

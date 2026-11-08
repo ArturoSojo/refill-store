@@ -4,7 +4,7 @@ import { FileText, Mail, ShieldCheck, Trash2 } from 'lucide-react';
 import { useDocumentTitle } from '@/hooks/useMisc';
 import { ROUTES } from '@/lib/constants';
 
-const PRIVACY_EMAIL = 'Soporterefillstore@gmail.com';
+const PRIVACY_EMAIL = 'soporte@recargasrefillstore.com';
 
 function PolicySection({ title, children }: { title: string; children: ReactNode }) {
   return (

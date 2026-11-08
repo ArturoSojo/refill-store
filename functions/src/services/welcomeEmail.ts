@@ -4,7 +4,7 @@ import { getConfig } from './settings';
 import { send } from './email';
 
 const MAIN_ORIGIN = 'https://recargasrefillstore.com';
-const SUPPORT_EMAIL = 'soporterefillstore@gmail.com';
+const SUPPORT_EMAIL = 'soporte@recargasrefillstore.com';
 
 function escapeHtml(value: string): string {
   return value

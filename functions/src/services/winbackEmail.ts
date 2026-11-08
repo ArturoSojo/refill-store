@@ -14,7 +14,7 @@ import { getConfig } from './settings';
 import { send } from './email';
 
 const MAIN_ORIGIN = 'https://recargasrefillstore.com';
-const SUPPORT_EMAIL = 'soporterefillstore@gmail.com';
+const SUPPORT_EMAIL = 'soporte@recargasrefillstore.com';
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Días sin recargar a partir de los cuales se escribe. */

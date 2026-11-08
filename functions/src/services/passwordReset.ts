@@ -9,7 +9,7 @@ const APPROVED_WEB_ORIGINS = new Set([
   MAIN_ORIGIN,
   'https://www.recargasrefillstore.com',
 ]);
-const SUPPORT_EMAIL = 'soporterefillstore@gmail.com';
+const SUPPORT_EMAIL = 'soporte@recargasrefillstore.com';
 
 function escapeHtml(value: string): string {
   return value

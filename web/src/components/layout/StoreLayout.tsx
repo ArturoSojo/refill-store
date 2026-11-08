@@ -525,13 +525,11 @@ function Footer() {
                     </a>
                   </li>
                 )}
-                {config?.contact.email && (
-                  <li>
-                    <a href={`mailto:${config.contact.email}`} className="hover:text-white">
-                      {config.contact.email}
-                    </a>
-                  </li>
-                )}
+                <li>
+                  <a href={`mailto:${config?.contact?.email || 'soporte@recargasrefillstore.com'}`} className="hover:text-white">
+                    {config?.contact?.email || 'soporte@recargasrefillstore.com'}
+                  </a>
+                </li>
               </ul>
             </div>
           </div>
