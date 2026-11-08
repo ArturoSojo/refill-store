@@ -8,7 +8,7 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { db, orders, games } from '../config/firebase';
 import { log } from '../lib/logger';
-import { SALES_FROM, SUPPORT_FROM, send } from './email';
+import { SALES_FROM, send } from './email';
 import { renderOrderEmail, type EmailKind } from './emailTemplates';
 import { resolvePlayerFields } from './catalog';
 import { getConfig } from './settings';
@@ -85,8 +85,7 @@ export async function sendOrderEmail(kind: EmailKind, orderId: string): Promise<
       : [];
 
     const rendered = renderOrderEmail(kind, order, config, playerFields);
-    const from = kind === 'payment_verified' || kind === 'delivered' ? SALES_FROM : SUPPORT_FROM;
-    const result = await send({ to: destinatario, from, ...rendered });
+    const result = await send({ to: destinatario, from: SALES_FROM, ...rendered });
 
     if (!result.sent) {
       await release(orderId, kind);
