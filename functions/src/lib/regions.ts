@@ -186,11 +186,16 @@ export function getRegionTier(game: {
   regionCode?: string | null;
   region?: string | null;
   isRegionRestricted?: boolean | null;
+  providerFamily?: string | null;
 }): number {
   const code = (game.regionCode || game.region || '').trim().toUpperCase();
   const isRestricted = game.isRegionRestricted === true;
 
   if (!isRestricted || code === 'GLOBAL' || code === 'LATAM' || code === 'AMERICAS' || code === 'VE') {
+    return 1;
+  }
+  // En Gift Cards, US es la región primaria para las marcas globales (Google Play, PlayStation, Xbox, Apple, etc.)
+  if (game.providerFamily === 'gift_card' && (code === 'US' || code === 'USA')) {
     return 1;
   }
   if (code === 'US' || code === 'USA') {
@@ -216,11 +221,11 @@ export const GIFT_CARD_POPULARITY_RANK = [
   { pattern: /roblox/i, rank: 10 },
   { pattern: /free\s*fire/i, rank: 20 },
   { pattern: /playstation|\bpsn\b/i, rank: 30 },
-  { pattern: /steam/i, rank: 40 },
+  { pattern: /steam\s*(?:wallet|card|tarjeta|$)/i, rank: 40 },
   { pattern: /google\s*play/i, rank: 50 },
   { pattern: /apple|itunes|app\s*store/i, rank: 60 },
   { pattern: /razer\s*gold/i, rank: 70 },
-  { pattern: /xbox/i, rank: 80 },
+  { pattern: /^xbox\b|xbox\s*(?:gift|card|tarjeta|game\s*pass)/i, rank: 80 },
   { pattern: /nintendo/i, rank: 90 },
   { pattern: /binance/i, rank: 100 },
 ];
@@ -236,10 +241,11 @@ export function getBasePopularityRank(name?: string | null, family?: string | nu
 
 /**
  * Comparador universal para el catálogo de la tienda:
- * 1. Prioridad de Región (Tier 1: Global/LATAM -> Tier 2: USA -> Tier 3: Específicos).
- * 2. Compras reales históricas (`salesCount` descendente).
- * 3. Relevancia Base del Juego (Base Popularity Rank ascendente).
- * 4. Desempate alfabético por título limpio.
+ * 1. Disponibilidad de Stock (productos con paquetes disponibles antes que agotados).
+ * 2. Prioridad de Región (Tier 1: Global/LATAM/US Gift cards -> Tier 2: USA -> Tier 3: Específicos).
+ * 3. Compras reales históricas (`salesCount` descendente).
+ * 4. Relevancia Base del Juego (Base Popularity Rank ascendente).
+ * 5. Desempate alfabético por título limpio.
  */
 export function compareCatalogGames(
   a: {
@@ -249,6 +255,7 @@ export function compareCatalogGames(
     isRegionRestricted?: boolean | null;
     salesCount?: number | null;
     providerFamily?: string | null;
+    productCount?: number | null;
   },
   b: {
     name?: string | null;
@@ -257,8 +264,13 @@ export function compareCatalogGames(
     isRegionRestricted?: boolean | null;
     salesCount?: number | null;
     providerFamily?: string | null;
+    productCount?: number | null;
   }
 ): number {
+  const stockA = (a.productCount ?? 1) > 0 ? 1 : 0;
+  const stockB = (b.productCount ?? 1) > 0 ? 1 : 0;
+  if (stockA !== stockB) return stockB - stockA;
+
   const tierA = getRegionTier(a);
   const tierB = getRegionTier(b);
   if (tierA !== tierB) return tierA - tierB;
@@ -280,6 +292,7 @@ export function compareCatalogGames(
  * - Tier 1: [50,000,000 .. 100,010,000]
  * - Tier 2: [150,000,000 .. 200,010,000]
  * - Tier 3: [250,000,000 .. 300,010,000]
+ * - Sin stock (0 paquetes): +500,000,000
  * Dentro de cada tier: más ventas -> menor número (mayor prioridad).
  * Desempate por base rank (menor rank -> menor número).
  */
@@ -290,7 +303,11 @@ export function calculateGameSortOrder(game: {
   salesCount?: number | null;
   name?: string | null;
   providerFamily?: string | null;
+  productCount?: number | null;
 }): number {
+  const hasStock = (game.productCount ?? 1) > 0;
+  const stockPenalty = hasStock ? 0 : 500_000_000;
+
   const tier = getRegionTier(game);
   const baseOffset = tier * 100_000_000;
   const sales = Math.min(game.salesCount || 0, 5000);
@@ -298,5 +315,5 @@ export function calculateGameSortOrder(game: {
   const rank = getBasePopularityRank(game.name, game.providerFamily);
   const rankAddition = rank * 10;
 
-  return baseOffset - salesReduction + rankAddition;
+  return stockPenalty + baseOffset - salesReduction + rankAddition;
 }

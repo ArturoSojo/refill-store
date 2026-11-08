@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e1b4b" />
+      <stop offset="50%" stop-color="#312e81" />
+      <stop offset="100%" stop-color="#0f172a" />
+    </linearGradient>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fde047" />
+      <stop offset="50%" stop-color="#eab308" />
+      <stop offset="100%" stop-color="#ca8a04" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="64" fill="url(#bg)"/>
+  <rect x="40" y="80" width="432" height="280" rx="24" fill="#1e1e38" stroke="url(#gold)" stroke-width="4" filter="url(#shadow)"/>
+  <circle cx="110" cy="150" r="32" fill="url(#gold)" opacity="0.9"/>
+  <circle cx="140" cy="150" r="32" fill="#f59e0b" opacity="0.6"/>
+  <path d="M 80 230 L 432 230" stroke="url(#gold)" stroke-width="2" opacity="0.4" stroke-dasharray="8 6"/>
+  <text x="256" y="300" font-family="system-ui, -apple-system, sans-serif" font-size="52" font-weight="900" fill="url(#gold)" text-anchor="middle" letter-spacing="4">ONCASH</text>
+  <text x="256" y="425" font-family="system-ui, -apple-system, sans-serif" font-size="28" font-weight="700" fill="#94a3b8" text-anchor="middle" letter-spacing="6">PREPAID CARD</text>
+</svg>

@@ -871,6 +871,25 @@ export interface GamePresentation {
  * se copian del juego `fz-*` del mismo nombre, prefiriendo misma familia y
  * región y uno con logo. El Free Fire LATAM hereda de `fz-topup-free-fire-latam`.
  */
+const KNOWN_GAME_IMAGES: Record<string, Partial<GamePresentation>> = {
+  'battlefield 2042': { logoUrl: '/games/battlefield-2042.jpg', coverUrl: '/games/battlefield-2042.jpg', accentColor: '#10b981', accentColorSecondary: '#047857' },
+  'halo infinite': { logoUrl: '/games/halo-infinite.jpg', coverUrl: '/games/halo-infinite.jpg', accentColor: '#0ea5e9', accentColorSecondary: '#0369a1' },
+  'plants vs zombies': { logoUrl: '/games/plants-vs-zombies.jpg', coverUrl: '/games/plants-vs-zombies.jpg', accentColor: '#84cc16', accentColorSecondary: '#4d7c0f' },
+  'candy crush': { logoUrl: '/games/candy-crush.jpg', coverUrl: '/games/candy-crush.jpg', accentColor: '#ec4899', accentColorSecondary: '#be185d' },
+  'epic games': { logoUrl: '/games/epic-games.jpg', coverUrl: '/games/epic-games.jpg', accentColor: '#3b82f6', accentColorSecondary: '#1d4ed8' },
+  'imvu': { logoUrl: '/games/imvu.jpg', coverUrl: '/games/imvu.jpg', accentColor: '#8b5cf6', accentColorSecondary: '#6d28d9' },
+  'oncash': { logoUrl: '/games/oncash.svg', coverUrl: '/games/oncash.svg', accentColor: '#eab308', accentColorSecondary: '#a16207' },
+  'lords mobile': { logoUrl: '/games/lords-mobile.jpg', coverUrl: '/games/lords-mobile.jpg', accentColor: '#f97316', accentColorSecondary: '#c2410c' },
+  'gemini pro': { logoUrl: '/games/gemini-pro.svg', coverUrl: '/games/gemini-pro.svg', accentColor: '#3b82f6', accentColorSecondary: '#9333ea' },
+  'legend of neverland': { logoUrl: '/games/legend-of-neverland.jpg', coverUrl: '/games/legend-of-neverland.jpg', accentColor: '#10b981', accentColorSecondary: '#047857' },
+  'silver and blood': { logoUrl: '/games/silver-and-blood.jpg', coverUrl: '/games/silver-and-blood.jpg', accentColor: '#e11d48', accentColorSecondary: '#881337' },
+  'golden spatula': { logoUrl: '/games/golden-spatula.png', coverUrl: '/games/golden-spatula.png', accentColor: '#eab308', accentColorSecondary: '#ca8a04' },
+  'likee': { logoUrl: '/games/likee.png', coverUrl: '/games/likee.png', accentColor: '#ec4899', accentColorSecondary: '#f43f5e' },
+  'bigo live': { logoUrl: '/games/bigo-live.png', coverUrl: '/games/bigo-live.png', accentColor: '#06b6d4', accentColorSecondary: '#0891b2' },
+  'teen patti gold': { logoUrl: '/games/teen-patti-gold.png', coverUrl: '/games/teen-patti-gold.png', accentColor: '#eab308', accentColorSecondary: '#b45309' },
+  'tomb busters': { logoUrl: '/games/tomb-busters.jpg', coverUrl: '/games/tomb-busters.jpg', accentColor: '#6366f1', accentColorSecondary: '#4338ca' },
+};
+
 export function pickFazerPresentation(
   plan: Pick<CentralOneGamePlan, 'family' | 'familyName' | 'region' | 'isFreeFireLatam'>,
   fazerGames: ReadonlyMap<string, Partial<Game>>
@@ -883,20 +902,32 @@ export function pickFazerPresentation(
     const candidates = Array.from(fazerGames.values()).filter(
       (game) => normalizeGameBaseName(String(game.name ?? '')) === target
     );
-    if (candidates.length === 0) return null;
-    const score = (game: Partial<Game>) =>
-      (game.providerFamily === plan.family ? 4 : 0) +
-      (String(game.region ?? '').trim().toUpperCase() === plan.region ? 2 : 0) +
-      (game.logoUrl ? 1 : 0);
-    source = candidates.sort((a, b) => score(b) - score(a))[0];
+    if (candidates.length > 0) {
+      const score = (game: Partial<Game>) =>
+        (game.providerFamily === plan.family ? 4 : 0) +
+        (String(game.region ?? '').trim().toUpperCase() === plan.region ? 2 : 0) +
+        (game.logoUrl ? 1 : 0);
+      source = candidates.sort((a, b) => score(b) - score(a))[0];
+    }
   }
+
   const out: Partial<GamePresentation> = {};
-  if (source.logoUrl) out.logoUrl = source.logoUrl;
-  if (source.coverUrl) out.coverUrl = source.coverUrl;
-  if (source.accentColor) out.accentColor = source.accentColor;
-  if (source.accentColorSecondary) out.accentColorSecondary = source.accentColorSecondary;
-  if (source.currencyIconUrl) out.currencyIconUrl = source.currencyIconUrl;
-  return out;
+  if (source?.logoUrl) out.logoUrl = source.logoUrl;
+  if (source?.coverUrl) out.coverUrl = source.coverUrl;
+  if (source?.accentColor) out.accentColor = source.accentColor;
+  if (source?.accentColorSecondary) out.accentColorSecondary = source.accentColorSecondary;
+  if (source?.currencyIconUrl) out.currencyIconUrl = source.currencyIconUrl;
+
+  if (!out.logoUrl && !out.coverUrl) {
+    const target = normalizeGameBaseName(plan.familyName);
+    for (const [key, known] of Object.entries(KNOWN_GAME_IMAGES)) {
+      if (target.includes(key) || key.includes(target)) {
+        return { ...out, ...known };
+      }
+    }
+  }
+
+  return Object.keys(out).length > 0 ? out : null;
 }
 
 // ---------------------------------------------------------------------------

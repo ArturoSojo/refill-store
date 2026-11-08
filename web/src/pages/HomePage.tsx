@@ -72,8 +72,8 @@ export function GameTile({
         <div
           className="relative h-36 overflow-hidden sm:h-44"
           style={{
-            background: game.coverUrl
-              ? `url(${game.coverUrl}) center/cover`
+            background: (game.coverUrl || game.logoUrl)
+              ? `url(${game.coverUrl || game.logoUrl}) center/cover`
               : `linear-gradient(135deg, ${accent} 0%, ${accentSecondary} 120%)`,
           }}
         >
@@ -100,7 +100,7 @@ export function GameTile({
             <span>{regionInfo.regionBadge}</span>
           </span>
 
-          {!game.coverUrl && (
+          {!game.coverUrl && !game.logoUrl && (
             <span
               className="absolute inset-0 flex items-center justify-center text-6xl opacity-90 drop-shadow-2xl transition-transform duration-500 group-hover:scale-110"
               aria-hidden
@@ -312,6 +312,43 @@ function ActiveOrdersStrip() {
   );
 }
 
+/** Muestra marcas variadas en la portada evitando clones repetidos de la misma franquicia */
+function getHomeDisplayGames(games: Game[], limit: number): Game[] {
+  const seenBrands = new Set<string>();
+  const diverse: Game[] = [];
+  const remaining: Game[] = [];
+
+  for (const game of games) {
+    const baseName = cleanGameTitle(game.name).toLowerCase();
+    const brandKey = baseName.includes('roblox')
+      ? 'roblox'
+      : baseName.includes('steam')
+        ? 'steam'
+        : baseName.includes('google play')
+          ? 'google-play'
+          : baseName.includes('playstation') || baseName.includes('psn')
+            ? 'playstation'
+            : baseName.includes('xbox')
+              ? 'xbox'
+              : baseName.includes('nintendo')
+                ? 'nintendo'
+                : baseName.includes('apple') || baseName.includes('itunes')
+                  ? 'apple'
+                  : baseName.includes('razer')
+                    ? 'razer'
+                    : baseName;
+
+    if (!seenBrands.has(brandKey)) {
+      seenBrands.add(brandKey);
+      diverse.push(game);
+    } else {
+      remaining.push(game);
+    }
+  }
+
+  return [...diverse, ...remaining].slice(0, limit);
+}
+
 export function HomePage() {
   useDocumentTitle('');
   const { data, isLoading, error, refetch } = useCatalog();
@@ -380,7 +417,7 @@ export function HomePage() {
                 </Link>
               </div>
               <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">
-                {(grouped.get(family.id) ?? []).slice(0, 8).map((game, index) => (
+                {getHomeDisplayGames(grouped.get(family.id) ?? [], 8).map((game, index) => (
                   <GameTile key={game.id} game={game} index={index}
                     packageCount={game.productCount ?? 0}
                     minPriceBs={game.minPriceUsd != null && data ? game.minPriceUsd * data.rate : undefined} />

@@ -11,6 +11,9 @@ function getRegionTier(game) {
   if (!isRestricted || code === 'GLOBAL' || code === 'LATAM' || code === 'AMERICAS' || code === 'VE') {
     return 1;
   }
+  if (game.providerFamily === 'gift_card' && (code === 'US' || code === 'USA')) {
+    return 1;
+  }
   if (code === 'US' || code === 'USA') {
     return 2;
   }
@@ -34,11 +37,11 @@ const GIFT_CARD_POPULARITY_RANK = [
   { pattern: /roblox/i, rank: 10 },
   { pattern: /free\s*fire/i, rank: 20 },
   { pattern: /playstation|\bpsn\b/i, rank: 30 },
-  { pattern: /steam/i, rank: 40 },
+  { pattern: /steam\s*(?:wallet|card|tarjeta|$)/i, rank: 40 },
   { pattern: /google\s*play/i, rank: 50 },
   { pattern: /apple|itunes|app\s*store/i, rank: 60 },
   { pattern: /razer\s*gold/i, rank: 70 },
-  { pattern: /xbox/i, rank: 80 },
+  { pattern: /^xbox\b|xbox\s*(?:gift|card|tarjeta|game\s*pass)/i, rank: 80 },
   { pattern: /nintendo/i, rank: 90 },
   { pattern: /binance/i, rank: 100 },
 ];
@@ -61,6 +64,9 @@ function cleanGameTitle(title) {
 }
 
 function calculateGameSortOrder(game) {
+  const hasStock = (game.productCount ?? 1) > 0;
+  const stockPenalty = hasStock ? 0 : 500_000_000;
+
   const tier = getRegionTier(game);
   const baseOffset = tier * 100_000_000;
   const sales = Math.min(game.salesCount || 0, 5000);
@@ -68,10 +74,14 @@ function calculateGameSortOrder(game) {
   const rank = getBasePopularityRank(game.name, game.providerFamily);
   const rankAddition = rank * 10;
 
-  return baseOffset - salesReduction + rankAddition;
+  return stockPenalty + baseOffset - salesReduction + rankAddition;
 }
 
 function compareCatalogGames(a, b) {
+  const stockA = (a.productCount ?? 1) > 0 ? 1 : 0;
+  const stockB = (b.productCount ?? 1) > 0 ? 1 : 0;
+  if (stockA !== stockB) return stockB - stockA;
+
   const tierA = getRegionTier(a);
   const tierB = getRegionTier(b);
   if (tierA !== tierB) return tierA - tierB;
@@ -156,6 +166,7 @@ async function migrate() {
       regionCode: data.regionCode,
       isRegionRestricted: data.isRegionRestricted,
       salesCount,
+      productCount: data.productCount ?? 0,
       active: data.active,
     };
 
@@ -209,3 +220,4 @@ async function migrate() {
 }
 
 migrate().catch(console.error);
+
