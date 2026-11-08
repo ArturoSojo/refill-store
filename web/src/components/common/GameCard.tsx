@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { ChevronRight, Zap } from 'lucide-react';
 import { ROUTES, FALLBACK_ACCENT, FALLBACK_ACCENT_SECONDARY } from '@/lib/constants';
 import { hexToRgb } from '@/lib/utils';
+import { resolveRegionInfo } from '@/lib/regions';
 import type { Game } from '@/types/models';
 
 interface GameCardProps {
@@ -13,6 +14,7 @@ interface GameCardProps {
 export function GameCard({ game, productCount, minPriceUsd }: GameCardProps) {
   const accent = game.accentColor || FALLBACK_ACCENT;
   const accentSecondary = game.accentColorSecondary || FALLBACK_ACCENT_SECONDARY;
+  const regionInfo = resolveRegionInfo(game.regionCode || game.region, game.name, game.shortName);
 
   return (
     <Link
@@ -31,6 +33,17 @@ export function GameCard({ game, productCount, minPriceUsd }: GameCardProps) {
       >
         <div className="absolute inset-0 bg-gradient-to-t from-base-800 via-base-800/40 to-transparent" />
 
+        {/* Badge de Región */}
+        <span
+          className={`absolute left-3 top-3 z-10 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-extrabold shadow-md backdrop-blur border ${
+            regionInfo.isRegionRestricted
+              ? 'bg-amber-950/95 text-amber-300 border-amber-500/50'
+              : 'bg-emerald-950/90 text-emerald-300 border-emerald-500/40'
+          }`}
+        >
+          {regionInfo.regionBadge}
+        </span>
+
         {game.logoUrl && (
           <img
             src={game.logoUrl}
@@ -47,9 +60,11 @@ export function GameCard({ game, productCount, minPriceUsd }: GameCardProps) {
       </div>
 
       <div className="flex items-center justify-between gap-3 p-4">
-        <div className="min-w-0">
-          <h3 className="truncate text-lg font-bold text-white">{game.name}</h3>
-          <p className="mt-0.5 truncate text-sm text-slate-400">
+        <div className="min-w-0 flex-1">
+          <h3 className="line-clamp-2 text-base sm:text-lg font-bold leading-snug text-white" title={game.name}>
+            {game.name}
+          </h3>
+          <p className="mt-1 truncate text-sm text-slate-400">
             {productCount ? `${productCount} paquetes` : game.currencyLabel}
             {minPriceUsd !== undefined && minPriceUsd > 0 && (
               <span className="text-slate-500"> · desde ${minPriceUsd.toFixed(2)}</span>

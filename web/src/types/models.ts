@@ -71,6 +71,11 @@ export interface Game {
   /** Creado a mano desde el panel; la sincronización no lo toca. */
   manual?: boolean;
   region?: string | null;
+  regionCode?: string | null;
+  regionLabel?: string | null;
+  regionBadge?: string | null;
+  isRegionRestricted?: boolean | null;
+  regionWarning?: string | null;
   platform?: string | null;
   productCount?: number;
   minPriceUsd?: number | null;
@@ -170,6 +175,11 @@ export interface Product {
   provider?: 'inefable' | 'fazercards' | 'centralone';
   providerOfferId?: string | null;
   region?: string;
+  regionCode?: string;
+  regionLabel?: string;
+  regionBadge?: string;
+  isRegionRestricted?: boolean;
+  regionWarning?: string;
   regionNotice?: string;
   isRegionLocked?: boolean;
   /** Copia de `calls[].targetFields`; sobrevive a que el panel reemplace `calls`. */
@@ -217,6 +227,11 @@ export interface PublicProduct {
   imageUrl: string;
   badge: string | null;
   region?: string;
+  regionCode?: string;
+  regionLabel?: string;
+  regionBadge?: string;
+  isRegionRestricted?: boolean;
+  regionWarning?: string;
   regionNotice?: string;
   isRegionLocked?: boolean;
   active: boolean;

@@ -39,6 +39,7 @@ import {
 import { applyMargin, round } from '../lib/money';
 import { slugify } from '../lib/ids';
 import { log } from '../lib/logger';
+import { resolveRegionInfo, extractPackageRegionNotice } from '../lib/regions';
 import { getConfig } from './settings';
 import * as centralOne from './centralOne';
 import type { CoCatalogItem } from './centralOne';
@@ -1755,6 +1756,8 @@ function upsertGame(
     ? String(existingGame.coverUrl || existingGame.logoUrl || '')
     : presentation?.coverUrl || presentation?.logoUrl || '';
 
+  const regionInfo = resolveRegionInfo(plan.region, plan.name, plan.familyName);
+
   const sold: number[] = [];
   for (const offer of plan.offers) {
     const current = existingProducts.get(offer.docId);
@@ -1762,6 +1765,7 @@ function upsertGame(
       { packageId: offer.productId, quantity: 1, provider: 'centralone', targetFields: [...offer.targetFields] },
     ];
     const freshPrice = priceFor(ctx, offer.costUsd);
+    const productNotice = extractPackageRegionNotice(offer.label) || (regionInfo.isRegionRestricted ? regionInfo.regionWarning : undefined);
 
     if (!current) {
       const adminDisabled = false;
@@ -1787,6 +1791,14 @@ function upsertGame(
           providerOfferId: offer.productId,
           imageUrl: plan.family === 'gift_card' ? gameImage : extraImage(offer.label, offer.kind),
           badge: offer.badge,
+          region: plan.region,
+          regionCode: regionInfo.regionCode,
+          regionLabel: regionInfo.regionLabel,
+          regionBadge: regionInfo.regionBadge,
+          isRegionRestricted: regionInfo.isRegionRestricted,
+          regionWarning: regionInfo.regionWarning,
+          regionNotice: productNotice,
+          isRegionLocked: regionInfo.isRegionRestricted,
           active,
           adminDisabled,
           priceLocked: false,
@@ -1834,6 +1846,14 @@ function upsertGame(
       stock: offer.stock,
       active,
       imageUrl: desiredImageUrl,
+      region: plan.region,
+      regionCode: regionInfo.regionCode,
+      regionLabel: regionInfo.regionLabel,
+      regionBadge: regionInfo.regionBadge,
+      isRegionRestricted: regionInfo.isRegionRestricted,
+      regionWarning: regionInfo.regionWarning,
+      regionNotice: productNotice,
+      isRegionLocked: regionInfo.isRegionRestricted,
       providerRemoved: false,
     });
     if (Object.keys(changed).length > 0) {
@@ -1857,6 +1877,11 @@ function upsertGame(
     apiGameType: plan.family,
     requiresPlayerData: plan.family === 'topup',
     region: plan.region,
+    regionCode: regionInfo.regionCode,
+    regionLabel: regionInfo.regionLabel,
+    regionBadge: regionInfo.regionBadge,
+    isRegionRestricted: regionInfo.isRegionRestricted,
+    regionWarning: regionInfo.regionWarning,
     platform: null,
     playerFields: finalPlayerFields,
     validatesPlayerId: plan.validatesPlayerId,

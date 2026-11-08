@@ -101,8 +101,13 @@ export interface Game {
    * y la siembra de Inefable) nunca lo reescriben.
    */
   manual?: boolean;
-  /** Región/plataforma informadas por FazerCards para mostrarlas al cliente. */
+  /** Región/plataforma informadas por FazerCards o Central One para mostrarlas al cliente. */
   region?: string | null;
+  regionCode?: string | null;
+  regionLabel?: string | null;
+  regionBadge?: string | null;
+  isRegionRestricted?: boolean | null;
+  regionWarning?: string | null;
   platform?: string | null;
   /** Resumen precalculado para que la portada no lea miles de productos. */
   productCount?: number;
@@ -284,6 +289,11 @@ export interface Product {
   provider?: 'inefable' | 'fazercards' | 'centralone';
   providerOfferId?: string | null;
   region?: string;
+  regionCode?: string;
+  regionLabel?: string;
+  regionBadge?: string;
+  isRegionRestricted?: boolean;
+  regionWarning?: string;
   regionNotice?: string;
   isRegionLocked?: boolean;
   /**

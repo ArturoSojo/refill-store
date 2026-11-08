@@ -8,6 +8,7 @@ import { paginate, type Page } from '../lib/pagination';
 import { FAZER_FREE_FIRE_ID, INEFABLE_FREE_FIRE_ID } from '../lib/storefront';
 import { slugify } from '../lib/ids';
 import { resolveFazerValidationCategory } from '../lib/validation';
+import { resolveRegionInfo, extractPackageRegionNotice } from '../lib/regions';
 import type { Game, PlayerField, Product, PublicProduct } from '../types/models';
 
 export async function listGames(options: { onlyActive?: boolean } = {}): Promise<Game[]> {
@@ -328,8 +329,11 @@ export function toPublicProduct(product: Product, rate: number, roundToBs: numbe
     ...rest
   } = product;
 
+  const notice = product.regionNotice || extractPackageRegionNotice(product.name) || undefined;
+
   return {
     ...rest,
+    regionNotice: notice,
     priceBs: usdToBs(product.priceUsd, rate, roundToBs),
   };
 }
@@ -383,8 +387,15 @@ export function toPublicGame(game: Game): Game {
   const known = knownCurrencyFor(game);
   const currentIconUrl = game.currencyIconUrl?.trim() ?? '';
   const expiredCanvaIcon = game.id === INEFABLE_FREE_FIRE_ID && currentIconUrl.includes('media.canva.com');
+  const regionInfo = resolveRegionInfo(game.region, game.name, game.shortName);
+
   return {
     ...game,
+    regionCode: game.regionCode || regionInfo.regionCode,
+    regionLabel: game.regionLabel || regionInfo.regionLabel,
+    regionBadge: game.regionBadge || regionInfo.regionBadge,
+    isRegionRestricted: typeof game.isRegionRestricted === 'boolean' ? game.isRegionRestricted : regionInfo.isRegionRestricted,
+    regionWarning: game.regionWarning || regionInfo.regionWarning,
     playerFields: resolvePlayerFields(game),
     // «Recargas» es la etiqueta genérica de las sincronizaciones; un juego de
     // Central One recién creado puede llegar además sin etiqueta. Lo que el

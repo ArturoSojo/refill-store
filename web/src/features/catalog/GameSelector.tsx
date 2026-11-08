@@ -11,6 +11,7 @@ import { motion } from 'framer-motion';
 import { Check, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { CurrencyIcon } from '@/components/common/CurrencyIcon';
 import { hexToRgb } from '@/lib/utils';
+import { resolveRegionInfo } from '@/lib/regions';
 import type { Game } from '@/types/models';
 
 interface GameSelectorProps {
@@ -72,6 +73,7 @@ export function GameSelector({ games, selectedId, onSelect, onEnd, hasMore = fal
           const selected = game.id === selectedId;
           const accent = game.accentColor || '#F03030';
           const accentSecondary = game.accentColorSecondary || '#3018F0';
+          const regionInfo = resolveRegionInfo(game.regionCode || game.region, game.name, game.shortName);
 
           return (
             <motion.li
@@ -102,6 +104,17 @@ export function GameSelector({ games, selectedId, onSelect, onEnd, hasMore = fal
                       : `linear-gradient(145deg, ${accent} 0%, ${accentSecondary} 100%)`,
                   }}
                 >
+                  {/* Badge de Región en el carrusel */}
+                  <span
+                    className={`absolute left-1.5 top-1.5 z-10 inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-extrabold shadow-md backdrop-blur border ${
+                      regionInfo.isRegionRestricted
+                        ? 'bg-amber-950/95 text-amber-300 border-amber-500/50'
+                        : 'bg-emerald-950/90 text-emerald-300 border-emerald-500/40'
+                    }`}
+                  >
+                    {regionInfo.regionBadge}
+                  </span>
+
                   {!game.logoUrl && (
                     <span
                       className="absolute inset-0 flex items-center justify-center text-4xl drop-shadow-lg"
@@ -116,7 +129,7 @@ export function GameSelector({ games, selectedId, onSelect, onEnd, hasMore = fal
                       initial={{ scale: 0 }}
                       animate={{ scale: 1 }}
                       transition={{ type: 'spring', damping: 14, stiffness: 400 }}
-                      className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-white text-black shadow-lg"
+                      className="absolute right-1.5 top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-white text-black shadow-lg"
                     >
                       <Check className="h-3.5 w-3.5" strokeWidth={3} aria-hidden />
                     </motion.span>
@@ -124,9 +137,10 @@ export function GameSelector({ games, selectedId, onSelect, onEnd, hasMore = fal
                 </div>
 
                 <p
-                  className={`mt-2 truncate px-0.5 text-xs font-bold transition-colors ${
+                  className={`mt-2 line-clamp-2 min-h-[2rem] leading-tight px-0.5 text-xs font-bold transition-colors ${
                     selected ? 'text-white' : 'text-slate-400 group-hover:text-slate-200'
                   }`}
+                  title={game.name}
                 >
                   {game.name}
                 </p>

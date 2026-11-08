@@ -49,6 +49,7 @@ import { Button, ButtonLink } from '@/components/ui/Button';
 import { ROUTES } from '@/lib/constants';
 import { readCreatorCode } from '@/lib/creatorCode';
 import { cn, hexToRgb } from '@/lib/utils';
+import { resolveRegionInfo, extractPackageRegionNotice } from '@/lib/regions';
 import type { PricePreview, PublicProduct } from '@/types/models';
 
 type Tab = 'auto' | 'manual' | 'level_up';
@@ -204,6 +205,12 @@ export function GamePage() {
   }, [maxQuantity, quantity]);
 
   useDocumentTitle(game ? `Recargar ${game.name}` : 'Recargar');
+
+  const regionInfo = useMemo(
+    () => (game ? resolveRegionInfo(game.regionCode || game.region, game.name, game.shortName) : null),
+    [game]
+  );
+  const selectedNotice = selected ? (selected.regionNotice || extractPackageRegionNotice(selected.name)) : null;
 
   const fields = useMemo(() => gameFields(game), [game]);
   const requiresPlayerData = game?.requiresPlayerData !== false;
@@ -467,6 +474,51 @@ export function GamePage() {
             hasMore={!carouselStarted || familyCatalog.hasMore || Boolean(familyCatalog.error)}
             isLoadingMore={carouselStarted && familyCatalog.isFetching} />
         </section>
+
+        {/* Banner de Información o Advertencia Regional */}
+        {regionInfo && (
+          regionInfo.isRegionRestricted ? (
+            <div className="mb-6 rounded-2xl border border-amber-500/50 bg-gradient-to-r from-amber-950/90 via-amber-900/50 to-amber-950/90 p-4 shadow-xl backdrop-blur">
+              <div className="flex items-start gap-3">
+                <span className="text-2xl shrink-0" role="img" aria-label="Advertencia">⚠️</span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-md bg-amber-500/20 px-2 py-0.5 text-xs font-black uppercase text-amber-300 border border-amber-500/40">
+                      {regionInfo.regionBadge}
+                    </span>
+                    <h3 className="text-sm font-bold text-amber-200">
+                      Producto con restricción de región
+                    </h3>
+                  </div>
+                  <p className="mt-1.5 text-xs sm:text-sm font-medium leading-relaxed text-amber-100">
+                    <strong className="text-amber-300">ATENCIÓN:</strong> Este producto es <span className="font-bold underline decoration-amber-400">EXCLUSIVO para cuentas de {regionInfo.regionLabel.replace(/^[^\w]+/, '')}</span>. NO funciona en cuentas de región Global o LATAM. Verifica la región de tu cuenta antes de recargar.
+                  </p>
+                  {selectedNotice && (
+                    <div className="mt-2 rounded-lg bg-amber-900/70 p-2 text-xs font-semibold text-amber-200 border border-amber-500/40">
+                      📌 Nota del paquete seleccionado: {selectedNotice}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="mb-6 rounded-xl border border-emerald-500/30 bg-emerald-950/40 px-3.5 py-2.5 backdrop-blur">
+              <div className="flex items-center justify-between flex-wrap gap-2 text-xs font-medium text-emerald-300">
+                <div className="flex items-center gap-2">
+                  <span className="text-base">🌎</span>
+                  <span>
+                    <strong className="font-bold text-emerald-200">Región: {regionInfo.regionCode === 'LATAM' ? 'LATAM' : 'Global / LATAM'}</strong> — Compatible con cuentas de Venezuela y Latinoamérica.
+                  </span>
+                </div>
+                {selectedNotice && (
+                  <span className="rounded bg-amber-950/90 px-2 py-0.5 text-[11px] font-bold text-amber-300 border border-amber-500/40">
+                    ⚠️ {selectedNotice}
+                  </span>
+                )}
+              </div>
+            </div>
+          )
+        )}
 
         {/* Paso 2 — datos de la cuenta. Las gift cards y keys no los piden. */}
         {requiresPlayerData && primaryField && <section className="mb-6">
@@ -844,6 +896,16 @@ export function GamePage() {
                 </div>
               ))}
             </dl>
+            {regionInfo?.isRegionRestricted && (
+              <div className="rounded-xl border border-amber-500/50 bg-amber-950/80 p-3 text-xs leading-relaxed text-amber-200">
+                <span className="font-bold text-amber-300">⚠️ Restricción de Región:</span> Este producto es exclusivo para cuentas de {regionInfo.regionLabel.replace(/^[^\w]+/, '')}. NO funciona en cuentas Globales ni de LATAM/Venezuela.
+              </div>
+            )}
+            {selectedNotice && (
+              <div className="rounded-xl border border-amber-500/50 bg-amber-950/80 p-3 text-xs leading-relaxed text-amber-200">
+                <span className="font-bold text-amber-300">⚠️ Restricción del paquete:</span> {selectedNotice}
+              </div>
+            )}
           </div>
         }
         confirmLabel="Están correctos, continuar"
