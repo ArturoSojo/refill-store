@@ -22,8 +22,8 @@ export const KNOWN_REGIONS: Record<string, RegionDef> = {
   LATAM: { name: 'LATAM', flag: '🌎', badge: 'LATAM', restricted: false },
   AMERICAS: { name: 'América', flag: '🌎', badge: 'AMÉRICAS', restricted: false },
   BR: { name: 'Brasil', flag: '🇧🇷', badge: 'BRASIL', restricted: true },
-  US: { name: 'EE.UU.', flag: '🇺🇸', badge: 'USA', restricted: true },
-  USA: { name: 'EE.UU.', flag: '🇺🇸', badge: 'USA', restricted: true },
+  US: { name: 'EE.UU.', flag: '🇺🇸', badge: 'EE.UU.', restricted: true },
+  USA: { name: 'EE.UU.', flag: '🇺🇸', badge: 'EE.UU.', restricted: true },
   ID: { name: 'Indonesia', flag: '🇮🇩', badge: 'INDONESIA', restricted: true },
   MY: { name: 'Malasia', flag: '🇲🇾', badge: 'MALASIA', restricted: true },
   PH: { name: 'Filipinas', flag: '🇵🇭', badge: 'FILIPINAS', restricted: true },
@@ -132,7 +132,7 @@ export function resolveRegionInfo(
     return {
       regionCode: code,
       regionLabel,
-      regionBadge: `${def.flag} ${def.badge}`,
+      regionBadge: def.badge,
       isRegionRestricted: def.restricted,
       regionWarning,
     };
@@ -141,11 +141,28 @@ export function resolveRegionInfo(
   // Código ISO de 2 letras desconocido
   return {
     regionCode: code,
-    regionLabel: `🏷️ Solo ${code}`,
-    regionBadge: `🏷️ ${code}`,
+    regionLabel: `Solo ${code}`,
+    regionBadge: code,
     isRegionRestricted: true,
     regionWarning: `⚠️ Exclusivo para cuentas registradas en ${code} (No válido para Global o LATAM)`,
   };
+}
+
+/**
+ * Limpia sufijos repetidos de región entre paréntesis en el título de un juego
+ * (ej. `PUBG Mobile (GLOBAL)` -> `PUBG Mobile`, `Mobile Legends (BR)` -> `Mobile Legends`).
+ */
+export function cleanGameTitle(title?: string | null): string {
+  if (!title) return '';
+  return title
+    .replace(/\s*(?:[-–—]\s*)?\((?:Solo\s+)?[A-Z\u00C0-\u00DC\s\/\-_]+\)\s*$/i, (match) => {
+      if (/\b(?:GLOBAL|LATAM|AMERICAS|NA|NAEU|EU|BR|US|USA|MX|CO|CL|AR|PE|UY|CR|ES|DE|FR|IT|PT|NL|BE|AT|CH|SE|NO|DK|FI|PL|CZ|HR|HU|RO|IE|LU|SG|VN|KH|BD|PK|EG|KW|BH|QA|LB|ZA|NG|MM|KZ|BY|RU|ID|MY|PH|TR|TH|KR|JP|IN|SEA|MENA|UK|GB|CA|AU|NZ|TW|HK|BFC|USDC)\b/i.test(match)) {
+        return '';
+      }
+      return match;
+    })
+    .replace(/\s+(?:GLOBAL|LATAM)\s*$/i, '')
+    .trim();
 }
 
 /**

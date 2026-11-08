@@ -8,10 +8,10 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Check, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Globe, Loader2, MapPin } from 'lucide-react';
 import { CurrencyIcon } from '@/components/common/CurrencyIcon';
 import { hexToRgb } from '@/lib/utils';
-import { resolveRegionInfo } from '@/lib/regions';
+import { resolveRegionInfo, cleanGameTitle } from '@/lib/regions';
 import type { Game } from '@/types/models';
 
 interface GameSelectorProps {
@@ -112,7 +112,12 @@ export function GameSelector({ games, selectedId, onSelect, onEnd, hasMore = fal
                         : 'bg-emerald-950/90 text-emerald-300 border-emerald-500/40'
                     }`}
                   >
-                    {regionInfo.regionBadge}
+                    {regionInfo.isRegionRestricted ? (
+                      <MapPin className="h-2 w-2 shrink-0 text-amber-400" aria-hidden />
+                    ) : (
+                      <Globe className="h-2 w-2 shrink-0 text-emerald-400" aria-hidden />
+                    )}
+                    <span>{regionInfo.regionBadge}</span>
                   </span>
 
                   {!game.logoUrl && (
@@ -138,11 +143,12 @@ export function GameSelector({ games, selectedId, onSelect, onEnd, hasMore = fal
 
                 <p
                   className={`mt-2 line-clamp-2 min-h-[2rem] leading-tight px-0.5 text-xs font-bold transition-colors ${
-                    selected ? 'text-white' : 'text-slate-400 group-hover:text-slate-200'
+                    selected ? 'text-white font-black' : 'text-slate-300 group-hover:text-white'
                   }`}
-                  title={game.name}
+                  style={{ color: selected ? '#ffffff' : undefined }}
+                  title={cleanGameTitle(game.name)}
                 >
-                  {game.name}
+                  {cleanGameTitle(game.name)}
                 </p>
               </button>
             </motion.li>

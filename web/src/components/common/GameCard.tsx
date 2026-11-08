@@ -1,8 +1,8 @@
 import { Link } from 'react-router-dom';
-import { ChevronRight, Zap } from 'lucide-react';
+import { ChevronRight, Globe, MapPin, Zap } from 'lucide-react';
 import { ROUTES, FALLBACK_ACCENT, FALLBACK_ACCENT_SECONDARY } from '@/lib/constants';
 import { hexToRgb } from '@/lib/utils';
-import { resolveRegionInfo } from '@/lib/regions';
+import { resolveRegionInfo, cleanGameTitle } from '@/lib/regions';
 import type { Game } from '@/types/models';
 
 interface GameCardProps {
@@ -41,7 +41,12 @@ export function GameCard({ game, productCount, minPriceUsd }: GameCardProps) {
               : 'bg-emerald-950/90 text-emerald-300 border-emerald-500/40'
           }`}
         >
-          {regionInfo.regionBadge}
+          {regionInfo.isRegionRestricted ? (
+            <MapPin className="h-2.5 w-2.5 shrink-0 text-amber-400" aria-hidden />
+          ) : (
+            <Globe className="h-2.5 w-2.5 shrink-0 text-emerald-400" aria-hidden />
+          )}
+          <span>{regionInfo.regionBadge}</span>
         </span>
 
         {game.logoUrl && (
@@ -61,8 +66,12 @@ export function GameCard({ game, productCount, minPriceUsd }: GameCardProps) {
 
       <div className="flex items-center justify-between gap-3 p-4">
         <div className="min-w-0 flex-1">
-          <h3 className="line-clamp-2 text-base sm:text-lg font-bold leading-snug text-white" title={game.name}>
-            {game.name}
+          <h3
+            className="line-clamp-2 text-base sm:text-lg font-bold leading-snug text-white"
+            style={{ color: '#ffffff' }}
+            title={cleanGameTitle(game.name)}
+          >
+            {cleanGameTitle(game.name)}
           </h3>
           <p className="mt-1 truncate text-sm text-slate-400">
             {productCount ? `${productCount} paquetes` : game.currencyLabel}

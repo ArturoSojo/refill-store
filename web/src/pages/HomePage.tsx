@@ -9,7 +9,9 @@ import {
   Sparkles,
   Wallet2,
   Gift,
+  Globe,
   KeyRound,
+  MapPin,
   Zap,
 } from 'lucide-react';
 import { useCatalog } from '@/hooks/useCatalog';
@@ -25,7 +27,7 @@ import { ROUTES } from '@/lib/constants';
 import { formatBs, formatRelative } from '@/lib/format';
 import { shortOrderItem } from '@/lib/orderItem';
 import { hexToRgb } from '@/lib/utils';
-import { resolveRegionInfo } from '@/lib/regions';
+import { resolveRegionInfo, cleanGameTitle } from '@/lib/regions';
 import type { Game } from '@/types/models';
 
 /** Tarjeta grande de juego, con la portada o un degradado del color propio. */
@@ -90,7 +92,12 @@ export function GameTile({
                 : 'bg-emerald-950/90 text-emerald-300 border-emerald-500/40'
             }`}
           >
-            {regionInfo.regionBadge}
+            {regionInfo.isRegionRestricted ? (
+              <MapPin className="h-2.5 w-2.5 shrink-0 text-amber-400" aria-hidden />
+            ) : (
+              <Globe className="h-2.5 w-2.5 shrink-0 text-emerald-400" aria-hidden />
+            )}
+            <span>{regionInfo.regionBadge}</span>
           </span>
 
           {!game.coverUrl && (
@@ -117,10 +124,11 @@ export function GameTile({
         <div className="flex items-center justify-between gap-2.5 p-3.5 sm:p-4">
           <div className="min-w-0 flex-1">
             <h3
-              className="line-clamp-2 min-h-[2.5rem] text-sm sm:text-base font-black leading-snug text-white"
-              title={game.name}
+              className="line-clamp-2 min-h-[2.5rem] text-sm sm:text-base font-bold leading-snug text-white"
+              style={{ color: '#ffffff' }}
+              title={cleanGameTitle(game.name)}
             >
-              {game.name}
+              {cleanGameTitle(game.name)}
             </h3>
             <p className="mt-1 truncate text-xs text-slate-400">
               {packageCount} paquetes
