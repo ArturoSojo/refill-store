@@ -55,7 +55,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   },
   email: {
     enabled: true,
-    fromAddress: 'soporte@recargasrefillstore.com',
+    fromAddress: 'soporterefillstore@gmail.com',
     fromName: 'Refill Store',
     replyTo: 'soporte@recargasrefillstore.com',
     onPaymentVerified: true,

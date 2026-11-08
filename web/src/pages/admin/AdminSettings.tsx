@@ -763,11 +763,11 @@ export function AdminSettings() {
 
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <Input
-            label="Cuenta que envía"
+            label="Cuenta que envía (Gmail SMTP)"
             defaultValue={config.email?.fromAddress ?? ''}
             onChange={(event) => patch('email', { fromAddress: event.target.value.trim() })}
-            placeholder="soporte@recargasrefillstore.com"
-            hint="Su contraseña de aplicación va en el secreto GMAIL_APP_PASSWORD."
+            placeholder="Soporterefillstore@gmail.com"
+            hint="Cuenta Gmail emisora directa. Su contraseña de aplicación va en GMAIL_APP_PASSWORD."
             disabled={!isAdmin}
           />
           <Input
@@ -779,10 +779,11 @@ export function AdminSettings() {
             disabled={!isAdmin}
           />
           <Input
-            label="Responder a"
+            label="Responder a (Reply-To)"
             defaultValue={config.email?.replyTo ?? ''}
             onChange={(event) => patch('email', { replyTo: event.target.value.trim() })}
-            hint="A dónde llega si el cliente responde el correo."
+            placeholder="soporte@recargasrefillstore.com"
+            hint="A dónde llegan las respuestas del cliente (soporte@recargasrefillstore.com)."
             disabled={!isAdmin}
             containerClassName="sm:col-span-2"
           />

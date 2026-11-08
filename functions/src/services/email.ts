@@ -37,20 +37,26 @@ export interface EmailMessage {
  */
 let cached: { transporter: Transporter; user: string } | null = null;
 
+const DEFAULT_SMTP_USER = 'soporterefillstore@gmail.com';
+const DEFAULT_REPLY_TO = 'soporte@recargasrefillstore.com';
+
 function getTransporter(user: string): Transporter | null {
   const pass = GMAIL_APP_PASSWORD.value();
-  if (!pass || !user) return null;
+  if (!pass) return null;
 
-  if (cached && cached.user === user) return cached.transporter;
+  // Gmail SMTP directo exige autenticar con la cuenta real de Gmail
+  const smtpUser = user && user.toLowerCase().endsWith('@gmail.com') ? user : DEFAULT_SMTP_USER;
+
+  if (cached && cached.user === smtpUser) return cached.transporter;
 
   const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
     port: 465,
     secure: true,
-    auth: { user, pass },
+    auth: { user: smtpUser, pass },
   });
 
-  cached = { transporter, user };
+  cached = { transporter, user: smtpUser };
   return transporter;
 }
 
@@ -81,14 +87,17 @@ export async function send(
   }
   if (!message.to) return { sent: false, reason: 'el destinatario no tiene correo' };
 
-  const from = config.email?.fromAddress ?? '';
+  const from = config.email?.fromAddress && config.email.fromAddress.toLowerCase().endsWith('@gmail.com')
+    ? config.email.fromAddress
+    : DEFAULT_SMTP_USER;
+  const replyTo = config.email?.replyTo || DEFAULT_REPLY_TO;
   const transporter = getTransporter(from);
   if (!transporter) return { sent: false, reason: 'falta GMAIL_APP_PASSWORD o el remitente' };
 
   try {
     await transporter.sendMail({
-      from: `"${config.email.fromName || config.storeName}" <${from}>`,
-      replyTo: config.email.replyTo || from,
+      from: `"${config.email.fromName || config.storeName || 'Refill Store'}" <${from}>`,
+      replyTo,
       to: message.to,
       subject: message.subject,
       text: message.text,
@@ -125,7 +134,10 @@ function maskEmail(email: string): string {
 /** Comprueba que Gmail acepte las credenciales, para el panel. */
 export async function verifyConnection(): Promise<{ ok: boolean; message: string | null }> {
   const config = await getConfig();
-  const transporter = getTransporter(config.email?.fromAddress ?? '');
+  const from = config.email?.fromAddress && config.email.fromAddress.toLowerCase().endsWith('@gmail.com')
+    ? config.email.fromAddress
+    : DEFAULT_SMTP_USER;
+  const transporter = getTransporter(from);
 
   if (!transporter) {
     return { ok: false, message: 'Falta el secreto GMAIL_APP_PASSWORD o la cuenta remitente.' };
