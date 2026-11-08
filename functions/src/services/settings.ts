@@ -57,7 +57,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     enabled: true,
     fromAddress: 'soporterefillstore@gmail.com',
     fromName: 'Refill Store',
-    replyTo: 'soporte@recargasrefillstore.com',
+    replyTo: 'ventas@recargasrefillstore.com',
     onPaymentVerified: true,
     onDelivered: true,
     // El cliente ya pagó y no recibió nada: sin un correo, se va directo a

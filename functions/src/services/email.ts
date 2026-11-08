@@ -27,6 +27,8 @@ export interface EmailMessage {
   html: string;
   /** Versión en texto plano. Su ausencia penaliza en los filtros de spam. */
   text: string;
+  /** Dirección a la que llegan las respuestas (ej. ventas@recargasrefillstore.com o soporte@recargasrefillstore.com) */
+  replyTo?: string;
 }
 
 /**
@@ -38,7 +40,7 @@ export interface EmailMessage {
 let cached: { transporter: Transporter; user: string } | null = null;
 
 const DEFAULT_SMTP_USER = 'soporterefillstore@gmail.com';
-const DEFAULT_REPLY_TO = 'soporte@recargasrefillstore.com';
+const DEFAULT_REPLY_TO = 'ventas@recargasrefillstore.com';
 
 function getTransporter(user: string): Transporter | null {
   const pass = GMAIL_APP_PASSWORD.value();
@@ -90,7 +92,7 @@ export async function send(
   const from = config.email?.fromAddress && config.email.fromAddress.toLowerCase().endsWith('@gmail.com')
     ? config.email.fromAddress
     : DEFAULT_SMTP_USER;
-  const replyTo = config.email?.replyTo || DEFAULT_REPLY_TO;
+  const replyTo = message.replyTo || config.email?.replyTo || DEFAULT_REPLY_TO;
   const transporter = getTransporter(from);
   if (!transporter) return { sent: false, reason: 'falta GMAIL_APP_PASSWORD o el remitente' };
 

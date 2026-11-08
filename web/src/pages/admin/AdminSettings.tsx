@@ -779,11 +779,11 @@ export function AdminSettings() {
             disabled={!isAdmin}
           />
           <Input
-            label="Responder a (Reply-To)"
+            label="Responder a facturas (Reply-To)"
             defaultValue={config.email?.replyTo ?? ''}
             onChange={(event) => patch('email', { replyTo: event.target.value.trim() })}
-            placeholder="soporte@recargasrefillstore.com"
-            hint="A dónde llegan las respuestas del cliente (soporte@recargasrefillstore.com)."
+            placeholder="ventas@recargasrefillstore.com"
+            hint="A dónde llegan las respuestas a facturas y compras (ventas@recargasrefillstore.com)."
             disabled={!isAdmin}
             containerClassName="sm:col-span-2"
           />
@@ -1240,9 +1240,10 @@ export function AdminSettings() {
             disabled={!isAdmin}
           />
           <Input
-            label="Correo de contacto"
+            label="Correo de contacto (Atención al cliente)"
             defaultValue={config.contact.email}
             placeholder="soporte@recargasrefillstore.com"
+            hint="Correo visible en el footer y soporte para clientes (soporte@recargasrefillstore.com)."
             onChange={(event) => patch('contact', { email: event.target.value })}
             disabled={!isAdmin}
           />
