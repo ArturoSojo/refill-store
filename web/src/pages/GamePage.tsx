@@ -156,35 +156,88 @@ export function GamePage() {
     [catalog.data]
   );
 
+  const isGiftCard = useMemo(() => {
+    if (!game) return false;
+    const category = (game as any).category || (game as any).type;
+    return Boolean(
+      game.providerFamily === 'gift_card' ||
+      game.providerFamily === 'game_key' ||
+      category === 'gift_card' ||
+      category === 'giftcard' ||
+      (game as any).isGiftCard === true ||
+      game.apiGameType === 'giftcard' ||
+      game.apiGameType === 'gift_card' ||
+      game.requiresPlayerData === false ||
+      /gift[\s_-]*card|tarjeta/i.test(game.currencyLabel || '')
+    );
+  }, [game]);
+
   const levelUp = useMemo(
-    () => products.filter((p) => p.kind === 'level_up'),
-    [products]
+    () => (isGiftCard ? [] : products.filter((p) => p.kind === 'level_up')),
+    [isGiftCard, products]
   );
-  const specials = useMemo(
-    () =>
-      products.filter(
-        (p) => p.kind === 'special' || p.fulfillment === 'manual'
-      ),
-    [products]
-  );
-  const currencyProducts = useMemo(
-    () =>
-      products.filter(
-        (p) =>
-          p.kind !== 'level_up' &&
-          p.kind !== 'special' &&
-          p.fulfillment === 'auto'
-      ),
-    [products]
-  );
-  const visible =
-    tab === 'level_up'
-      ? levelUp
-      : tab === 'manual'
-        ? specials
-        : currencyProducts.length > 0
-          ? currencyProducts
-          : products;
+
+  const specials = useMemo(() => {
+    if (isGiftCard) return [];
+    const hasAuto = products.some((p) => p.kind !== 'level_up' && p.fulfillment === 'auto');
+    return products.filter((p) => {
+      if (p.kind === 'level_up') return false;
+      if (p.kind === 'special') return true;
+      // Si el juego ofrece recargas directas automatizadas, las ofertas con fulfillment manual son servicios especiales (WhatsApp)
+      if (hasAuto && p.fulfillment === 'manual') return true;
+      return false;
+    });
+  }, [isGiftCard, products]);
+
+  const currencyProducts = useMemo(() => {
+    if (isGiftCard) return [];
+    const specialIds = new Set(specials.map((p) => p.id));
+    const levelUpIds = new Set(levelUp.map((p) => p.id));
+    return products.filter((p) => !specialIds.has(p.id) && !levelUpIds.has(p.id));
+  }, [isGiftCard, products, specials, levelUp]);
+
+  const availableTabs = useMemo(() => {
+    if (isGiftCard) return [];
+    const tabs: { key: Tab; label: string; icon: typeof Zap }[] = [];
+    if (currencyProducts.length > 0) {
+      tabs.push({
+        key: 'auto',
+        label: game?.currencyLabel || 'Recargas',
+        icon: Zap,
+      });
+    }
+    if (levelUp.length > 0) {
+      tabs.push({
+        key: 'level_up',
+        label: 'Subida de nivel',
+        icon: TrendingUp,
+      });
+    }
+    if (specials.length > 0) {
+      tabs.push({
+        key: 'manual',
+        label: 'Especiales',
+        icon: Sparkles,
+      });
+    }
+    return tabs;
+  }, [isGiftCard, currencyProducts.length, levelUp.length, specials.length, game?.currencyLabel]);
+
+  // Solo mostrar pestañas si NO es Gift Card y hay más de 1 categoría con paquetes reales
+  const showTabs = !isGiftCard && availableTabs.length > 1;
+
+  const activeTab: Tab = useMemo(() => {
+    if (!showTabs) return 'auto';
+    if (availableTabs.some((t) => t.key === tab)) return tab;
+    return availableTabs[0]?.key ?? 'auto';
+  }, [showTabs, availableTabs, tab]);
+
+  const visible = useMemo(() => {
+    if (!showTabs) return products;
+    if (activeTab === 'level_up') return levelUp;
+    if (activeTab === 'manual') return specials;
+    return currencyProducts;
+  }, [showTabs, activeTab, products, levelUp, specials, currencyProducts]);
   const selected = products.find((item) => item.id === selectedProductId) ?? null;
   // Misma regla que `catalog.maxOrderQuantity` en el servidor: las recargas
   // del catálogo de Central One (juegos `co-*` y extras que la sincronización
@@ -475,49 +528,14 @@ export function GamePage() {
             isLoadingMore={carouselStarted && familyCatalog.isFetching} />
         </section>
 
-        {/* Banner de Información o Advertencia Regional */}
-        {regionInfo && (
-          regionInfo.isRegionRestricted ? (
-            <div className="mb-6 rounded-2xl border border-amber-500/50 bg-gradient-to-r from-amber-950/90 via-amber-900/50 to-amber-950/90 p-4 shadow-xl backdrop-blur">
-              <div className="flex items-start gap-3">
-                <span className="text-2xl shrink-0" role="img" aria-label="Advertencia">⚠️</span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="rounded-md bg-amber-500/20 px-2 py-0.5 text-xs font-black uppercase text-amber-300 border border-amber-500/40">
-                      {regionInfo.regionBadge}
-                    </span>
-                    <h3 className="text-sm font-bold text-amber-200">
-                      Producto con restricción de región
-                    </h3>
-                  </div>
-                  <p className="mt-1.5 text-xs sm:text-sm font-medium leading-relaxed text-amber-100">
-                    <strong className="text-amber-300">ATENCIÓN:</strong> Este producto es <span className="font-bold underline decoration-amber-400">EXCLUSIVO para cuentas de {regionInfo.regionLabel.replace(/^[^\w]+/, '')}</span>. NO funciona en cuentas de región Global o LATAM. Verifica la región de tu cuenta antes de recargar.
-                  </p>
-                  {selectedNotice && (
-                    <div className="mt-2 rounded-lg bg-amber-900/70 p-2 text-xs font-semibold text-amber-200 border border-amber-500/40">
-                      📌 Nota del paquete seleccionado: {selectedNotice}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="mb-6 rounded-xl border border-emerald-500/30 bg-emerald-950/40 px-3.5 py-2.5 backdrop-blur">
-              <div className="flex items-center justify-between flex-wrap gap-2 text-xs font-medium text-emerald-300">
-                <div className="flex items-center gap-2">
-                  <span className="text-base">🌎</span>
-                  <span>
-                    <strong className="font-bold text-emerald-200">Región: {regionInfo.regionCode === 'LATAM' ? 'LATAM' : 'Global / LATAM'}</strong> — Compatible con cuentas de Venezuela y Latinoamérica.
-                  </span>
-                </div>
-                {selectedNotice && (
-                  <span className="rounded bg-amber-950/90 px-2 py-0.5 text-[11px] font-bold text-amber-300 border border-amber-500/40">
-                    ⚠️ {selectedNotice}
-                  </span>
-                )}
-              </div>
-            </div>
-          )
+        {/* Aviso sutil de región si el juego es restringido */}
+        {regionInfo?.isRegionRestricted && (
+          <div className="mx-1 mb-6 flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-950/20 px-3 py-1.5 text-xs text-amber-200">
+            <span className="shrink-0" role="img" aria-label="Ubicación">📍</span>
+            <span>
+              <strong className="font-semibold text-amber-300">Región activa: {regionInfo.regionBadge}</strong> (Válido solo para cuentas de esta región)
+            </span>
+          </div>
         )}
 
         {/* Paso 2 — datos de la cuenta. Las gift cards y keys no los piden. */}
@@ -661,62 +679,39 @@ export function GamePage() {
               Elige tu paquete
             </h2>
 
-            {(specials.length > 0 || levelUp.length > 0) && (
+            {showTabs && (
               <div className="inline-flex rounded-xl border border-base-600 bg-base-800 p-1">
-                <button
-                  type="button"
-                  onClick={() => setTab('auto')}
-                  className={cn(
-                    'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition',
-                    tab === 'auto'
-                      ? 'bg-brand-gradient text-white shadow-glow'
-                      : 'text-slate-400 hover:text-white'
-                  )}
-                >
-                  <Zap className="h-3 w-3" aria-hidden />
-                  {game.currencyLabel}
-                </button>
-                {levelUp.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setTab('level_up')}
-                    className={cn(
-                      'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition',
-                      tab === 'level_up'
-                        ? 'bg-brand-gradient text-white shadow-glow'
-                        : 'text-slate-400 hover:text-white'
-                    )}
-                  >
-                    <TrendingUp className="h-3 w-3" aria-hidden />
-                    Subida de nivel
-                  </button>
-                )}
-                {specials.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setTab('manual')}
-                    className={cn(
-                      'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition',
-                      tab === 'manual'
-                        ? 'bg-brand-gradient text-white shadow-glow'
-                        : 'text-slate-400 hover:text-white'
-                    )}
-                  >
-                    <Sparkles className="h-3 w-3" aria-hidden />
-                    Especiales
-                  </button>
-                )}
+                {availableTabs.map((t) => {
+                  const Icon = t.icon;
+                  const isActive = activeTab === t.key;
+                  return (
+                    <button
+                      key={t.key}
+                      type="button"
+                      onClick={() => setTab(t.key)}
+                      className={cn(
+                        'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition',
+                        isActive
+                          ? 'bg-brand-gradient text-white shadow-glow'
+                          : 'text-slate-400 hover:text-white'
+                      )}
+                    >
+                      <Icon className="h-3 w-3" aria-hidden />
+                      {t.label}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
 
-          {tab === 'level_up' && (
+          {showTabs && activeTab === 'level_up' && (
             <p className="mb-3 rounded-xl border border-sky-500/25 bg-sky-500/10 px-3 py-2 text-xs text-sky-200">
               Subida de nivel oficial para Free Fire. Se carga de forma directa e instantánea en tu cuenta con tu ID.
             </p>
           )}
 
-          {tab === 'manual' && (
+          {showTabs && activeTab === 'manual' && (
             <p className="mb-3 rounded-xl border border-green-500/25 bg-green-500/10 px-3 py-2 text-xs text-green-200">
               {specials.every((p) => p.fulfillment === 'auto')
                 ? 'Pases y ofertas especiales oficiales. Se acreditan de forma automática a tu cuenta.'
@@ -898,12 +893,12 @@ export function GamePage() {
             </dl>
             {regionInfo?.isRegionRestricted && (
               <div className="rounded-xl border border-amber-500/50 bg-amber-950/80 p-3 text-xs leading-relaxed text-amber-200">
-                <span className="font-bold text-amber-300">⚠️ Restricción de Región:</span> Este producto es exclusivo para cuentas de {regionInfo.regionLabel.replace(/^[^\w]+/, '')}. NO funciona en cuentas Globales ni de LATAM/Venezuela.
+                <span className="font-bold text-amber-300">⚠️ Restricción de Región:</span> Este producto es exclusivo para cuentas de {regionInfo.regionBadge}. NO funciona en cuentas Globales ni de LATAM/Venezuela.
               </div>
             )}
             {selectedNotice && (
               <div className="rounded-xl border border-amber-500/50 bg-amber-950/80 p-3 text-xs leading-relaxed text-amber-200">
-                <span className="font-bold text-amber-300">⚠️ Restricción del paquete:</span> {selectedNotice}
+                <span className="font-bold text-amber-300">⚠️ Restricción del paquete:</span> {selectedNotice.replace(/^[⚠️\s]+/, '')}
               </div>
             )}
           </div>

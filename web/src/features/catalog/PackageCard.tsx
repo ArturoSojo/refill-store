@@ -14,7 +14,6 @@ import { Check, MessageCircle, Star, Zap } from 'lucide-react';
 import { CurrencyIcon } from '@/components/common/CurrencyIcon';
 import { formatBs, formatUsd } from '@/lib/format';
 import { cn, hexToRgb } from '@/lib/utils';
-import { extractPackageRegionNotice } from '@/lib/regions';
 import type { Game, PublicProduct } from '@/types/models';
 
 interface PackageCardProps {
@@ -36,7 +35,6 @@ export function PackageCard({ product, game, selected, onSelect, index = 0 }: Pa
   // cada oferta a su manera: el nombre dice más que la cantidad sola.
   const isSyncedCatalog = game.provider === 'fazercards' || game.provider === 'centralone';
   const showOfferName = product.kind === 'special' || product.kind === 'level_up' || (isSyncedCatalog && !/^\s*[\d.,]+(?:\s|$)/.test(product.name));
-  const regionNotice = product.regionNotice || extractPackageRegionNotice(product.name);
 
   return (
     <motion.button
@@ -128,14 +126,6 @@ export function PackageCard({ product, game, selected, onSelect, index = 0 }: Pa
           )}
         </div>
       </div>
-
-      {/* Aviso regional específico del paquete si existe */}
-      {regionNotice && (
-        <span className="mb-2 flex items-center gap-1 rounded bg-amber-950/90 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300 border border-amber-500/40">
-          <span className="shrink-0 text-xs">⚠️</span>
-          <span className="line-clamp-1">{regionNotice}</span>
-        </span>
-      )}
 
       {/* Precio */}
       <div className="mt-auto">
