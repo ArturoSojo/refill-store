@@ -822,9 +822,7 @@ export function AdminSettings() {
         </div>
 
         <p className="mt-4 text-xs text-slate-500">
-          Gmail permite 500 correos al día. Tu día más movido fueron 21 órdenes, así que sobra
-          margen. Si algún día se queda corto, hará falta un dominio propio y un servicio de
-          envío.
+          Enviado a través de Resend SMTP con tu dominio verificado recargasrefillstore.com. La entrega cuenta con firmas SPF, DKIM y DMARC automáticas para llegar siempre a la bandeja de entrada principal.
         </p>
       </Card>
 
