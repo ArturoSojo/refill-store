@@ -147,6 +147,8 @@ export interface Game {
   accentColorSecondary: string;
   active: boolean;
   sortOrder: number;
+  /** Total de compras completadas históricas asociadas a este juego/gift card. */
+  salesCount?: number;
   /** Última vez que una sincronización del proveedor escribió este juego. */
   providerSyncedAt?: TimestampLike | null;
   /**

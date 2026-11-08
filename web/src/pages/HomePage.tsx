@@ -27,7 +27,7 @@ import { ROUTES } from '@/lib/constants';
 import { formatBs, formatRelative } from '@/lib/format';
 import { shortOrderItem } from '@/lib/orderItem';
 import { hexToRgb } from '@/lib/utils';
-import { resolveRegionInfo, cleanGameTitle } from '@/lib/regions';
+import { resolveRegionInfo, cleanGameTitle, compareCatalogGames } from '@/lib/regions';
 import type { Game } from '@/types/models';
 
 /** Tarjeta grande de juego, con la portada o un degradado del color propio. */
@@ -324,6 +324,9 @@ export function HomePage() {
       const items = groups.get(key) ?? [];
       items.push(game);
       groups.set(key, items);
+    }
+    for (const list of groups.values()) {
+      list.sort(compareCatalogGames);
     }
     return groups;
   }, [games]);

@@ -96,6 +96,8 @@ export interface Game {
   accentColorSecondary: string;
   active: boolean;
   sortOrder: number;
+  /** Total de compras completadas históricas asociadas a este juego/gift card. */
+  salesCount?: number;
   providerSyncedAt?: TimestampLike;
   /** El proveedor ya no lo ofrece (o se retiró FazerCards); oculto, no borrado. */
   providerRemoved?: boolean;

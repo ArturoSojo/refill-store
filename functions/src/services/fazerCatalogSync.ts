@@ -221,7 +221,7 @@ export async function syncFazerCatalog(input: {
           accentColor: meta.color,
           accentColorSecondary: family === 'gift_card' ? '#059669' : family === 'game_key' ? '#2563EB' : '#B01B1B',
           active: true,
-          sortOrder: categorySortOrder(family, id),
+          sortOrder: previousGame?.sortOrder ?? categorySortOrder(family, id),
           productCount: detail.offers.length,
           minPriceUsd: round(minPriceUsd, 2),
           providerSyncedAt: timestamp,

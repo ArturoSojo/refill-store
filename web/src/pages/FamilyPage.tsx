@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, Gamepad2, Gift, KeyRound, Search } from 'lucide-react';
 import { useFamilyCatalog } from '@/hooks/useCatalog';
@@ -7,6 +7,7 @@ import { AnimatedBackground } from '@/components/common/Decor';
 import { ErrorState, EmptyState, Skeleton } from '@/components/ui/Feedback';
 import { GameTile } from '@/pages/HomePage';
 import { ROUTES } from '@/lib/constants';
+import { compareCatalogGames } from '@/lib/regions';
 
 const FAMILIES = {
   topup: {
@@ -43,7 +44,8 @@ export function FamilyPage() {
     return () => window.clearTimeout(timer);
   }, [search]);
   const catalog = useFamilyCatalog(family, 30, true, debouncedSearch.length >= 2 ? debouncedSearch : '');
-  const games = catalog.data?.games ?? [];
+  const rawGames = catalog.data?.games ?? [];
+  const games = useMemo(() => [...rawGames].sort(compareCatalogGames), [rawGames]);
   const Icon = meta?.icon;
 
   useDocumentTitle(meta?.title ?? 'Catálogo');

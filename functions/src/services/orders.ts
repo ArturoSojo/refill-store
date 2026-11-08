@@ -2060,6 +2060,9 @@ export async function markCompleted(
     !txResult.alreadyAccounted
       ? usersService.registerCompletedPurchase(order.uid, order.pricing.totalUsd)
       : Promise.resolve(),
+    !txResult.alreadyAccounted
+      ? catalog.incrementGameSales(order.gameId)
+      : Promise.resolve(),
     // Idempotente: si el despacho automático ya la devengó, ésta no hace nada.
     creatorsService.accrueCommission(order),
     !txResult.alreadyAccounted

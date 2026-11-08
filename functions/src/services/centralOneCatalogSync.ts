@@ -39,7 +39,7 @@ import {
 import { applyMargin, round } from '../lib/money';
 import { slugify } from '../lib/ids';
 import { log } from '../lib/logger';
-import { resolveRegionInfo, extractPackageRegionNotice } from '../lib/regions';
+import { resolveRegionInfo, extractPackageRegionNotice, calculateGameSortOrder } from '../lib/regions';
 import { getConfig } from './settings';
 import * as centralOne from './centralOne';
 import type { CoCatalogItem } from './centralOne';
@@ -1734,7 +1734,13 @@ export function newCentralOneGameDoc(
     // El Free Fire de Central One convive con los dos de Inefable: nace
     // apagado y el cliente lo enciende cuando decida.
     active: !plan.isFreeFireLatam,
-    sortOrder: plan.sortOrder,
+    sortOrder: calculateGameSortOrder({
+      regionCode: plan.region,
+      name: plan.name,
+      providerFamily: plan.family,
+      salesCount: 0,
+    }),
+    salesCount: 0,
     hiddenReason: null,
     providerSyncedAt: timestamp,
     createdAt: timestamp,

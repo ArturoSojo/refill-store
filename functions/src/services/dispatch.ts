@@ -30,7 +30,7 @@ import * as creatorsService from './creators';
 import { addEvent } from './orderEvents';
 import { getConfig } from './settings';
 import { sendOrderEmail } from './orderEmails';
-import { resolvePlayerFields } from './catalog';
+import { resolvePlayerFields, incrementGameSales } from './catalog';
 import { describeOrder } from '../lib/orderItem';
 import { buildManualOrderUrl, buildWhatsappUrl } from './whatsapp';
 import type {
@@ -1906,6 +1906,9 @@ export async function finalizeDispatch(
         : Promise.resolve(),
       !alreadyAccounted
         ? usersService.registerCompletedPurchase(order.uid, order.pricing.totalUsd)
+        : Promise.resolve(),
+      !alreadyAccounted
+        ? incrementGameSales(order.gameId)
         : Promise.resolve(),
       // No lanza: la recarga ya llegó al jugador y un fallo contable no puede
       // deshacerla. Deja rastro en el registro para conciliar.

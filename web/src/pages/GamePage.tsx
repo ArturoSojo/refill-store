@@ -49,7 +49,7 @@ import { Button, ButtonLink } from '@/components/ui/Button';
 import { ROUTES } from '@/lib/constants';
 import { readCreatorCode } from '@/lib/creatorCode';
 import { cn, hexToRgb } from '@/lib/utils';
-import { resolveRegionInfo, extractPackageRegionNotice } from '@/lib/regions';
+import { resolveRegionInfo, extractPackageRegionNotice, compareCatalogGames } from '@/lib/regions';
 import type { PricePreview, PublicProduct } from '@/types/models';
 
 type Tab = 'auto' | 'manual' | 'level_up';
@@ -137,7 +137,7 @@ export function GamePage() {
     // profunda), sin descargar todo el catálogo sólo para el selector.
     const unique = new Map(candidates.map((item) => [item.id, item]));
     unique.set(game.id, game);
-    return [...unique.values()];
+    return [...unique.values()].sort(compareCatalogGames);
   }, [game, storefrontCatalog.data?.games, familyCatalog.data?.games]);
 
   const loadMoreGames = () => {

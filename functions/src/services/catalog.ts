@@ -1,6 +1,6 @@
 /** Lectura y escritura del catálogo (juegos y productos). */
 import { db, games, products, now } from '../config/firebase';
-import { FieldPath } from 'firebase-admin/firestore';
+import { FieldPath, FieldValue } from 'firebase-admin/firestore';
 import { notFound, failedPrecondition } from '../lib/errors';
 import { applyMargin, round, usdToBs } from '../lib/money';
 import { DEFAULT_PLAYER_FIELD } from '../types/models';
@@ -8,7 +8,7 @@ import { paginate, type Page } from '../lib/pagination';
 import { FAZER_FREE_FIRE_ID, INEFABLE_FREE_FIRE_ID } from '../lib/storefront';
 import { slugify } from '../lib/ids';
 import { resolveFazerValidationCategory } from '../lib/validation';
-import { resolveRegionInfo, extractPackageRegionNotice } from '../lib/regions';
+import { resolveRegionInfo, extractPackageRegionNotice, compareCatalogGames } from '../lib/regions';
 import type { Game, PlayerField, Product, PublicProduct } from '../types/models';
 
 export async function listGames(options: { onlyActive?: boolean } = {}): Promise<Game[]> {
@@ -164,13 +164,25 @@ export async function listStorefrontHomeGamesByFamily(family: FazerFamily, limit
       return game.active && accepted ? game : null;
     }),
   ]);
-  const rank = new Map((HOME_PRIORITY[family] ?? []).map((id, index) => [id, index]));
   const unique = new Map([...firstPage, ...pinned.filter((game): game is Game => Boolean(game))].map((game) => [game.id, game]));
   return [...unique.values()]
-    .sort((a, b) => (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER)
-      || (a.sortOrder ?? 0) - (b.sortOrder ?? 0)
-      || a.id.localeCompare(b.id))
+    .sort(compareCatalogGames)
     .slice(0, limit);
+}
+
+/**
+ * Incrementa las compras registradas de un juego/gift card cuando una compra se completa con éxito.
+ */
+export async function incrementGameSales(gameId: string): Promise<void> {
+  if (!gameId) return;
+  try {
+    const gameRef = games().doc(gameId);
+    await gameRef.update({
+      salesCount: FieldValue.increment(1),
+    });
+  } catch (err) {
+    // Si el documento no existe o falla la actualización, no bloquea el flujo principal
+  }
 }
 
 /**
