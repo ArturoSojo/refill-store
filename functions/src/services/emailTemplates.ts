@@ -21,8 +21,8 @@ const TEXTO = '#e5e7eb';
 const SUAVE = '#9ca3af';
 const BORDE = '#374151';
 
-function escape(value: string): string {
-  return value
+function escape(value: string | null | undefined): string {
+  return String(value ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -181,10 +181,13 @@ export function renderOrderEmail(
   const totalBs = pricing.totalBs > 0 ? `${formatBs(pricing.totalBs)} Bs` : 'Pagado con saldo';
 
   const mode = config.supportChannelMode || 'both';
-  const showWa = (mode === 'both' || mode === 'whatsapp') && Boolean(config.whatsapp?.supportNumber);
+  const supportNumber = String(config.whatsapp?.supportNumber ?? '').replace(/\D/g, '');
+  const showWa = (mode === 'both' || mode === 'whatsapp') && Boolean(supportNumber);
   const showTg = mode === 'both' || mode === 'telegram';
-  const soporteWa = showWa ? `https://wa.me/${config.whatsapp.supportNumber.replace(/\D/g, '')}` : null;
-  const soporteTg = showTg ? `https://t.me/${(config.telegramSupportBotUsername || 'V2RefillBot').replace(/^@/, '')}?start=orden_${encodeURIComponent(order.code)}` : null;
+  const soporteWa = showWa ? `https://wa.me/${supportNumber}` : null;
+  const soporteTg = showTg ? `https://t.me/${String(config.telegramSupportBotUsername || 'V2RefillBot').replace(/^@/, '')}?start=orden_${encodeURIComponent(order.code || '')}` : null;
+  const storeName = config.storeName || 'Refill Store';
+  const gameTitle = order.gameName || order.juego || 'Recarga';
 
   const html = `<!doctype html>
 <html lang="es">
@@ -198,7 +201,7 @@ export function renderOrderEmail(
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#1f2937;border-radius:16px;overflow:hidden;border:1px solid ${BORDE};">
 
         <tr><td style="background:#111827;padding:22px 28px;text-align:center;border-bottom:1px solid ${BORDE};">
-          <img src="https://recargasrefillstore.com/brand/emblem-128.png" alt="Refill Store" width="36" height="36" style="vertical-align:middle;margin-right:10px;border-radius:8px;display:inline-block;" /><span style="color:#ffffff;font-size:22px;font-weight:700;vertical-align:middle;">${escape(config.storeName)}</span>
+          <img src="https://recargasrefillstore.com/brand/emblem-128.png" alt="Refill Store" width="36" height="36" style="vertical-align:middle;margin-right:10px;border-radius:8px;display:inline-block;" /><span style="color:#ffffff;font-size:22px;font-weight:700;vertical-align:middle;">${escape(storeName)}</span>
         </td></tr>
 
         <tr><td style="padding:32px 28px 8px;">
@@ -212,7 +215,7 @@ export function renderOrderEmail(
             <tr><td colspan="2" style="padding-bottom:8px;font-size:12px;font-weight:700;letter-spacing:.5px;color:${SUAVE};border-bottom:1px solid ${BORDE};">DETALLE DE LA COMPRA</td></tr>
             ${row('Orden', order.code, { fuerte: true })}
             ${row('Fecha', formatDate(order))}
-            ${row('Producto', order.gameName)}
+            ${row('Producto', gameTitle)}
             ${row('Paquete', describeOrder(order))}
             ${camposJugador}
           </table>
@@ -270,13 +273,13 @@ export function renderOrderEmail(
     '',
     `Orden: ${order.code}`,
     `Fecha: ${formatDate(order)}`,
-    `Producto: ${order.gameName}`,
+    `Producto: ${gameTitle}`,
     `Paquete: ${describeOrder(order)}`,
     conCodigos ? `Ver código: ${enlaceOrden(order)}` : `Cuenta recargada: ${order.playerId}`,
-    order.payment.reference ? `Referencia: ${order.payment.reference}` : '',
+    order.payment?.reference ? `Referencia: ${order.payment.reference}` : '',
     `Total: ${totalBs} (${formatUsd(pricing.totalUsd)})`,
     '',
-    `${config.storeName}`,
+    `${storeName}`,
   ]
     .filter(Boolean)
     .join('\n');

@@ -643,6 +643,7 @@ export async function createOrder(
     await Promise.all([
       catalog.decrementStock(product.id, quantity),
       couponCode ? couponsService.consume(couponCode) : Promise.resolve(),
+      sendOrderEmail('payment_verified', orderRef.id),
     ]);
 
     if (product.fulfillment === 'auto') {
@@ -1521,9 +1522,7 @@ export async function verifyPayment(
     ]);
 
 
-  // Sin `await`: el comprobante no debe retrasar la respuesta al cliente, que
-  // está esperando ver si su recarga salió.
-  void sendOrderEmail('payment_verified', orderId);
+  await sendOrderEmail('payment_verified', orderId);
 
   // --- Entrega ---
   if (order.gameId === 'wallet') {
@@ -1539,7 +1538,7 @@ export async function verifyPayment(
       completedAt: FieldValue.serverTimestamp(),
     });
 
-    void sendOrderEmail('delivered', orderId);
+    await sendOrderEmail('delivered', orderId);
 
     await addEvent({
       orderId,
@@ -1912,6 +1911,7 @@ export async function payWithWallet(user: AuthUser, orderId: string): Promise<Or
     }),
     catalog.decrementStock(order.productId, order.pricing.quantity),
     order.pricing.couponCode ? couponsService.consume(order.pricing.couponCode) : Promise.resolve(),
+    sendOrderEmail('payment_verified', orderId),
   ]);
 
   if (order.fulfillment === 'auto') {
@@ -2037,7 +2037,7 @@ export async function markCompleted(
 
   // El cliente recibe el mismo comprobante de entrega tanto si la despachó el
   // proveedor como si la completó el equipo a mano.
-  void sendOrderEmail('delivered', orderId);
+  await sendOrderEmail('delivered', orderId);
 
   await Promise.all([
     addEvent({

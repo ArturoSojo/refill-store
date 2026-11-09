@@ -17,6 +17,31 @@ import { onlyDigits } from '@/lib/utils';
 import { DEFAULT_PLAYER_FIELD, type Game, type PlayerField } from '@/types/models';
 import { resolveFazerValidationCategory } from './validation';
 
+const ID_KEYS = new Set([
+  'player_id',
+  'game_user_id',
+  'user_id',
+  'uid',
+  'account_id',
+  'character_id',
+  'open_id',
+  'role_id',
+  'playerid',
+  'userid',
+]);
+
+const SERVER_KEYS = new Set([
+  'server_id',
+  'zone_id',
+  'game_zone_id',
+  'server',
+  'zone',
+  'game_server_id',
+  'region',
+  'serverid',
+  'zoneid',
+]);
+
 /** Campos del juego, con respaldo para documentos antiguos sin `playerFields`. */
 export function gameFields(game: Game | null | undefined): PlayerField[] {
   if (!game) return [DEFAULT_PLAYER_FIELD];
@@ -47,15 +72,33 @@ export function gameFields(game: Game | null | undefined): PlayerField[] {
     ];
   }
 
-  // Deduplicar campos si vienen dos campos con la misma etiqueta de ID de jugador
-  // para evitar renderizar un segundo input duplicado con MapPin
-  const seenId = new Set<string>();
+  // Deduplicación universal: jamás pedir dos veces el ID de jugador
+  // ni dos veces el servidor/zona en ningún juego del catálogo.
+  let seenId = false;
+  let seenServer = false;
   const sanitizedDeclared: PlayerField[] = [];
   for (const f of declared) {
+    const key = (f.key || '').toLowerCase();
     const norm = (f.label || '').trim().toLowerCase();
-    const isIdLabel = norm.includes('id de jugador') || norm === 'player id';
-    if (isIdLabel && seenId.has('id')) continue;
-    if (isIdLabel) seenId.add('id');
+    const isId =
+      ID_KEYS.has(key) ||
+      norm.includes('id de jugador') ||
+      norm.includes('id del jugador') ||
+      norm === 'player id' ||
+      norm === 'user id' ||
+      norm === 'uid';
+    const isServer =
+      SERVER_KEYS.has(key) ||
+      norm.includes('servidor / zone id') ||
+      norm.includes('zone id');
+
+    if (isId) {
+      if (seenId) continue;
+      seenId = true;
+    } else if (isServer) {
+      if (seenServer) continue;
+      seenServer = true;
+    }
     sanitizedDeclared.push(f);
   }
 

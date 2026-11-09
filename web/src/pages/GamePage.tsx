@@ -233,10 +233,40 @@ export function GamePage() {
   }, [showTabs, availableTabs, tab]);
 
   const visible = useMemo(() => {
-    if (!showTabs) return products;
-    if (activeTab === 'level_up') return levelUp;
-    if (activeTab === 'manual') return specials;
-    return currencyProducts;
+    let list: PublicProduct[];
+    if (!showTabs) list = products;
+    else if (activeTab === 'level_up') list = levelUp;
+    else if (activeTab === 'manual') list = specials;
+    else list = currencyProducts;
+
+    // Blindaje defensivo de deduplicación visual:
+    // Evita renderizar dos tarjetas repetidas de la misma denominación en la misma pestaña
+    const seen = new Map<string, PublicProduct>();
+    for (const p of list) {
+      const name = (p.name || '').trim();
+      const isPkg = p.kind === 'package' || (p.amount > 0 && p.kind !== 'special');
+      let key: string;
+      if (isPkg && p.amount > 0) {
+        key = `pkg:${p.amount}:${p.bonus || 0}`;
+      } else {
+        const clean = name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+        key = `special:${clean}`;
+      }
+
+      const existing = seen.get(key);
+      if (!existing) {
+        seen.set(key, p);
+      } else {
+        const pHasLetters = /[a-zA-Z]/.test(name);
+        const exHasLetters = /[a-zA-Z]/.test(existing.name || '');
+        if (pHasLetters && !exHasLetters) {
+          seen.set(key, p);
+        } else if (pHasLetters === exHasLetters && p.priceUsd < existing.priceUsd) {
+          seen.set(key, p);
+        }
+      }
+    }
+    return Array.from(seen.values());
   }, [showTabs, activeTab, products, levelUp, specials, currencyProducts]);
   const selected = products.find((item) => item.id === selectedProductId) ?? null;
   // Misma regla que `catalog.maxOrderQuantity` en el servidor: las recargas

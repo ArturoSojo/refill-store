@@ -438,13 +438,62 @@ export function buildCentralOnePlayerFields(
       },
     ];
   }
+  const ID_KEYS = new Set([
+    'player_id',
+    'game_user_id',
+    'user_id',
+    'uid',
+    'account_id',
+    'character_id',
+    'open_id',
+    'role_id',
+    'playerid',
+    'userid',
+  ]);
+  const SERVER_KEYS = new Set([
+    'server_id',
+    'zone_id',
+    'game_zone_id',
+    'server',
+    'zone',
+    'game_server_id',
+    'region',
+    'serverid',
+    'zoneid',
+  ]);
+
   const previousByKey = new Map(existing.map((field) => [field.key, field]));
   const providerKeys = new Set<string>();
   const fields: PlayerField[] = [];
+  let hasIdField = false;
+  let hasServerField = false;
 
   for (const spec of specs) {
     const key = text(spec?.key);
     if (!key || providerKeys.has(key)) continue;
+
+    const keyLower = key.toLowerCase();
+    const rawLabel = (text(spec.label) || FIELD_KEY_LABELS[key] || humanizeKey(key)).toLowerCase();
+    const isId =
+      ID_KEYS.has(keyLower) ||
+      rawLabel.includes('id de jugador') ||
+      rawLabel.includes('id del jugador') ||
+      rawLabel === 'player id' ||
+      rawLabel === 'uid' ||
+      rawLabel === 'user id';
+    const isServer =
+      SERVER_KEYS.has(keyLower) ||
+      rawLabel.includes('servidor / zone id') ||
+      rawLabel.includes('zone id');
+
+    // Prohibido pedir dos veces el ID de jugador en cualquier juego
+    if (isId && hasIdField) continue;
+    // Prohibido pedir dos campos redundantes de Servidor / Zona
+    if (isServer && hasServerField) continue;
+
+    if (isId) hasIdField = true;
+    if (isServer) hasServerField = true;
+
     providerKeys.add(key);
     const index = providerKeys.size - 1;
     const options = spec.type === 'select' ? normalizeOptions(spec.options) : [];
@@ -702,6 +751,11 @@ export function mapCentralOneCatalog(
     const offers: CentralOneOffer[] = [];
     let validates = false;
 
+    const preliminaryLabels = group.items.map((item) =>
+      centralOneOfferLabel(String(item.name ?? ''), familyName) || String(item.name ?? '')
+    );
+    const currency = currencyFor(family, familyName, preliminaryLabels);
+
     for (const item of group.items) {
       const costUsd = centralOne.parseAmount(item.reseller_price);
       if (costUsd === null || costUsd <= 0) {
@@ -733,7 +787,12 @@ export function mapCentralOneCatalog(
         if (covered.has(item.product_id)) validates = true;
       }
 
-      const rawLabel = centralOneOfferLabel(String(item.name ?? ''), familyName) || String(item.name ?? '');
+      let rawLabel = centralOneOfferLabel(String(item.name ?? ''), familyName) || String(item.name ?? '');
+      // Si la etiqueta es solo un número huérfano (ej: "16", "80", "400"),
+      // añadir siempre el nombre de la moneda del juego para que nunca quede un número huérfano.
+      if (family === 'topup' && /^\d+(\s*\+\s*\d+)?$/.test(rawLabel.trim()) && currency.label) {
+        rawLabel = `${rawLabel.trim()} ${currency.label}`;
+      }
       const card = isFreeFireCard(familyName, `${item.name ?? ''} ${rawLabel}`);
       const label = FREE_FIRE_NAME.test(familyName) ? spanishFreeFireName(rawLabel) : rawLabel;
       const kind = classifyCentralOneKind(rawLabel, family);
@@ -764,9 +823,49 @@ export function mapCentralOneCatalog(
         deliveryEtaMinutes: family === 'topup' ? 2 : 5,
       });
     }
-    if (offers.length === 0) continue;
-    offers.sort((a, b) => a.costUsd - b.costUsd || (a.productId < b.productId ? -1 : a.productId > b.productId ? 1 : 0));
-    itemsMapped += offers.length;
+
+    // Deduplicación estricta de ofertas dentro del mismo juego:
+    // Si existen dos o más paquetes que entregan la misma cantidad numérica base y bono,
+    // o el mismo especial/gift card, quedarse ÚNICAMENTE con uno:
+    // priorizando que esté activo/disponible en proveedor, tenga el nombre formateado con unidad y menor costo.
+    const seenOfferKeys = new Map<string, CentralOneOffer>();
+
+    for (const offer of offers) {
+      const isPkg = offer.kind === 'package' || (offer.amount > 0 && offer.kind !== 'special');
+      let key: string;
+      if (isPkg && offer.amount > 0) {
+        key = `pkg:${offer.amount}:${offer.bonus}:${currency.label.toLowerCase()}`;
+      } else {
+        const clean = offer.label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+        key = `special:${clean}`;
+      }
+
+      const existing = seenOfferKeys.get(key);
+      if (!existing) {
+        seenOfferKeys.set(key, offer);
+      } else {
+        let replace = false;
+        if (offer.providerAvailable && !existing.providerAvailable) {
+          replace = true;
+        } else if (offer.providerAvailable === existing.providerAvailable) {
+          const offerHasLetters = /[a-zA-Z]/.test(offer.label);
+          const exHasLetters = /[a-zA-Z]/.test(existing.label);
+          if (offerHasLetters && !exHasLetters) {
+            replace = true;
+          } else if (offerHasLetters === exHasLetters && offer.costUsd < existing.costUsd) {
+            replace = true;
+          }
+        }
+        if (replace) {
+          seenOfferKeys.set(key, offer);
+        }
+      }
+    }
+
+    const deduplicatedOffers = Array.from(seenOfferKeys.values());
+    if (deduplicatedOffers.length === 0) continue;
+    deduplicatedOffers.sort((a, b) => a.costUsd - b.costUsd || (a.productId < b.productId ? -1 : a.productId > b.productId ? 1 : 0));
+    itemsMapped += deduplicatedOffers.length;
 
     const previousFields = (existing.games?.get(id)?.playerFields ?? []) as PlayerField[];
     plans.push({
@@ -781,9 +880,9 @@ export function mapCentralOneCatalog(
       playerFields: family === 'topup' ? buildCentralOnePlayerFields(specs, previousFields, knownProviderKeys, id) : [],
       targetFields: family === 'topup' ? specs.map((spec) => spec.key) : [],
       validatesPlayerId: family === 'topup' && validates,
-      currency: currencyFor(family, familyName, offers.map((offer) => offer.label)),
+      currency,
       sortOrder: centralOneGameSortOrder(family, familyName),
-      offers,
+      offers: deduplicatedOffers,
       fieldSignatures: signatures.size,
     });
   }

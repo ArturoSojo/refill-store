@@ -1874,7 +1874,7 @@ export async function finalizeDispatch(
   }
 
   if (allSucceeded) {
-    void sendOrderEmail('delivered', orderId);
+    await sendOrderEmail('delivered', orderId);
 
     // Una gift card no se acredita a ninguna cuenta: lo entregado es un código
     // que el cliente ve en el detalle de su orden.
@@ -1982,7 +1982,7 @@ export async function finalizeDispatch(
       }
     }
   } else {
-    void sendOrderEmail('dispatch_failed', orderId);
+    await sendOrderEmail('dispatch_failed', orderId);
 
     await addEvent({
       orderId,

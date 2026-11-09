@@ -1723,14 +1723,16 @@ adminRouter.post(
       z.object({
         kind: z.enum(['payment_verified', 'delivered', 'dispatch_failed']).default('delivered'),
         orderId: z.string().trim().optional(),
+        to: z.string().trim().email().optional(),
       })
     );
 
     const actor = currentUser(req);
-    if (!actor.email) throw failedPrecondition('Tu usuario no tiene correo al que enviar.');
+    const targetEmail = body.to || actor.email;
+    if (!targetEmail) throw failedPrecondition('Tu usuario no tiene correo al que enviar.');
 
     const conexion = await emailService.verifyConnection();
-    if (!conexion.ok) throw failedPrecondition(conexion.message ?? 'Gmail rechazó la conexión.');
+    if (!conexion.ok) throw failedPrecondition(conexion.message ?? 'Resend rechazó la conexión.');
 
     const order = body.orderId
       ? await ordersService.getOrder(body.orderId)
@@ -1755,8 +1757,9 @@ adminRouter.post(
     );
 
     const result = await emailService.send({
-      to: actor.email,
+      to: targetEmail,
       from: emailService.SALES_FROM,
+      replyTo: emailService.DEFAULT_REPLY_TO,
       subject: `[PRUEBA] ${rendered.subject}`,
       html: rendered.html,
       text: rendered.text,
@@ -1764,7 +1767,7 @@ adminRouter.post(
 
     if (!result.sent) throw failedPrecondition(result.reason ?? 'No se pudo enviar el correo.');
 
-    ok(res, { sent: true, to: actor.email, orderCode: order.code });
+    ok(res, { sent: true, to: targetEmail, orderCode: order.code, messageId: result.messageId });
   })
 );
 

@@ -554,6 +554,67 @@ export function pickCentralOneValidationTarget(
 // Campos que el juego le pide al comprador
 // ---------------------------------------------------------------------------
 
+const ID_KEYS = new Set([
+  'player_id',
+  'game_user_id',
+  'user_id',
+  'uid',
+  'account_id',
+  'character_id',
+  'open_id',
+  'role_id',
+  'playerid',
+  'userid',
+]);
+
+const SERVER_KEYS = new Set([
+  'server_id',
+  'zone_id',
+  'game_zone_id',
+  'server',
+  'zone',
+  'game_server_id',
+  'region',
+  'serverid',
+  'zoneid',
+]);
+
+export function sanitizePlayerFields(fields: PlayerField[]): PlayerField[] {
+  if (!Array.isArray(fields) || fields.length <= 1) return fields;
+
+  let seenId = false;
+  let seenServer = false;
+  const sanitized: PlayerField[] = [];
+
+  for (const field of fields) {
+    const key = (field.key || '').toLowerCase();
+    const label = (field.label || '').toLowerCase();
+    const isId =
+      ID_KEYS.has(key) ||
+      label.includes('id de jugador') ||
+      label.includes('id del jugador') ||
+      label === 'player id' ||
+      label === 'user id' ||
+      label === 'uid';
+    const isServer =
+      SERVER_KEYS.has(key) ||
+      label.includes('servidor / zone id') ||
+      label.includes('zone id');
+
+    if (isId) {
+      if (seenId) continue;
+      seenId = true;
+    } else if (isServer) {
+      if (seenServer) continue;
+      seenServer = true;
+    }
+
+    sanitized.push(field);
+  }
+
+  return sanitized;
+}
+
 /**
  * Lista de campos del juego, reconstruyendo uno solo para los juegos antiguos.
  *
@@ -563,7 +624,7 @@ export function pickCentralOneValidationTarget(
  */
 export function resolvePlayerFields(game: Game): PlayerField[] {
   if (game.requiresPlayerData === false) return [];
-  const declared = Array.isArray(game.playerFields) ? game.playerFields : [];
+  const declared = sanitizePlayerFields(Array.isArray(game.playerFields) ? game.playerFields : []);
 
   const isBs =
     game.id === 'blood-strike' ||

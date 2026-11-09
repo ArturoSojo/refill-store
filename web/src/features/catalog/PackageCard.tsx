@@ -36,6 +36,15 @@ export function PackageCard({ product, game, selected, onSelect, index = 0 }: Pa
   const isSyncedCatalog = game.provider === 'fazercards' || game.provider === 'centralone';
   const showOfferName = product.kind === 'special' || product.kind === 'level_up' || (isSyncedCatalog && !/^\s*[\d.,]+(?:\s|$)/.test(product.name));
 
+  const formattedSubtitle = (() => {
+    const raw = (product.name || '').trim();
+    const currency = (game.currencyLabel || '').trim();
+    if (/^\d+(\s*\+\s*\d+)?$/.test(raw) && currency) {
+      return `${raw} ${currency}`;
+    }
+    return raw;
+  })();
+
   return (
     <motion.button
       type="button"
@@ -120,7 +129,7 @@ export function PackageCard({ product, game, selected, onSelect, index = 0 }: Pa
                 </p>
               )}
               {isSyncedCatalog && (
-                <p className="mt-1 line-clamp-2 text-[11px] leading-tight text-slate-300">{product.name}</p>
+                <p className="mt-1 line-clamp-2 text-[11px] leading-tight text-slate-300">{formattedSubtitle}</p>
               )}
             </>
           )}

@@ -32,6 +32,7 @@ import { round } from '../lib/money';
 import { resolveManualCatalogCost } from './manualCatalogCosts';
 import * as tiers from '../lib/tiers';
 import * as stats from './stats';
+import { sendOrderEmail } from './orderEmails';
 import { activeLadder } from './users';
 import type {
   DispatchCallResult,
@@ -710,6 +711,16 @@ export async function syncWhatsappOrder(rawInput: unknown): Promise<SyncWhatsapp
         orderId,
         error: err instanceof Error ? err.message : String(err),
       });
+    }
+  }
+
+  if (txOutcome.savedOrder.user?.email || txOutcome.matchedUserId) {
+    if (txOutcome.savedOrder.status === 'completed') {
+      await sendOrderEmail('delivered', orderId);
+    } else if (txOutcome.savedOrder.status === 'in_review') {
+      await sendOrderEmail('dispatch_failed', orderId);
+    } else if (txOutcome.savedOrder.status === 'paid') {
+      await sendOrderEmail('payment_verified', orderId);
     }
   }
 

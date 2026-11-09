@@ -486,6 +486,31 @@ function text(value: unknown): string | null {
   return String(value);
 }
 
+const ID_KEYS = new Set([
+  'player_id',
+  'game_user_id',
+  'user_id',
+  'uid',
+  'account_id',
+  'character_id',
+  'open_id',
+  'role_id',
+  'playerid',
+  'userid',
+]);
+
+const SERVER_KEYS = new Set([
+  'server_id',
+  'zone_id',
+  'game_zone_id',
+  'server',
+  'zone',
+  'game_server_id',
+  'region',
+  'serverid',
+  'zoneid',
+]);
+
 /**
  * Arma `target_payload` con exactamente las claves que pide el producto
  * (`target_fields` del catálogo, congeladas en la orden).
@@ -494,7 +519,9 @@ function text(value: unknown): string | null {
  * los juegos de Central One se llaman igual que en el proveedor). Si falta, se
  * cae al ID principal para la primera clave y al secundario (Zone ID) para la
  * segunda: así una orden de un juego con campos antiguos (`playerId`) también
- * llega completa. Los vacíos se omiten: Central One rechaza la línea con un
+ * llega completa. Si el proveedor pide `game_user_id`, `player_id`, `user_id` o `uid`,
+ * se auto-completan con el ID del jugador ingresado.
+ * Los vacíos se omiten: Central One rechaza la línea con un
  * mensaje claro en vez de recibir un dato inventado.
  */
 export function buildTargetPayloadFromFields(
@@ -503,17 +530,42 @@ export function buildTargetPayloadFromFields(
   fallback: { playerId?: string | null; playerId2?: string | null }
 ): Record<string, string> {
   const payload: Record<string, string> = {};
-  const isIdKey = (k: string) => k === 'player_id' || k === 'game_user_id' || k === 'user_id';
+
+  // Resolver ID único disponible entre los valores ingresados y el fallback
+  let resolvedId: string | null = fallback.playerId?.trim() || null;
+  if (!resolvedId && values) {
+    for (const [k, v] of Object.entries(values)) {
+      if (ID_KEYS.has(k.toLowerCase()) && v && String(v).trim()) {
+        resolvedId = String(v).trim();
+        break;
+      }
+    }
+  }
+
+  // Resolver Servidor/Zona único disponible entre los valores ingresados y el fallback
+  let resolvedServer: string | null = fallback.playerId2?.trim() || null;
+  if (!resolvedServer && values) {
+    for (const [k, v] of Object.entries(values)) {
+      if (SERVER_KEYS.has(k.toLowerCase()) && v && String(v).trim()) {
+        resolvedServer = String(v).trim();
+        break;
+      }
+    }
+  }
 
   targetFields.forEach((key, index) => {
     let raw: string | null | undefined = values?.[key];
+    const keyLower = key.toLowerCase();
+
     if (raw === undefined || raw === null || String(raw).trim() === '') {
-      if (isIdKey(key)) {
-        raw = fallback.playerId ?? values?.game_user_id ?? values?.player_id ?? values?.playerId ?? null;
+      if (ID_KEYS.has(keyLower)) {
+        raw = resolvedId;
+      } else if (SERVER_KEYS.has(keyLower)) {
+        raw = resolvedServer;
       } else if (index === 0) {
-        raw = fallback.playerId;
+        raw = resolvedId ?? fallback.playerId;
       } else if (index === 1) {
-        raw = fallback.playerId2;
+        raw = resolvedServer ?? fallback.playerId2;
       } else {
         raw = null;
       }

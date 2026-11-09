@@ -625,6 +625,11 @@ export interface Order {
    * comprobante duplicado confunde y parece un cobro repetido.
    */
   emailsSent: string[];
+  /** Diagnóstico del último envío de correo transaccional de la orden. */
+  lastEmailError?: string | null;
+  lastEmailErrorAt?: TimestampLike | null;
+  lastEmailSentAt?: TimestampLike | null;
+  lastEmailMessageId?: string | null;
   status: OrderStatus;
   /** Plazo máximo de revisión manual (1 hora desde el fallo del proveedor). */
   reviewDeadline?: TimestampLike | null;
