@@ -86,3 +86,8 @@ assets-src/logo-refillstore.png
 # Manuales y documentación externa privada
 Manual_Completo_API_Central_One.pdf
 *.pdf
+# Local Antigravity skills & rules
+.agent/
+.agents/
+.antigravityrules
+AGENTS.md
