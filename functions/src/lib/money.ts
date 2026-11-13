@@ -31,9 +31,9 @@ export function usdToBs(usd: number, rate: number, roundStep = 0.01): number {
 }
 
 /** Aplica un margen porcentual sobre el costo y redondea el precio de venta. */
-export function applyMargin(costUsd: number, marginPercent: number, roundStep = 0.05): number {
+export function applyMargin(costUsd: number, marginPercent: number, roundStep = 0.01): number {
   const raw = costUsd * (1 + marginPercent / 100);
-  return roundUpTo(raw, roundStep);
+  return roundTo(raw, roundStep);
 }
 
 export interface AmountCheck {

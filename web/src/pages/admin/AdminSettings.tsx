@@ -999,7 +999,7 @@ export function AdminSettings() {
             step="0.01"
             defaultValue={config.pricing.roundToUsd}
             onChange={(event) => patch('pricing', { roundToUsd: Number(event.target.value) })}
-            hint="0.05 = múltiplos de 5 centavos"
+            hint="0.01 = centavos exactos"
             disabled={!isAdmin}
           />
           <Input
