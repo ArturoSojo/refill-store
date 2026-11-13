@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-hidden="true">
+  <defs>
+    <linearGradient id="evoBoxTop" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FF3366"/>
+      <stop offset="50%" stop-color="#E01E37"/>
+      <stop offset="100%" stop-color="#990022"/>
+    </linearGradient>
+    <linearGradient id="evoBoxBody" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2D1122"/>
+      <stop offset="100%" stop-color="#14060E"/>
+    </linearGradient>
+    <linearGradient id="evoGold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FFE885"/>
+      <stop offset="60%" stop-color="#FFB703"/>
+      <stop offset="100%" stop-color="#FB8500"/>
+    </linearGradient>
+    <linearGradient id="evoGlow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FF0055" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#FF0055" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <!-- Glow effect -->
+  <circle cx="32" cy="34" r="24" fill="url(#evoGlow)" filter="blur(4px)"/>
+  <!-- Crate body -->
+  <rect x="10" y="26" width="44" height="26" rx="4" fill="url(#evoBoxBody)" stroke="#E01E37" stroke-width="1.5"/>
+  <!-- Top Lid -->
+  <path d="M8 22 L14 14 L50 14 L56 22 L52 26 L12 26 Z" fill="url(#evoBoxTop)"/>
+  <!-- Gold trims and accents -->
+  <rect x="29" y="13" width="6" height="15" rx="1.5" fill="url(#evoGold)"/>
+  <rect x="29" y="30" width="6" height="14" rx="1.5" fill="url(#evoGold)"/>
+  <circle cx="32" cy="37" r="2.2" fill="#2D1122"/>
+  <path d="M12 30 L22 30 M42 30 L52 30" stroke="url(#evoGold)" stroke-width="2" stroke-linecap="round"/>
+  <path d="M12 46 L22 46 M42 46 L52 46" stroke="#FF3366" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>
+  <!-- Cyber / Evo wings decoration -->
+  <polygon points="32,24 25,18 39,18" fill="url(#evoGold)"/>
+</svg>
