@@ -1624,9 +1624,9 @@ export function planCentralOneCombos(input: CentralOneComboPlanInput): {
 
     const freshPrice = applyMargin(costUsd, input.pricing.marginPercent, input.pricing.roundToUsd);
     let priceUsd = freshPrice;
-    if (current && typeof current.priceUsd === 'number') {
+    if (current && current.priceLocked === true && typeof current.priceUsd === 'number') {
       const currentPrice = current.priceUsd;
-      // Respeta precios personalizados o fijados por el admin, salvo si el costo supera al precio
+      // Respeta precios fijados por el admin, salvo si el costo supera al precio
       if (costUsd > currentPrice) {
         priceUsd = freshPrice;
       } else {

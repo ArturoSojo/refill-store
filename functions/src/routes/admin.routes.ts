@@ -1146,9 +1146,25 @@ adminRouter.patch(
     // el cuerpo tal cual.
     delete patch.priceLocked;
     delete patch.adminDisabled;
-    Object.assign(patch, centralOneAdminDecisions(current, body));
+    const decisions = centralOneAdminDecisions(current, body);
+    Object.assign(patch, decisions);
+
+    if (decisions.priceLocked === false) {
+      const effectiveCost = body.costUsd ?? current.costUsd;
+      if (effectiveCost > 0) {
+        const config = await getConfig();
+        patch.priceUsd = applyMargin(
+          effectiveCost,
+          config.pricing.defaultMarginPercent,
+          config.pricing.roundToUsd
+        );
+      }
+    }
 
     await products().doc(id).set(patch, { merge: true });
+    if (decisions.adminDisabled !== undefined) {
+      centralOne.invalidateLiveCatalogStockCache();
+    }
 
     await audit.record({
       action: audit.ACTIONS.PRODUCT_UPDATED,

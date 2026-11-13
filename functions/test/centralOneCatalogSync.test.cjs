@@ -968,4 +968,23 @@ test('planCentralOneCombos: propagación de stock y protección de precios perso
   assert.equal(c682Loss.costUsd, 5.00);
   // Nuevo precio calculado con margen (costo 5.00 * 1.20 = 6.00) porque 5.00 > 4.00
   assert.ok(c682Loss.priceUsd > 5.00);
+
+  // 4. Con priceLocked: false, recalcula al margen automático incluso si el precio previo era mayor
+  const unlockedMap = new Map([
+    [
+      'co-topup-free-fire-latam--c-682',
+      { id: 'co-topup-free-fire-latam--c-682', priceUsd: 7.50, priceLocked: false, costUsd: 4.80 },
+    ],
+  ]);
+  const resultUnlocked = sync.planCentralOneCombos({
+    plan: freeFirePlan,
+    specs: [sync.FREE_FIRE_LATAM_COMBO_SPECS[1]], // c-682
+    targetGameId: freeFirePlan.id,
+    existingProducts: unlockedMap,
+    pricing: { marginPercent: 20, roundToUsd: 0.05 },
+    timestamp: 'ts',
+  });
+  const c682Unlocked = resultUnlocked.combos[0];
+  assert.equal(c682Unlocked.priceLocked, false);
+  assert.equal(c682Unlocked.priceUsd, 6.00);
 });
