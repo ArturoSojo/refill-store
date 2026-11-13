@@ -153,7 +153,10 @@ export function GamePage() {
   const selectedProductId = searchParams.get('pkg') ?? '';
 
   const products = useMemo(
-    () => catalog.data?.products ?? [],
+    () =>
+      (catalog.data?.products ?? []).filter(
+        (p) => p.active !== false && (p.stock === null || p.stock > 0)
+      ),
     [catalog.data]
   );
 
@@ -287,7 +290,7 @@ export function GamePage() {
       }
     }
     return Array.from(seen.values());
-  }, [showTabs, activeTab, products, levelUp, specials, currencyProducts]);
+  }, [showTabs, activeTab, products, evoProducts, levelUp, specials, currencyProducts]);
   const selected = products.find((item) => item.id === selectedProductId) ?? null;
   // Misma regla que `catalog.maxOrderQuantity` en el servidor: las recargas
   // del catálogo de Central One (juegos `co-*` y extras que la sincronización

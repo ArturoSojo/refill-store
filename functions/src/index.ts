@@ -190,7 +190,7 @@ export const refreshRate = onSchedule(
  */
 export const syncCentralOneCatalog = onSchedule(
   {
-    schedule: 'every 60 minutes',
+    schedule: 'every 10 minutes',
     timeZone: STORE_TIMEZONE,
     timeoutSeconds: 60,
   },

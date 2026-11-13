@@ -317,15 +317,23 @@ export async function createOrder(
     throw invalidArgument('Ese producto no pertenece al juego seleccionado.');
   }
 
-  catalog.assertPurchasable(product, game);
+  const stockMap = centralOne.productUsesCentralOne(product)
+    ? await centralOne.getLiveCatalogStockMap()
+    : null;
+  const availability = centralOne.resolveProductLiveAvailability(product, stockMap);
+  const effectiveProduct = availability.checked
+    ? { ...product, active: availability.available, stock: availability.stock }
+    : product;
+
+  catalog.assertPurchasable(effectiveProduct, game);
   const playerData = catalog.resolvePlayerData(input.playerFields, game);
 
-  if (product.fulfillment === 'manual' && !config.features.manualProductsEnabled) {
+  if (effectiveProduct.fulfillment === 'manual' && !config.features.manualProductsEnabled) {
     throw failedPrecondition('Los productos manuales están desactivados temporalmente.');
   }
 
-  if (product.stock !== null && product.stock < input.quantity) {
-    throw failedPrecondition(`Sólo quedan ${product.stock} unidades de ese producto.`);
+  if (effectiveProduct.stock !== null && effectiveProduct.stock < input.quantity) {
+    throw failedPrecondition(`Sólo quedan ${effectiveProduct.stock} unidades de ese producto.`);
   }
 
   // La ruta ya lo valida, pero el servicio también lo exige para cualquier
