@@ -683,6 +683,7 @@ async function applyProductChanges(changes: CoProductChange[], occurredAt: strin
   }
   if (pending > 0) await batch.commit();
 
+  if (updated > 0) centralOne.invalidateLiveCatalogStockCache();
   if (touchedGames.size > 0) await refreshGameSummaries([...touchedGames]);
   await alertExtraProblems(extraProblems);
   if (stale > 0) log.info('Webhook de Central One: avisos de producto atrasados ignorados', { stale, occurredAt });

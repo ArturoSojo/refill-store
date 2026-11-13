@@ -31,6 +31,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { centralOneApiKey, centralOneBaseUrl } from '../config/env';
 import { now, playerIdCache } from '../config/firebase';
 import { log, stripCodes } from '../lib/logger';
+import type { Product } from '../types/models';
 
 export interface SupportedGameConfig {
   gameSlug: string;
@@ -853,10 +854,16 @@ export async function getBalance(): Promise<{ ok: true; balance: CoBalance } | C
  * 5 MB, sin paginar), sólo con lo habilitado y al precio de revendedor. De ahí
  * el timeout de 60 s y un único reintento: la sync corre en un trigger de 9 min.
  */
-export async function getCatalog(): Promise<
+export async function getCatalog(options?: {
+  timeoutMs?: number;
+  retries?: number;
+}): Promise<
   { ok: true; items: CoCatalogItem[] } | { ok: false; code: string; message: string; httpStatus: number }
 > {
-  const result = await coRequest<{ items?: unknown }>('GET', '/catalog', { timeoutMs: 60_000, retries: 1 });
+  const result = await coRequest<{ items?: unknown }>('GET', '/catalog', {
+    timeoutMs: options?.timeoutMs ?? 60_000,
+    retries: options?.retries ?? 1,
+  });
   if (!result.ok) return result;
   const items = Array.isArray(result.data?.items) ? (result.data.items as unknown[]) : null;
   if (!items) {
@@ -1532,4 +1539,170 @@ export async function testWebhook(): Promise<{ ok: true; message: string } | CoF
     ok: true,
     message: text(result.data?.message) ?? 'Central One encoló un aviso de prueba hacia la URL registrada.',
   };
+}
+
+// ---------------------------------------------------------------------------
+// Caché corta de stock vivo en Central One (60 s)
+// ---------------------------------------------------------------------------
+
+export interface LiveCatalogStockEntry {
+  inStock: boolean;
+  availableStock: number | null;
+  active: boolean;
+}
+
+export interface LiveAvailabilityResult {
+  checked: boolean;
+  available: boolean;
+  stock: number | null;
+}
+
+const LIVE_CATALOG_CACHE_TTL_MS = 60_000;
+const LIVE_CATALOG_ERROR_COOLDOWN_MS = 10_000;
+
+let liveStockCache: {
+  expiresAt: number;
+  map: Map<string, LiveCatalogStockEntry> | null;
+  inFlight: Promise<Map<string, LiveCatalogStockEntry> | null> | null;
+} = {
+  expiresAt: 0,
+  map: null,
+  inFlight: null,
+};
+
+export function invalidateLiveCatalogStockCache(): void {
+  liveStockCache = { expiresAt: 0, map: null, inFlight: null };
+}
+
+export function productUsesCentralOne(
+  product: Pick<Product, 'provider' | 'providerOfferId' | 'calls'>
+): boolean {
+  if (product.provider === 'centralone') return true;
+  return (product.calls ?? []).some((call) => call.provider === 'centralone');
+}
+
+/**
+ * Caché en memoria de corta duración (60 s) sobre `GET /catalog` de Central One.
+ * Evita mostrar paquetes con inventario limitado (tokens/cajas Evo) cuando se
+ * acaban y permite que vuelvan a mostrarse automáticamente apenas el proveedor
+ * repone unidades sin esperar al próximo cron.
+ */
+export async function getLiveCatalogStockMap(): Promise<Map<string, LiveCatalogStockEntry> | null> {
+  const nowMs = Date.now();
+  if (liveStockCache.map && nowMs < liveStockCache.expiresAt) {
+    return liveStockCache.map;
+  }
+  if (!liveStockCache.map && nowMs < liveStockCache.expiresAt) {
+    return null;
+  }
+  if (liveStockCache.inFlight) {
+    return liveStockCache.inFlight;
+  }
+
+  liveStockCache.inFlight = (async () => {
+    try {
+      const result = await getCatalog({ timeoutMs: 12_000, retries: 0 });
+      if (!result.ok) {
+        log.warn('Central One live stock lookup failed', {
+          code: result.code,
+          httpStatus: result.httpStatus,
+          message: result.message,
+        });
+        liveStockCache.expiresAt = Date.now() + LIVE_CATALOG_ERROR_COOLDOWN_MS;
+        return liveStockCache.map;
+      }
+
+      const next = new Map<string, LiveCatalogStockEntry>();
+      for (const item of result.items) {
+        const productId = text(item.product_id);
+        if (!productId) continue;
+        const status = (text(item.status) ?? 'active').toLowerCase();
+        const active = status === 'active' || status === 'enabled';
+        const availableStock =
+          item.in_stock === false
+            ? 0
+            : typeof item.available_stock === 'number' && Number.isFinite(item.available_stock)
+              ? Math.max(0, Math.floor(item.available_stock))
+              : null;
+        const inStock = active && item.in_stock !== false && (availableStock === null || availableStock > 0);
+        next.set(productId, { inStock, availableStock, active });
+      }
+
+      liveStockCache.map = next;
+      liveStockCache.expiresAt = Date.now() + LIVE_CATALOG_CACHE_TTL_MS;
+      return next;
+    } catch (error) {
+      log.warn('Central One live stock lookup threw', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      liveStockCache.expiresAt = Date.now() + LIVE_CATALOG_ERROR_COOLDOWN_MS;
+      return liveStockCache.map;
+    } finally {
+      liveStockCache.inFlight = null;
+    }
+  })();
+
+  return liveStockCache.inFlight;
+}
+
+/**
+ * Resuelve la disponibilidad real de un producto combinando el estado de
+ * administración en Firestore con el stock vivo reportado por Central One.
+ */
+export function resolveProductLiveAvailability(
+  product: Pick<
+    Product,
+    'active' | 'stock' | 'provider' | 'providerOfferId' | 'adminDisabled' | 'providerRemoved' | 'calls'
+  >,
+  stockMap: Map<string, LiveCatalogStockEntry> | null
+): LiveAvailabilityResult {
+  if (product.adminDisabled === true || product.providerRemoved === true) {
+    return { checked: false, available: false, stock: product.stock };
+  }
+
+  const coCalls: Array<{ packageId: string; quantity: number }> = [];
+  for (const call of product.calls ?? []) {
+    const provider = call.provider ?? product.provider;
+    if (provider === 'centralone') {
+      const packageId = text(call.packageId);
+      if (packageId) {
+        coCalls.push({
+          packageId,
+          quantity: typeof call.quantity === 'number' && call.quantity > 0 ? Math.floor(call.quantity) : 1,
+        });
+      }
+    }
+  }
+  if (coCalls.length === 0 && product.provider === 'centralone') {
+    const offerId = text(product.providerOfferId);
+    if (offerId) coCalls.push({ packageId: offerId, quantity: 1 });
+  }
+
+  const baseAvailable = product.active && (product.stock === null || product.stock > 0);
+  if (coCalls.length === 0 || stockMap === null) {
+    return { checked: false, available: baseAvailable, stock: product.stock };
+  }
+
+  // Si un producto fue apagado manualmente / deduplicación (active=false y stock!=0),
+  // se respeta oculto incluso si Central One reporta stock positivo.
+  if (!product.active && product.stock !== 0) {
+    return { checked: true, available: false, stock: product.stock };
+  }
+
+  let effectiveStock: number | null = null;
+  for (const call of coCalls) {
+    const entry = stockMap.get(call.packageId);
+    if (!entry || !entry.inStock) {
+      return { checked: true, available: false, stock: 0 };
+    }
+    if (entry.availableStock !== null) {
+      const units = Math.floor(entry.availableStock / call.quantity);
+      if (units <= 0) {
+        return { checked: true, available: false, stock: 0 };
+      }
+      effectiveStock = effectiveStock === null ? units : Math.min(effectiveStock, units);
+    }
+  }
+
+  return { checked: true, available: true, stock: effectiveStock };
 }

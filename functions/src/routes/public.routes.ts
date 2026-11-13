@@ -5,7 +5,7 @@ import { orders, playerIdCache, now } from '../config/firebase';
 import { centralOneApiKey, centralOneBaseUrl } from '../config/env';
 import { fetchJson } from '../lib/fetchJson';
 import { log } from '../lib/logger';
-import type { Game, Order } from '../types/models';
+import type { Game, Order, Product } from '../types/models';
 import { asyncHandler, ok, parseBody, parseParams, parseQuery } from '../lib/http';
 import { usdToBs } from '../lib/money';
 import { normalizeLadder } from '../lib/tiers';
@@ -26,7 +26,7 @@ import { rateLimit } from '../middleware/rateLimit';
 import * as fazerCards from '../services/fazercards';
 import * as chatbotService from '../services/chatbot';
 import * as centralOne from '../services/centralOne';
-import { invalidArgument, providerError } from '../lib/errors';
+import { failedPrecondition, invalidArgument, providerError } from '../lib/errors';
 import { resolveFazerValidationCategory } from '../lib/validation';
 
 /**
@@ -190,11 +190,12 @@ publicRouter.get(
     const gameList = (await catalog.listGames({ onlyActive: true })).filter((game) =>
       belongsToStorefront(game, storefront)
     );
-    const productList = (
+    const rawProducts = (
       await Promise.all(
-        gameList.map((game) => catalog.listProducts({ gameId: game.id, onlyActive: true }))
+        gameList.map((game) => catalog.listProducts({ gameId: game.id }))
       )
     ).flat();
+    const productList = await filterAvailableProducts(rawProducts);
 
     ok(res, {
       rate: config.rate.value,
@@ -207,6 +208,22 @@ publicRouter.get(
   })
 );
 
+async function filterAvailableProducts(productList: Product[]): Promise<Product[]> {
+  const needsLiveStock = productList.some(centralOne.productUsesCentralOne);
+  const stockMap = needsLiveStock ? await centralOne.getLiveCatalogStockMap() : null;
+  const available: Product[] = [];
+  for (const product of productList) {
+    const status = centralOne.resolveProductLiveAvailability(product, stockMap);
+    if (!status.available) continue;
+    available.push(
+      status.checked
+        ? { ...product, active: true, stock: status.stock }
+        : product
+    );
+  }
+  return available;
+}
+
 /** Producto directo para que el checkout no dependa del catálogo entero. */
 publicRouter.get(
   '/products/:productId',
@@ -216,11 +233,20 @@ publicRouter.get(
     const product = await catalog.getProduct(productId);
     const game = await catalog.getGame(product.gameId);
     assertStorefrontGame(req, game);
-    if (!product.active || !game.active) throw new Error('Producto no disponible.');
+    const stockMap = centralOne.productUsesCentralOne(product)
+      ? await centralOne.getLiveCatalogStockMap()
+      : null;
+    const availability = centralOne.resolveProductLiveAvailability(product, stockMap);
+    if (!game.active || !availability.available) {
+      throw failedPrecondition('Ese producto está agotado o no está disponible ahora.');
+    }
+    const effectiveProduct = availability.checked
+      ? { ...product, active: true, stock: availability.stock }
+      : product;
     ok(res, {
       rate: config.rate.value,
       game: catalog.toPublicGame(game),
-      product: catalog.toPublicProduct(product, config.rate.value, config.pricing.roundToBs),
+      product: catalog.toPublicProduct(effectiveProduct, config.rate.value, config.pricing.roundToBs),
     });
   })
 );
@@ -232,11 +258,12 @@ publicRouter.get(
     const { gameId } = parseParams(req, z.object({ gameId: z.string().min(1) }));
     const config = await getConfig();
 
-    const [game, productList] = await Promise.all([
+    const [game, rawProducts] = await Promise.all([
       catalog.getGame(gameId),
-      catalog.listProducts({ gameId, onlyActive: true }),
+      catalog.listProducts({ gameId }),
     ]);
     assertStorefrontGame(req, game);
+    const productList = await filterAvailableProducts(rawProducts);
 
     ok(res, {
       game: catalog.toPublicGame(game),
