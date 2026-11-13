@@ -3,12 +3,12 @@
  * Debe mantenerse idéntico a `refillbot-pro/services/catalogSync.js`.
  *
  * Roblox: costo de proveedor + margen base; WhatsApp = base * 1.02.
- * TikTok: costo = monedas * 0.0104; base = costo * 1.25; WhatsApp = base * 1.02.
+ * TikTok: costo = monedas * 0.0104; base = costo * 1.30; WhatsApp = base * 1.02.
  */
 
 export const WHATSAPP_MARKUP = 1.02;
 const TIKTOK_COSTO_POR_MONEDA = 0.0104;
-const TIKTOK_MARGEN = 1.25;
+const TIKTOK_MARGEN = 1.30;
 
 function round2(n: number): number {
   return Math.round(Number((n * 100).toPrecision(12))) / 100;
