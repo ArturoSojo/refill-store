@@ -15,6 +15,7 @@ import {
   BadgeCheck,
   ChevronDown,
   ChevronLeft,
+  Flame,
   HelpCircle,
   Loader2,
   Sparkles,
@@ -52,7 +53,7 @@ import { cn, hexToRgb } from '@/lib/utils';
 import { resolveRegionInfo, extractPackageRegionNotice, compareCatalogGames } from '@/lib/regions';
 import type { PricePreview, PublicProduct } from '@/types/models';
 
-type Tab = 'auto' | 'manual' | 'level_up';
+type Tab = 'auto' | 'evo' | 'manual' | 'level_up';
 
 /**
  * Determina si un producto es un pase único de temporada o una subida de nivel
@@ -177,11 +178,21 @@ export function GamePage() {
     [isGiftCard, products]
   );
 
+  const isEvoProduct = (name?: string) => /\b(evo|fragmento|caja.*evo)\b/i.test(name || '');
+
+  const evoProducts = useMemo(() => {
+    if (isGiftCard) return [];
+    return products
+      .filter((p) => isEvoProduct(p.name))
+      .sort((a, b) => a.priceUsd - b.priceUsd);
+  }, [isGiftCard, products]);
+
   const specials = useMemo(() => {
     if (isGiftCard) return [];
-    const hasAuto = products.some((p) => p.kind !== 'level_up' && p.fulfillment === 'auto');
+    const hasAuto = products.some((p) => p.kind !== 'level_up' && !isEvoProduct(p.name) && p.fulfillment === 'auto');
     return products.filter((p) => {
       if (p.kind === 'level_up') return false;
+      if (isEvoProduct(p.name)) return false;
       if (p.kind === 'special') return true;
       // Si el juego ofrece recargas directas automatizadas, las ofertas con fulfillment manual son servicios especiales (WhatsApp)
       if (hasAuto && p.fulfillment === 'manual') return true;
@@ -193,8 +204,9 @@ export function GamePage() {
     if (isGiftCard) return [];
     const specialIds = new Set(specials.map((p) => p.id));
     const levelUpIds = new Set(levelUp.map((p) => p.id));
-    return products.filter((p) => !specialIds.has(p.id) && !levelUpIds.has(p.id));
-  }, [isGiftCard, products, specials, levelUp]);
+    const evoIds = new Set(evoProducts.map((p) => p.id));
+    return products.filter((p) => !specialIds.has(p.id) && !levelUpIds.has(p.id) && !evoIds.has(p.id));
+  }, [isGiftCard, products, specials, levelUp, evoProducts]);
 
   const availableTabs = useMemo(() => {
     if (isGiftCard) return [];
@@ -204,6 +216,13 @@ export function GamePage() {
         key: 'auto',
         label: game?.currencyLabel || 'Recargas',
         icon: Zap,
+      });
+    }
+    if (evoProducts.length > 0) {
+      tabs.push({
+        key: 'evo',
+        label: 'Armas Evo',
+        icon: Flame,
       });
     }
     if (levelUp.length > 0) {
@@ -216,12 +235,12 @@ export function GamePage() {
     if (specials.length > 0) {
       tabs.push({
         key: 'manual',
-        label: 'Especiales',
+        label: evoProducts.length > 0 ? 'Pases y Tarjetas' : 'Especiales',
         icon: Sparkles,
       });
     }
     return tabs;
-  }, [isGiftCard, currencyProducts.length, levelUp.length, specials.length, game?.currencyLabel]);
+  }, [isGiftCard, currencyProducts.length, evoProducts.length, levelUp.length, specials.length, game?.currencyLabel]);
 
   // Solo mostrar pestañas si NO es Gift Card y hay más de 1 categoría con paquetes reales
   const showTabs = !isGiftCard && availableTabs.length > 1;
@@ -235,6 +254,7 @@ export function GamePage() {
   const visible = useMemo(() => {
     let list: PublicProduct[];
     if (!showTabs) list = products;
+    else if (activeTab === 'evo') list = evoProducts;
     else if (activeTab === 'level_up') list = levelUp;
     else if (activeTab === 'manual') list = specials;
     else list = currencyProducts;

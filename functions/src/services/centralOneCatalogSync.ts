@@ -1071,6 +1071,8 @@ function extraImage(label: string, kind: ProductKind): string {
   if (/weekly|semanal/i.test(label)) return '/products/tarjeta-semanal.svg';
   if (/monthly|mensual/i.test(label)) return '/products/tarjeta-mensual.svg';
   if (/booyah/i.test(label)) return '/products/pase-booyah.svg';
+  if (/caja/i.test(label) && /evo/i.test(label)) return '/products/caja-evo.svg';
+  if (/fragmento/i.test(label) && /evo/i.test(label)) return '/products/fragmento-evo.svg';
   return '';
 }
 

@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-hidden="true">
+  <defs>
+    <linearGradient id="shardCore" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FFF0F5"/>
+      <stop offset="30%" stop-color="#FF3366"/>
+      <stop offset="70%" stop-color="#D90429"/>
+      <stop offset="100%" stop-color="#590D22"/>
+    </linearGradient>
+    <linearGradient id="shardFacetL" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#FF758F"/>
+      <stop offset="100%" stop-color="#C9184A"/>
+    </linearGradient>
+    <linearGradient id="shardFacetR" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#800F2F"/>
+      <stop offset="100%" stop-color="#400618"/>
+    </linearGradient>
+    <linearGradient id="glowFx" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FF007F" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#FF5400" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <!-- Ambient aura -->
+  <circle cx="32" cy="32" r="22" fill="url(#glowFx)" filter="blur(5px)"/>
+  <!-- Secondary small flying shards -->
+  <polygon points="12,24 16,19 18,25 14,28" fill="#FF4D6D" opacity="0.85"/>
+  <polygon points="46,40 52,38 50,45 44,43" fill="#FF758F" opacity="0.85"/>
+  <polygon points="48,16 53,20 49,24" fill="#FFAFCC" opacity="0.75"/>
+  <!-- Main Evo crystal cluster -->
+  <!-- Left facet -->
+  <polygon points="32,8 18,30 32,56 32,34" fill="url(#shardFacetL)"/>
+  <!-- Right facet -->
+  <polygon points="32,8 46,30 32,56 32,34" fill="url(#shardFacetR)"/>
+  <!-- Center light reflection -->
+  <polygon points="32,8 26,28 32,36 38,28" fill="url(#shardCore)"/>
+  <!-- High specular shine -->
+  <line x1="32" y1="12" x2="28" y2="28" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" opacity="0.9"/>
+  <circle cx="32" cy="18" r="1.5" fill="#FFFFFF"/>
+</svg>
