@@ -663,7 +663,7 @@ test('8) WhatsApp manual Roblox/TikTok usa costo de tabla oficial (no el 20% fij
     { ref: '2000000003', juego: 'Roblox', paquete: 'Plus 1000', montoUsd: 16.83, costo: 12.99, ganancia: 3.84 },
     { ref: '2000000004', juego: 'Roblox', paquete: 'Plus 500', montoUsd: 11.22, costo: 8.99, ganancia: 2.23 },
     { ref: '2000000005', juego: 'Roblox', paquete: 'Roblox Plus', montoUsd: 6.12, costo: 4.99, ganancia: 1.13 },
-    { ref: '2000000006', juego: 'Tik Tok', paquete: '700 monedas', montoUsd: 9.65, costo: 7.28, ganancia: 2.37 },
+    { ref: '2000000006', juego: 'Tik Tok', paquete: '700 monedas', montoUsd: 9.61, costo: 7.28, ganancia: 2.33 },
     { ref: '2000000007', juego: 'Otro Juego', paquete: 'Paquete X', montoUsd: 10, costo: 8, ganancia: 2 },
   ];
   for (const c of cases) {

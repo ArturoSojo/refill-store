@@ -3,12 +3,13 @@
  * Debe mantenerse idéntico a `refillbot-pro/services/catalogSync.js`.
  *
  * Roblox: costo de proveedor + margen base; WhatsApp = base * 1.02.
- * TikTok: costo = monedas * 0.0104; base = costo * 1.30; WhatsApp = base * 1.02.
+ * TikTok: costo = monedas * 0.0104; base = costo * 1.30; WhatsApp = max(base, costo * 1.32).
  */
 
 export const WHATSAPP_MARKUP = 1.02;
 const TIKTOK_COSTO_POR_MONEDA = 0.0104;
 const TIKTOK_MARGEN = 1.30;
+const TIKTOK_BOT_MARGEN = 1.32;
 
 function round2(n: number): number {
   return Math.round(Number((n * 100).toPrecision(12))) / 100;
@@ -58,13 +59,14 @@ export const ROBLOX_CATALOG: (ManualCatalogItem & { key: string; robux: number |
 export const TIKTOK_COINS = [30, 60, 180, 350, 700, 1400, 3500];
 
 export function tiktokPrice(coins: number): ManualCatalogItem & { monedas: number } {
-  const base = coins * TIKTOK_COSTO_POR_MONEDA * TIKTOK_MARGEN;
+  const rawCost = coins * TIKTOK_COSTO_POR_MONEDA;
+  const baseUsd = round2(rawCost * TIKTOK_MARGEN);
   return {
     monedas: coins,
     nombre: `${coins} Monedas`,
-    costUsd: round4(coins * TIKTOK_COSTO_POR_MONEDA),
-    baseUsd: round2(base),
-    whatsappUsd: round2(base * WHATSAPP_MARKUP),
+    costUsd: round4(rawCost),
+    baseUsd,
+    whatsappUsd: Math.max(baseUsd, round2(rawCost * TIKTOK_BOT_MARGEN)),
   };
 }
 
