@@ -93,7 +93,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     type: 'info',
   },
   pricing: {
-    defaultMarginPercent: 25,
+    defaultMarginPercent: 30,
     roundToUsd: 0.05,
     roundToBs: 0.01,
   },
