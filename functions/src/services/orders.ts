@@ -364,8 +364,8 @@ export async function createOrder(
 
   // --- Precios ---
   const quantity = Math.max(1, Math.min(10, Math.trunc(input.quantity)));
-  const unitUsd = round(product.priceUsd, 2);
-  const subtotalUsd = round(unitUsd * quantity, 2);
+  const unitUsd = round(product.priceUsd, 4);
+  const subtotalUsd = round(unitUsd * quantity, 4);
 
   let discountUsd = 0;
   let couponCode: string | null = null;
@@ -423,8 +423,8 @@ export async function createOrder(
   }
 
   // Nunca por debajo de un céntimo: el monto debe poder pagarse y verificarse.
-  discountUsd = Math.min(discountUsd, round(subtotalUsd - 0.01, 2));
-  const totalUsd = round(subtotalUsd - discountUsd, 2);
+  discountUsd = Math.min(discountUsd, round(subtotalUsd - 0.01, 4));
+  const totalUsd = round(subtotalUsd - discountUsd, 4);
   const rate = config.rate.value;
   const costUsd = round(product.costUsd * quantity, 4);
 
@@ -440,7 +440,7 @@ export async function createOrder(
   let walletAppliedUsd = Math.max(0, round(walletRequested, 2));
   // Un resto de céntimos no se puede transferir ni verificar contra el banco:
   // si el saldo casi cubre el total, se cubre entero.
-  let amountDueUsd = round(totalUsd - walletAppliedUsd, 2);
+  let amountDueUsd = round(totalUsd - walletAppliedUsd, 4);
   if (amountDueUsd > 0 && amountDueUsd < 0.01) {
     walletAppliedUsd = totalUsd;
     amountDueUsd = 0;
