@@ -21,6 +21,7 @@ import { listEvents } from '../services/orderEvents';
 import { getConfig } from '../services/settings';
 import { assertStorefrontGame } from '../lib/storefront';
 import { invalidArgument } from '../lib/errors';
+import { round, usdToBs } from '../lib/money';
 import type { Game, Product } from '../types/models';
 
 export const ordersRouter = Router();
@@ -305,7 +306,7 @@ ordersRouter.post(
     assertStorefrontGame(req, game);
     assertOrderQuantity(product, game, body.quantity);
 
-    const subtotalUsd = Number((product.priceUsd * body.quantity).toFixed(2));
+    const subtotalUsd = round(product.priceUsd * body.quantity, 4);
     const tierPercent = await usersService.tierDiscountPercent(profile.tier);
     let discountUsd = Number(((subtotalUsd * tierPercent) / 100).toFixed(2));
     let couponError: string | null = null;
@@ -349,8 +350,8 @@ ordersRouter.post(
       }
     }
 
-    discountUsd = Math.min(discountUsd, Number((subtotalUsd - 0.01).toFixed(2)));
-    const totalUsd = Number((subtotalUsd - discountUsd).toFixed(2));
+    discountUsd = Math.min(discountUsd, round(subtotalUsd - 0.01, 4));
+    const totalUsd = round(subtotalUsd - discountUsd, 4);
 
     // Espejo exacto del cálculo de `createOrder`: lo que se muestra aquí es lo
     // que se va a cobrar.
@@ -358,7 +359,7 @@ ordersRouter.post(
     const walletBalanceUsd = Number((profile.walletBalanceUsd ?? 0).toFixed(2));
     let walletAppliedUsd =
       body.useWallet && walletEnabled ? Math.min(walletBalanceUsd, totalUsd) : 0;
-    let amountDueUsd = Number((totalUsd - walletAppliedUsd).toFixed(2));
+    let amountDueUsd = round(totalUsd - walletAppliedUsd, 4);
     if (amountDueUsd > 0 && amountDueUsd < 0.01) {
       walletAppliedUsd = totalUsd;
       amountDueUsd = 0;
@@ -372,7 +373,7 @@ ordersRouter.post(
       walletBalanceUsd,
       walletAppliedUsd,
       amountDueUsd,
-      totalBs: Number((amountDueUsd * config.rate.value).toFixed(2)),
+      totalBs: usdToBs(amountDueUsd, config.rate.value, config.pricing.roundToBs),
       rate: config.rate.value,
       tierPercent,
       tier: profile.tier,
